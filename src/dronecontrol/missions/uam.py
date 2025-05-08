@@ -66,16 +66,17 @@ class UAMMission(Mission):
         # Static parameters for mission definition
         self.n_drones_max = 3
         self.current_stage = UAMStages.Uninitialized
-        self.flight_area = [-3.75, 3.75, -1.75, 1.75, 4]
+        self.flight_area = [-3.5, 3.5, -1.5, 1.5, 2]
         self.search_space = [-3, 3, -1, 1]
         self.start_positions_y: dict[str, float] = {}
         self.start_position_x = 3.0
         self.start_yaw = 180
         self.yaw_rate = 30      
-        self.yaw_tolerance = 3  # In degrees
+        self.yaw_tolerance = 4  # In degrees
         self.position_tolerance = 0.25  # In meters
-        self.flight_altitude = 3  # in meters, positive for up
+        self.flight_altitude = 1  # in meters, positive for up
         self.poi_position = [-2, 0, -self.flight_altitude]  # in NED, altitude is just for convenient distance check.
+        self.poi_tolerance = 1.2
         self.update_rate = 5  # Mission state is checked and progressed this often per second.
 
         # SingleSearch Parameters
@@ -163,9 +164,9 @@ class UAMMission(Mission):
                         if battery.level < battery.critical_level / 2:
                             battery.level = battery.critical_level / 2
                     else:
-                        battery.level += 1 / FakeBattery.TIME_SCALE / self.update_rate / 2
-                        if battery.level > 1.0:
-                            battery.level = 1.0
+                        #battery.level += 1 / FakeBattery.TIME_SCALE / self.update_rate / 2
+                        #if battery.level > 1.0:
+                        battery.level = 1.0
             except asyncio.CancelledError:
                 return
             except Exception as e:
@@ -175,15 +176,17 @@ class UAMMission(Mission):
     async def _check_found_poi(self):
         # For each drone, check if we are within the search radius of the POI
         # TODO: Implement a better check, instead of distance to POI, compute vision cone and check POI in it
-        while True:
+        found = False
+        while not found:
             try:
                 await asyncio.sleep(1 / self.update_rate)
                 for drone in self.drones:
                     current_pos = self.dm.drones[drone].position_ned
-                    if dist_ned(current_pos, self.poi_position) < 1:
+                    if dist_ned(current_pos, self.poi_position) < self.poi_tolerance:
                         self._found_poi = drone
                         self.current_stage = UAMStages.POIFound
                         self.logger.info(f"{drone} found POI!")
+                        found = True
             except asyncio.CancelledError:
                 self.logger.debug("Cancelling poi check function")
             except Exception as e:
@@ -570,7 +573,7 @@ class UAMMission(Mission):
             # Doesn't work in gazebo because of horrendous position noise and awful flight behaviour
             if not self.dm.drones[drone].is_at_pos([self.start_position_x, self.start_positions_y[drone], 0],
                                                    tolerance=self.position_tolerance):
-                await self._launch_drone(drone, self.flight_altitude)
+                launched = await self._launch_drone(drone, self.flight_altitude)
                 await self._drone_rtb(drone, self.start_positions_y[drone], self.flight_altitude)
         self.current_stage = UAMStages.Start
 
@@ -588,6 +591,13 @@ class UAMMission(Mission):
 
         This should be called/used when the drones are all setup at their starting positions already."""
         self.logger.info("Set to Start stage!")
+        # Reset all the dynamic attributes
+        self._found_poi = None
+        self._observing_drone = None
+        self.do_swap = False
+        self._reached_departure = False
+        self._stop_circling = False
+        self.flying_drones = set()
         self.current_stage = UAMStages.Start
 
     async def set_uninit(self):
