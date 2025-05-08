@@ -203,15 +203,8 @@ class UAMMission(Mission):
         try:
             # Do the thing
             # Arm, takeoff
-            armed = await self.dm.arm([flying_drone])
-            takeoff = False
-            if armed:
-                takeoff = await self.dm.takeoff([flying_drone], altitude=self.flight_altitude)
-                self.flying_drones.add(flying_drone)
-            go = True
-            if not armed or not takeoff or isinstance(armed, Exception) or isinstance(takeoff, Exception):
-                go = False
-            if not go:
+            launched = await self._launch_drone(flying_drone, self.flight_altitude)
+            if not launched:
                 self.logger.warning("Couldn't start the single search pattern due to denied arming or takeoff!")
                 return False
 
@@ -460,13 +453,9 @@ class UAMMission(Mission):
                 _, candidate = drones_by_batterylevel.get()
             self.logger.info(f"Trying to do swap with {candidate}")
             # Launch the new drone
-            armed = await self.dm.arm([candidate])
-            if armed:
-                takeoff = await self.dm.takeoff([candidate], altitude=self.swap_altitude)
-                if takeoff:
-                    swap_drone = candidate
-                else:
-                    await self.dm.disarm([candidate])
+            launched = await self._launch_drone(candidate, self.swap_altitude)
+            if launched:
+                swap_drone = candidate
         self.flying_drones.add(swap_drone)
         return swap_drone
 
@@ -575,16 +564,24 @@ class UAMMission(Mission):
             return False
         # Land all drones in case there are any in the air
         self.logger.info("Landing all drones")
-        await asyncio.gather(*[self.dm.land([drone]) for drone in self.drones])
+        await asyncio.gather(*[self.dm.land([drone]) for drone in self.flying_drones])
         self.logger.info("Flying all drones to start positions")
         for drone in self.drones:
             # Doesn't work in gazebo because of horrendous position noise and awful flight behaviour
             if not self.dm.drones[drone].is_at_pos([self.start_position_x, self.start_positions_y[drone], 0],
                                                    tolerance=self.position_tolerance):
-                await self.dm.arm([drone])
-                await self.dm.takeoff([drone], altitude=self.flight_altitude)
+                await self._launch_drone(drone, self.flight_altitude)
                 await self._drone_rtb(drone, self.start_positions_y[drone], self.flight_altitude)
         self.current_stage = UAMStages.Start
+
+    async def _launch_drone(self, drone, altitude):
+        armed = await self.dm.arm([drone])
+        if armed:
+            takeoff = await self.dm.takeoff([drone], altitude=altitude)
+            if takeoff:
+                self.flying_drones.add(drone)
+                return True
+        return False
 
     async def set_start(self):
         """ Set the current stage to the start stage.
