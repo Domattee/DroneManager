@@ -157,13 +157,15 @@ class UAMMission(Mission):
             try:
                 await asyncio.sleep(1/self.update_rate)
                 for drone_name in self.drones:
+                    battery = self.batteries[drone_name]
                     if drone_name in self.flying_drones:
-                        battery = self.batteries[drone_name]
                         battery.level -= 1 / FakeBattery.TIME_SCALE / self.update_rate
                         if battery.level < battery.critical_level / 2:
                             battery.level = battery.critical_level / 2
                     else:
-                        self.batteries[drone_name].level += 1 / FakeBattery.TIME_SCALE / self.update_rate / 2
+                        battery.level += 1 / FakeBattery.TIME_SCALE / self.update_rate / 2
+                        if battery.level > 1.0:
+                            battery.level = 1.0
             except asyncio.CancelledError:
                 return
             except Exception as e:
