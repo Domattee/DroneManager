@@ -18,10 +18,13 @@ class UDPPlugin(Plugin):
         self.socket = sock
         self.frequency = 5
         self.background_functions = [
-            self._send()
+            self._send_continuously()
         ]
+        
+    def _send_msg(self, msg: str):
+        self.socket.sendto(msg.encode("utf-8"), ("localhost", self.port))
 
-    async def _send(self):
+    async def _send_continuously(self):
         while True:
             try:
                 await asyncio.sleep(1 / self.frequency)
@@ -57,6 +60,3 @@ class UDPPlugin(Plugin):
             "missions": mission_data,
         }
         return json.dumps(data)
-
-    def _send_msg(self, msg: str):
-        self.socket.sendto(msg.encode("utf-8"), ("localhost", self.port))

@@ -67,7 +67,7 @@ class UAMMission(Mission):
         self.n_drones_max = 3
         self.current_stage = UAMStages.Uninitialized
         self.flight_area = [-3.5, 3.5, -1.5, 1.5, 2]
-        self.search_space = [-3, 3, -1, 1]
+        self.search_space = [-3, 3, -1.25, 1.25]
         self.start_positions_y: dict[str, float] = {}
         self.start_position_x = 3.0
         self.start_yaw = 180
