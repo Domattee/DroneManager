@@ -195,13 +195,13 @@ class UAMMission(Mission):
             await asyncio.sleep(1/self.update_rate)
 
     async def single_search(self):
+        assert self.ready()
         self.logger.info("Starting search with single drone!")
         self.current_stage = UAMStages.SearchSingle
 
     async def _single_search(self):
         # Do the search pattern ( Stage SingleSearch. If we find POI -> Stage POIFound, else RTB)
         flying_drone = list(self.drones.keys())[0]
-        assert self.ready()
         self.do_swap = False
         try:
             # Do the thing
@@ -250,34 +250,26 @@ class UAMMission(Mission):
             self.current_stage = UAMStages.Uninitialized
 
     async def group_search(self):
+        assert self.ready()
         self.logger.info("Starting search with group of drones!")
         self.current_stage = UAMStages.SearchGroup
 
     async def _group_search(self):
         # Do the search pattern (Stage group stage during, then go to POIFound)
-        assert self.ready()
         self.do_swap = True
         try:
-            armed = await self.dm.arm(self.drones)
-            takeoff = [False]
-            if all(armed):
-                self.flying_drones.update(self.drones.keys())
-                takeoff = await self.dm.takeoff(self.drones, altitude=self.flight_altitude)
-
-            go = True
-            if (not all(armed) or not all(takeoff) or any([isinstance(s_armed, Exception) for s_armed in armed]) or
-                    any([isinstance(s_takeoff, Exception) for s_takeoff in takeoff])):
-                go = False
-            if not go:
-                self.logger.warning("Couldn't arm or takeoff with all drones! Stopping mission")
-                tasks = []
-                for drone in self.drones:
-                    tasks.append(asyncio.create_task(self.dm.land([drone], schedule=True)))
-                await asyncio.gather(*tasks)
+            launch_tasks = []
+            for drone in self.drones:
+                launch_tasks.append(asyncio.create_task(self._launch_drone(drone, self.flight_altitude)))
+            launched = await asyncio.gather(*launch_tasks, return_exceptions=True)
+            if not all(launched) or any([isinstance(result, Exception) for result in launched]):
+                # land the once that did launch successfully
+                await asyncio.gather(*[self._land_drone_at_current_position(drone) for drone in self.flying_drones])
                 self.current_stage = UAMStages.Uninitialized
-                self.flying_drones = set()
                 return False
 
+            # Short beauty pause
+            await asyncio.sleep(self.pause_between_moves)
             # Do the pattern (i.e. just fly forward)
             end_positions = []
             for drone in self.drones:
@@ -521,7 +513,11 @@ class UAMMission(Mission):
         await self.dm.fly_to(drone, local=start_hover_pos, yaw=return_yaw, tol=self.position_tolerance, schedule=False)
         await self.dm.yaw_to(drone, yaw=self.start_yaw, yaw_rate=self.yaw_rate, local=start_hover_pos, schedule=False,
                              tol=self.yaw_tolerance)
+        await self._land_drone_at_current_position(drone)
+
+    async def _land_drone_at_current_position(self, drone):
         await self.dm.land([drone])
+        await asyncio.sleep(2/self.update_rate) # Wait a couple of beats for landing detection
         await self.dm.disarm([drone])
         try:
             self.flying_drones.remove(drone)
@@ -559,21 +555,18 @@ class UAMMission(Mission):
             if isinstance(task, asyncio.Task):
                 task.cancel()
         self.current_stage = UAMStages.Uninitialized
-        #if len(self.drones) != self.n_drones_required:
-        #    self.logger.info("Not enough drones to start mission!")
-        #    return False
         if not len(self.drones) > 0:
             self.logger.warning("Can't fly a mission without any drones!")
             return False
         # Land all drones in case there are any in the air
-        self.logger.info("Landing all drones")
-        await asyncio.gather(*[self.dm.land([drone]) for drone in self.flying_drones])
+        self.logger.info("Landing all flying drones")
+        await asyncio.gather(*[self._land_drone_at_current_position(drone) for drone in self.flying_drones])
         self.logger.info("Flying all drones to start positions")
         for drone in self.drones:
             # Doesn't work in gazebo because of horrendous position noise and awful flight behaviour
             if not self.dm.drones[drone].is_at_pos([self.start_position_x, self.start_positions_y[drone], 0],
                                                    tolerance=self.position_tolerance):
-                launched = await self._launch_drone(drone, self.flight_altitude)
+                await self._launch_drone(drone, self.flight_altitude)
                 await self._drone_rtb(drone, self.start_positions_y[drone], self.flight_altitude)
         self.current_stage = UAMStages.Start
 
