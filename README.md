@@ -30,7 +30,7 @@ In the event we are flying with three drones, "luke", "derek" and "corran".
 2. Connect to all the drones: `connect <name>` with names "luke", "derek" or "corran"
 3. Load the mission scripts: `mission-load uam`
 4. Add all the drones to the mission: `uam-add <name>` IMPORTANT! The order in which the drones are added matters. The 
-first drone has start position (3, -1), the second one (3, 0) and the third (3, 1). If the drones are added in the 
+first drone has start position (3, -1.25), the second one (3, 0) and the third (3, 1.25). If the drones are added in the 
 wrong order, they might collide during flight as their paths can cross. With `uam-status`, you can see the order of the 
 drones. If drones were added in the wrong order, you can either rearrange them on the field, or remove 
 `uam-remove <name>` and re-add them.
