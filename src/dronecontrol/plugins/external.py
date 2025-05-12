@@ -20,9 +20,13 @@ class UDPPlugin(Plugin):
         self.background_functions = [
             self._send_continuously()
         ]
-        
+
     def _send_msg(self, msg: str):
-        self.socket.sendto(msg.encode("utf-8"), ("localhost", self.port))
+        try:
+            self.socket.sendto(msg.encode("utf-8"), ("localhost", self.port))
+        except Exception as e:
+            self.logger.warning("Exception sending out data! Check the log for details.")
+            self.logger.debug(repr(e), exc_info=True)
 
     async def _send_continuously(self):
         while True:
@@ -32,7 +36,7 @@ class UDPPlugin(Plugin):
                 self.logger.debug(f"Sending json {json_str}")
                 self._send_msg(json_str)
             except Exception as e:
-                self.logger.debug("Exception sending data out over UDP!")
+                self.logger.debug("Exception sending data out over UDP! Check the log for details.")
                 self.logger.debug(repr(e), exc_info=True)
 
     def _make_json(self):
