@@ -46,7 +46,9 @@ class UDPPlugin(Plugin):
             drone = self.dm.drones[drone_name]
             drone_data[drone_name] = {
                 "position": drone.position_ned.tolist(),
+                "speed": drone.speed,
                 "heading": drone.attitude[2],
+                "mode": drone.flightmode.name,
                 "conn": drone.is_connected,
                 "armed": drone.is_armed,
                 "in_air": drone.in_air,

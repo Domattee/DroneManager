@@ -212,6 +212,11 @@ class Drone(ABC, threading.Thread):
 
     @property
     @abstractmethod
+    def speed(self) -> float:
+        pass
+
+    @property
+    @abstractmethod
     def attitude(self) -> np.ndarray:
         pass
 
@@ -456,6 +461,10 @@ class DroneMAVSDK(Drone):
     @property
     def velocity(self) -> np.ndarray:
         return self._velocity
+
+    @property
+    def speed(self) -> float:
+        return np.linalg.norm(self._velocity, 2)
 
     @property
     def attitude(self) -> np.ndarray:

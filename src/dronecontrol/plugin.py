@@ -28,7 +28,7 @@ class Plugin(ABC):
     PREFIX = "abs"
 
     def __init__(self, dm, logger):
-        self.dm = dm
+        self.dm: "dronecontrol.dronemanager.DroneManager" = dm
         self.logger = logger.getChild(self.__class__.__name__)
         self.cli_commands = {}
         self.background_functions = []
