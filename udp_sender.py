@@ -41,6 +41,7 @@ class UDPSender:
                 "in_air": (t+2*i) % 20 < 11,
             }
         mission_data["dummy_mission"] = {
+            "flightarea": [-4, 4, -2, 2, 2],
             "stage": "gleep" if t % 20 < 10 else "glorp",
             "drones": ["veryrealdrone", "bob"],
             "bat": {"veryrealdrone": abs(math.sin(t/10)),

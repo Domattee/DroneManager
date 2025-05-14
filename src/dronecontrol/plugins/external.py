@@ -4,6 +4,7 @@ import asyncio
 import socket
 import json
 
+import dronecontrol.missions.uam
 from dronecontrol.plugin import Plugin
 
 # TODO: Different process, maybe wait for client to ask for info, then start sending?
@@ -57,6 +58,7 @@ class UDPPlugin(Plugin):
             for mission_name in self.dm.mission.missions:
                 mission = self.dm.mission.missions[mission_name]
                 mission_data[mission.PREFIX] = {
+                    "flightarea": mission.flight_area,
                     "stage": mission.current_stage.name,
                     "drones": list(mission.drones.keys()),
                     "bat": {name: battery.level for name, battery in mission.batteries.items()},
