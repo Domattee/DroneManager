@@ -34,11 +34,11 @@ class UDPSender:
             drone_data[drone_name] = {
                 "position": [math.sin(t) - 1.5 + i*1.5, math.cos(t), 2],
                 "speed": math.sin(t)+math.cos(2*t),
-                "heading": ((t+i)*10) % 360 - 180,
+                "heading": ((t+i*10)*10) % 360 - 180,
                 "mode": "offboard" if (t+2*i) % 10 < 5 else "averyandunreasonablylongmodename",
-                "conn": (t+2*i) % 20 > 15,
-                "armed": (t+2*i) % 20 > 10,
-                "in_air": (t+2*i) % 20 > 15,
+                "conn": (t+2*i) % 20 < 15,
+                "armed": (t+2*i) % 20 < 13,
+                "in_air": (t+2*i) % 20 < 11,
             }
         mission_data["dummy_mission"] = {
             "stage": "gleep" if t % 20 < 10 else "glorp",
@@ -53,7 +53,7 @@ class UDPSender:
         return json.dumps(data)
 
     def _send_msg(self, msg: str):
-        self.socket.sendto(msg.encode("utf-8"), ("192.168.1.138", self.port))
+        self.socket.sendto(msg.encode("utf-8"), ("192.168.1.103", self.port))
 
 
 async def main():
