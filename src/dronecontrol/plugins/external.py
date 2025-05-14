@@ -4,7 +4,6 @@ import asyncio
 import socket
 import json
 
-import dronecontrol.missions.uam
 from dronecontrol.plugin import Plugin
 
 # TODO: Different process, maybe wait for client to ask for info, then start sending?
@@ -42,7 +41,6 @@ class UDPPlugin(Plugin):
 
     def _make_json(self):
         drone_data = {}
-        mission_data = {}
         for drone_name in self.dm.drones:
             drone = self.dm.drones[drone_name]
             drone_data[drone_name] = {
@@ -54,17 +52,21 @@ class UDPPlugin(Plugin):
                 "armed": drone.is_armed,
                 "in_air": drone.in_air,
             }
+        data = {"drones": drone_data}
         if hasattr(self.dm, "mission"):  # Check that the mission plugin is actually loaded
+            mission_data = {}
+            data["missions"] = mission_data
             for mission_name in self.dm.mission.missions:
                 mission = self.dm.mission.missions[mission_name]
                 mission_data[mission.PREFIX] = {
-                    "flightarea": mission.flight_area,
+                    "flightarea": mission.flight_area.boundary_list(),
                     "stage": mission.current_stage.name,
                     "drones": list(mission.drones.keys()),
-                    "bat": {name: battery.level for name, battery in mission.batteries.items()},
                 }
-        data = {
-            "drones": drone_data,
-            "missions": mission_data,
-        }
+                for info, func in mission.additional_info.items():
+                    try:
+                        mission_data[mission.PREFIX][info] = func()
+                    except Exception as e:
+                        self.logger.warning("Couldn't collect all mission information to send out due to an exception!")
+                        self.logger.debug(repr(e), exc_info=True)
         return json.dumps(data)

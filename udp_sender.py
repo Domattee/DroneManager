@@ -54,7 +54,7 @@ class UDPSender:
         return json.dumps(data)
 
     def _send_msg(self, msg: str):
-        self.socket.sendto(msg.encode("utf-8"), ("192.168.1.103", self.port))
+        self.socket.sendto(msg.encode("utf-8"), ("localhost", self.port)) #("192.168.1.103", self.port))
 
 
 async def main():

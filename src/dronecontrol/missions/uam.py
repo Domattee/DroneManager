@@ -1,13 +1,12 @@
 import asyncio
 import enum
-import collections
 from queue import PriorityQueue, Empty
 import math
 import time
 
 import numpy as np
 
-from dronecontrol.plugins.mission import Mission
+from dronecontrol.plugins.mission import Mission, MissionStage, FlightArea
 from dronecontrol.utils import dist_ned
 from dronecontrol.navigation.core import Waypoint, WayPointType
 
@@ -15,7 +14,7 @@ from dronecontrol.navigation.core import Waypoint, WayPointType
 # TODO: Better ready check, should consider position and status of each drone for the calling stage.
 
 
-class UAMStages(enum.Enum):
+class UAMStages(MissionStage):
     Uninitialized = enum.auto()
     Start = enum.auto()
     SearchSingle = enum.auto()
@@ -23,6 +22,37 @@ class UAMStages(enum.Enum):
     POIFound = enum.auto()
     Observation = enum.auto()
     Return = enum.auto()
+
+
+class UAMFlightArea(FlightArea):
+
+    def __init__(self, n_lower, n_upper, e_lower, e_upper, alt):
+        super().__init__()
+        self.n_lower = n_lower
+        self.n_upper = n_upper
+        self.e_lower = e_lower
+        self.e_upper = e_upper
+        self.alt = alt
+
+    @property
+    def x_min(self):
+        return self.n_lower
+
+    @property
+    def x_max(self):
+        return self.n_upper
+
+    @property
+    def y_min(self):
+        return self.e_lower
+
+    @property
+    def y_max(self):
+        return self.e_upper
+
+    @property
+    def alt_max(self):
+        return self.alt
 
 
 class FakeBattery:
@@ -47,7 +77,6 @@ class UAMMission(Mission):
 
     def __init__(self, name, dm, logger):
         super().__init__(name, dm, logger)
-        self.drones = collections.OrderedDict()
 
         mission_cli_commands = {
             "reset": self.reset,
@@ -66,7 +95,7 @@ class UAMMission(Mission):
         # Static parameters for mission definition
         self.n_drones_max = 3
         self.current_stage = UAMStages.Uninitialized
-        self.flight_area = [-3.5, 3.5, -1.5, 1.5, 2]
+        self.flight_area = UAMFlightArea(-3.5, 3.5, -1.5, 1.5, 2)
         self.search_space = [-3, 3, -1.25, 1.25]
         self.start_positions_y: dict[str, float] = {}
         self.start_position_x = 3.0
@@ -103,6 +132,8 @@ class UAMMission(Mission):
         self._stop_circling = False  # If the observing drone should stop circling once it reaches departure area
         self.flying_drones = set()  # List of names
         self.batteries: dict[str, FakeBattery] = {}  # Dict with batteries for each drone.
+
+        self.additional_info = {"bat": self.battery_levels}
 
     async def _stage_managing_function(self):
         # Check the current stage every so often and cancel functions/start new functions when the stage changes
@@ -620,7 +651,7 @@ class UAMMission(Mission):
         for name in names:
             try:
                 self.drones[name] = self.dm.drones[name]
-                self.dm.set_fence(name, *self.flight_area)
+                self.dm.set_fence(name, *self.flight_area.boundary_list())
                 self.batteries[name] = FakeBattery()
             except KeyError:
                 self.logger.error(f"No drone named {name}")
@@ -638,3 +669,6 @@ class UAMMission(Mission):
         # Can't safely disarm in offboard due to landing issue, but do we want to stay armed whole demo?
         # Can't rearm
         return self.dm.drones[drone].is_connected
+
+    def battery_levels(self):
+        return {drone: battery.level for drone, battery in self.batteries.items()}

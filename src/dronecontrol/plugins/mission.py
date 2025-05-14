@@ -1,5 +1,7 @@
 import abc
 import asyncio
+import collections
+import enum
 from pathlib import Path
 import importlib
 import inspect
@@ -107,6 +109,43 @@ class MissionPlugin(Plugin):
         self.logger.info(f"Available missions for loading: {self.mission_options()}")
 
 
+class MissionStage(enum.Enum):
+    pass
+
+
+class FlightArea(abc.ABC):
+    def __init__(self, *args, **kwargs):
+        pass
+
+    @property
+    @abc.abstractmethod
+    def x_min(self):
+        pass
+
+    @property
+    @abc.abstractmethod
+    def x_max(self):
+        pass
+
+    @property
+    @abc.abstractmethod
+    def y_min(self):
+        pass
+
+    @property
+    @abc.abstractmethod
+    def y_max(self):
+        pass
+
+    @property
+    @abc.abstractmethod
+    def alt_max(self):
+        pass
+
+    def boundary_list(self):
+        return [self.x_min, self.x_max, self.y_min, self.y_max, self.alt_max]
+
+
 class Mission(Plugin, abc.ABC):
     PREFIX = "YOUDIDSOMETHINGWRONG"
 
@@ -119,6 +158,17 @@ class Mission(Plugin, abc.ABC):
             "add": self.add_drones,
             "remove": self.remove_drones,
         }
+
+        # These attributes may be used by other part of the package, for example to determine the window size for a map
+        self.current_stage: MissionStage | None = None  # For missions with multiple stages
+        self.flight_area: FlightArea | None = None  # For missions with a defined flight area
+        self.drones = collections.OrderedDict()  # The drones participating in the mission
+
+        # A dictionary with any other information that might be useful for other parts of the library. For example,
+        # adding a function here means the external plugin will send it automatically over udp. The dictionary key
+        # will be used to identify the information, while the value should be a function that returns the desired
+        # information.
+        self.additional_info = {}
 
     async def start(self):
         """ This function is called when the mission is loaded to start all the necessary processes asynchronously.
