@@ -29,20 +29,22 @@ class UDPSender:
         t = time.time() - self.start
         drone_data = {}
         mission_data = {}
-        drone_name = "veryrealdrone"
-        drone_data[drone_name] = {
-            "position": [math.sin(t), math.cos(t), 2],
-            "speed": math.sin(t)+math.cos(2*t),
-            "heading": (t*10) % 360 - 180,
-            "mode": "offboard" if t % 10 < 5 else "averyandunreasonablylongmodename",
-            "conn": t % 20 > 15,
-            "armed": t % 20 > 10,
-            "in_air": t % 20 > 15,
-        }
+        drone_names = ["veryrealdrone", "absolutedrone", "bob"]
+        for i, drone_name in enumerate(drone_names):
+            drone_data[drone_name] = {
+                "position": [math.sin(t) - 1.5 + i*1.5, math.cos(t), 2],
+                "speed": math.sin(t)+math.cos(2*t),
+                "heading": ((t+i)*10) % 360 - 180,
+                "mode": "offboard" if (t+2*i) % 10 < 5 else "averyandunreasonablylongmodename",
+                "conn": (t+2*i) % 20 > 15,
+                "armed": (t+2*i) % 20 > 10,
+                "in_air": (t+2*i) % 20 > 15,
+            }
         mission_data["dummy_mission"] = {
             "stage": "gleep" if t % 20 < 10 else "glorp",
-            "drones": ["veryrealdrone"],
-            "bat": {"veryrealdrone": abs(math.sin(t/10))},
+            "drones": ["veryrealdrone", "bob"],
+            "bat": {"veryrealdrone": abs(math.sin(t/10)),
+                    "bob": abs(math.cos(t/10))},
         }
         data = {
             "drones": drone_data,
