@@ -26,7 +26,7 @@ This is a showcase demo where three drones look for a POI and start continuously
 In the event we are flying with three drones, "luke", "derek" and "corran".
 
 #### Setup
-1. Boot up dm and make sure you are in the correct wifi.
+1. Boot up dm and make sure you are in the correct Wi-Fi.
 2. Connect to all the drones: `connect <name>` with names "luke", "derek" or "corran"
 3. Load the mission scripts: `mission-load uam`
 4. Add all the drones to the mission: `uam-add <name>` IMPORTANT! The order in which the drones are added matters. The 
@@ -35,7 +35,10 @@ wrong order, they might collide during flight as their paths can cross. With `ua
 drones. If drones were added in the wrong order, you can either rearrange them on the field, or remove 
 `uam-remove <name>` and re-add them.
 5. Check that each drone reports the correct position. If they report 0,0, the tracking system isn't connected. 
-6. To send out UDP information for the visualization: `load external`
+6. Do `uam-set` to change the mission state to "ready-to-go". With `uam-unset` you can go back to Uninitialized.
+7. To send out UDP information for the visualization: `load external`. Note that currently the destination IP for the 
+external module is hardcoded, you will have to change this in the code and then either reload the plugin or restart the 
+setup process from step 1.
 
 #### Mission
 With the drones connected and all the scripts loaded you can begin flying missions.
