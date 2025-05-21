@@ -197,7 +197,7 @@ class CommandScreen(Screen):
                                          "running (for example on another machine). Default None.")
         connect_parser.add_argument("-sp", "--server_port", type=int, default=50051,
                                     help="Port for the mavsdk server. Default 50051.")
-        connect_parser.add_argument("-t", "--timeout", type=float, default=120, required=False,
+        connect_parser.add_argument("-t", "--timeout", type=float, default=30, required=False,
                                     help="Timeout in seconds for connection attempts. Default 120s.")
 
         disconnect_parser = command_parsers.add_parser("disconnect", help="Disconnect one or more drones.")

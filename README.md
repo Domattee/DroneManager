@@ -18,6 +18,76 @@ On windows, you will also have to download the appropriate MAVSDK release (see h
 
 ### Terminal interface
 
+There are a large number of possible commands. The basic ones are listed below. Feedback is provided in the log pane.
+Exception information, such as stack traces, is additionally logged in the log files. 
+
+Many commands can be "scheduled" by adding the flag `-s`, which means that the drone will finish any previous commands 
+before proceeding to the scheduled command. Multiple commands can be scheduled at once. Entering a command that isn't 
+scheduled clears the schedule, i.e. the drone will follow it immediately. 
+
+A command is considered "complete" when some condition is met, depending on the command, or when it errors out, either 
+because of an exception or because the flight controller denied the command, for example when trying to arm a drone 
+without a GPS fix. Commands for multiple drones complete independently, i.e. if you schedule a takeoff and a move for 
+two drones, but one of the drones doesn't reach the takeoff altitude, the other one will still start its move once its 
+takeoff has completed.
+
+The syntax below is as follows: 
+- `<Parameters>` are mandatory positional parameters. 
+- `<Parameters?>` are optional positional parameters.
+- `-p` are boolean flags.
+- `-p <parameter: defaultValue>` are optional parameters with a flag to indicate that they are being supplied. Usually, 
+these have a default value.
+
+In theory, typing `-h` or `--help` should print the help string, either for the whole interface or a specific command, 
+but this doesn't currently work.
+
+#### Commanding drones
+
+- `connect <name> <connection-string?> -t <timeout: 30>`: Connect to a drone. The parameter name is an arbitrary label that 
+is used to refer to the drone with other commands. The connection string, for example "udp://192.168.0.143:14550", 
+defines how to connect to the drone. This parameter is optional, by default "udp://:14540" is used. With `-t`a timeout 
+in seconds can be specified, the default is 30s.
+- `disconnect <names> -f`: Close the connection to the specified drones. This command will refuse if the drones are 
+armed or flying, add the `-f` flag to force disconnect.
+- `arm <names> -s`: Arm one or more drones. Multiple drones can be armed at once by listing their name with a space 
+between, i.e. `arm drone1 drone2 drone3`. This command is considered complete when the drone is armed and can be 
+scheduled.
+- `disarm <names> -s`: Disarm one or more drones. This command is complete when the drone has disarmed and 
+can be scheduled.
+- `takeoff <names> -a <altitude: 2> -s`: Perform a takeoff with the specified drones. The optional altitude 
+parameter specifies the target altitude above the launch point. This command is complete when the drone has reached the 
+target position and can be scheduled.
+- `land <names> -s`: Land the specified drones at their current locations. This puts the drones offboard mode! 
+This command is complete when the drone has landed and can be scheduled.
+- `flyto <name> <x> <y> <z> <yaw?> -t <tolerance: 0.25> -s`: Fly the specified drone to the position x, y, z in the 
+local coordinate system. The optional parameter `yaw` defines the facing of the drone. The heading change and movement 
+usually happen simultaneously. The optional parameter `-t` can be used to specify a tolerance for how close the drone 
+must be to the target position to have "reached" it. By default, this is 0.25m. This command is complete when the drone 
+is within the tolerance of the target position and can be scheduled.
+
+And many more!
+
+#### Plugins
+
+DroneManager comes with a plugin system for adding extra functionality! The core element are plugin modules, located in 
+the "plugins" folder. Each plugin module contains one plugin class, which is a subclass of `plugin.Plugin`, and defines 
+extra behaviour. The base class provides a framework for automatically generating CLI commands and booting up any 
+background functions. See the plugin documentation (TODO) for more information. A number of plugins are shipped with 
+DroneManager.
+
+- `plugins`: Shows a list of available plugins.
+- `load <name>`: Load a plugin by name. This must match one of the names shown by `plugins`.
+- `unload <name>`: Unload a plugin by name.
+- `loaded`: List currently loaded plugins.
+
+By default, the `mission` plugin is loaded at startup. Missions are essentially a special kind of plugin. They go into 
+their own folder "missions". Do not try out missions with real drones without understanding what they do first!
+
+- `mission-status`: Prints a list of all available missions, as well as an overview for each currently running mission.
+- `mission-load <name> <label?>`: Load a mission by name. This must match one of the missions returned by 
+`mission-status`. The optional parameter `label` can be used to assign the mission a specific name. Each mission must 
+have a unique name, so this allows multiple missions of the same "type".
+
 ### API
 
 ### UAM Demo
