@@ -579,8 +579,9 @@ class DroneMAVSDK(Drone):
     async def _ensure_message_rates(self):
         # Send our desired message rates every so often to ensure they are adhered to
         while True:
-            await self._configure_message_rates()
-            await asyncio.sleep(5)
+            if self.is_connected:
+                await self._configure_message_rates()
+                await asyncio.sleep(5)
 
     async def _connect_check(self):
         if self.mav_conn:
