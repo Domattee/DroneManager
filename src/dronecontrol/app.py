@@ -555,7 +555,8 @@ class CommandScreen(Screen):
             else:
                 self.logger.warning("Can't exit the app with armed drones!")
         except Exception as e:
-            self.logger.error(repr(e), exc_info=True)
+            self.logger.error("Exception during exit function!")
+            self.logger.debug(repr(e), exc_info=True)
 
     def _schedule_initialization_tasks(self):
         asyncio.create_task(self._logging_setup())
