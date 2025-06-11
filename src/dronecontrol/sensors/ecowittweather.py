@@ -1,0 +1,5 @@
+""" Sensor package for an ecowitt gw1100"""
+
+# Leitstand IP: 192.168.1.41
+# Use HTTP GET with http://192.168.1.41/get_livedata_info, see https://blog.meteodrenthe.nl/2023/02/03/how-to-use-the-ecowitt-gateway-gw1000-gw1100-local-api/#
+# Example output JSON: { "common_list": [{ "id": "0x02", "val": "22.9", "unit": "C" }, { "id": "0x07", "val": "41%" }, { "id": "3", "val": "22.9", "unit": "C" }, { "id": "0x03", "val": "9.0", "unit": "C" }, { "id": "0x0B", "val": "0.4 m/s" }, { "id": "0x0C", "val": "0.5 m/s" }, { "id": "0x19", "val": "1.0 m/s" }, { "id": "0x15", "val": "4.02 W/m2" }, { "id": "0x17", "val": "0" }, { "id": "0x0A", "val": "260" }], "rain": [{ "id": "0x0D", "val": "0.0 mm" }, { "id": "0x0E", "val": "0.0 mm/Hr" }, { "id": "0x10", "val": "0.0 mm" }, { "id": "0x11", "val": "0.0 mm" }, { "id": "0x12", "val": "0.0 mm" }, { "id": "0x13", "val": "0.0 mm", "battery": "0" }], "wh25": [{ "intemp": "22.9", "unit": "C", "inhumi": "42%", "abs": "975.8 hPa", "rel": "975.8 hPa" }] }
