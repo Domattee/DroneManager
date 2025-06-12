@@ -413,7 +413,7 @@ class DroneMAVSDK(Drone):
         # planning algorithms for their time resolution.
         self.position_update_rate = 5
 
-        self.mav_conn = MAVPassthrough(loggername=f"{name}_MAVLINK", log_messages=False)
+        self.mav_conn = MAVPassthrough(loggername=f"{name}_MAVLINK", log_messages=True)
         try:
             #self.trajectory_generator = GMP3Generator(self, 1/self.position_update_rate, self.logger, use_gps=False)
             self.trajectory_generator = DirectTargetGenerator(self, self.logger, WayPointType.POS_NED, use_gps=False)
@@ -565,16 +565,17 @@ class DroneMAVSDK(Drone):
         self._running_tasks.append(asyncio.create_task(self._ensure_message_rates()))
 
     async def _configure_message_rates(self) -> None:
-        try:
-            await self.system.telemetry.set_rate_position(self.position_update_rate)
-            await self.system.telemetry.set_rate_position_velocity_ned(self.position_update_rate)
-            await self.system.telemetry.set_rate_attitude_euler(self.position_update_rate)
-            await self.system.telemetry.set_rate_altitude(self.position_update_rate)
-            await self.system.telemetry.set_rate_battery(self.position_update_rate)
-            await self.system.telemetry.set_rate_gps_info(self.position_update_rate)
-        except Exception as e:
-            self.logger.warning(f"Couldn't set message rate!")
-            self.logger.debug(f"{repr(e)}", exc_info=True)
+        if self.is_connected:
+            try:
+                await self.system.telemetry.set_rate_position(self.position_update_rate)
+                await self.system.telemetry.set_rate_position_velocity_ned(self.position_update_rate)
+                await self.system.telemetry.set_rate_attitude_euler(self.position_update_rate)
+                await self.system.telemetry.set_rate_altitude(self.position_update_rate)
+                await self.system.telemetry.set_rate_battery(self.position_update_rate)
+                await self.system.telemetry.set_rate_gps_info(self.position_update_rate)
+            except Exception as e:
+                self.logger.warning(f"Couldn't set message rate!")
+                self.logger.debug(f"{repr(e)}", exc_info=True)
 
     async def _ensure_message_rates(self):
         # Send our desired message rates every so often to ensure they are adhered to

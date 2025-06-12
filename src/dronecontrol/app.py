@@ -33,6 +33,7 @@ DRONE_DICT = {
     "corran": "udp://192.168.1.36:14566",
     "jaina":  "udp://192.168.1.37:14567",
     "kira":   "serial://COM5:460800",
+    "riker":  "udp://192.168.0.3:14550",
 }
 
 UPDATE_RATE = 20  # How often the various screens update in Hz. TODO: Currently time delay after function, refactor to
