@@ -413,7 +413,7 @@ class DroneMAVSDK(Drone):
         # planning algorithms for their time resolution.
         self.position_update_rate = 5
 
-        self.mav_conn = MAVPassthrough(loggername=f"{name}_MAVLINK", log_messages=True)
+        self.mav_conn = MAVPassthrough(loggername=f"{name}_MAVLINK", log_messages=False)
         try:
             #self.trajectory_generator = GMP3Generator(self, 1/self.position_update_rate, self.logger, use_gps=False)
             self.trajectory_generator = DirectTargetGenerator(self, self.logger, WayPointType.POS_NED, use_gps=False)
