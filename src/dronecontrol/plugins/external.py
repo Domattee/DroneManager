@@ -11,8 +11,8 @@ from dronecontrol.plugin import Plugin
 
 class UDPPlugin(Plugin):
 
-    def __init__(self, dm, logger):
-        super().__init__(dm, logger)
+    def __init__(self, dm, logger, name):
+        super().__init__(dm, logger, name)
         self.port = 31659
         sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self.socket = sock

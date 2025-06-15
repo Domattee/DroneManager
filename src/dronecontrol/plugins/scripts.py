@@ -10,8 +10,8 @@ class ScriptsPlugin(Plugin):
     
     PREFIX = "script"
 
-    def __init__(self, dm, logger):
-        super().__init__(dm, logger)
+    def __init__(self, dm, logger, name):
+        super().__init__(dm, logger, name)
         self.cli_commands = {
             "execute": self.execute_script
         }
