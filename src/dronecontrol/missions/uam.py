@@ -75,9 +75,10 @@ class UAMMission(Mission):
 
     """
 
-    def __init__(self, name, dm, logger):
-        super().__init__(name, dm, logger)
+    DEPENDENCIES = ["external"]
 
+    def __init__(self, dm, logger, name="uam"):
+        super().__init__(dm, logger, name)
         mission_cli_commands = {
             "reset": self.reset,
             "set": self.set_start,

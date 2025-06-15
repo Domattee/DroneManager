@@ -1,0 +1,1 @@
+""" Plugin and ABC for external sensors, such as weather sensors."""

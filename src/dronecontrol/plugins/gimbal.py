@@ -24,8 +24,8 @@ SendMode = MAVSendMode
 class GimbalPlugin(Plugin):
     PREFIX = "gimbal"
 
-    def __init__(self, dm, logger):
-        super().__init__(dm, logger)
+    def __init__(self, dm, logger, name):
+        super().__init__(dm, logger, name)
         self.cli_commands = {
             "add": self.add_gimbals,
             "remove": self.remove_gimbal,

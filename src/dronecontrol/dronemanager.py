@@ -436,14 +436,14 @@ class DroneManager:
                    if name.is_file() and name.suffix == ".py" and not name.stem.startswith("_")]
         return modules
 
-    def _get_plugin_class(self, module) -> None | type:
+    def _get_plugin_class(self, module) -> type[Plugin]:
         try:
             plugin_mod = importlib.import_module("." + module, "dronecontrol.plugins")
             plugin_classes = [member[1] for member in inspect.getmembers(plugin_mod, inspect.isclass)
                               if issubclass(member[1], Plugin) and not member[1] is Plugin  # Strict subclass check
                               and member[1].__name__.endswith("Plugin")]  # Only load plugins
             if len(plugin_classes) != 1:
-                return None
+                raise RuntimeWarning(f"Too many plugin classes in the module {module}!")
             return plugin_classes[0]
         except ImportError as e:
             self.logger.error(f"Couldn't load plugin {module} due to a python import error!")
@@ -458,26 +458,39 @@ class DroneManager:
     def add_plugin_unload_func(self, func):
         self._on_drone_connect_coros.add(func)
 
-    async def load_plugin(self, plugin_name):
+    async def load_plugin(self, plugin_module: str, plugin_name: str | None = None, options: list[str] | None = None,
+                          class_getter: callable = None):
+        plugin = False
+        if plugin_name is None:
+            plugin_name = plugin_module
+        if options is None:
+            options = self.plugin_options()
+        if class_getter is None:
+            class_getter = self._get_plugin_class
         try:
+            # Basic checks that we can even try to load this plugin
             if hasattr(self, plugin_name):
-                raise RuntimeError(f"Can't load plugin {plugin_name} due to possible name collision with an existing "
-                                   f"attribute! Rename the plugin.")
+                raise RuntimeError(f"Can't load plugin {plugin_module} with name {plugin_name} due to possible name "
+                                   f"collision with an existing attribute! Rename the plugin.")
             if plugin_name in self.plugins:
                 self.logger.warning(f"Plugin {plugin_name} already loaded!")
                 return False
-            if plugin_name not in self.plugin_options():
+            if plugin_module not in options:
                 self.logger.warning(f"No plugin '{plugin_name}' found!")
                 return False
+
             self.logger.info(f"Loading plugin {plugin_name}...")
             plugin = None
             try:
-                plugin_class = self._get_plugin_class(plugin_name)
+                plugin_class = class_getter(plugin_module)
                 if not plugin_class:
                     self.logger.error(f"Module {plugin_name} contains no or multiple plugins, which is currently not "
                                       f"supported!")
                     return False
-                plugin = plugin_class(self, self.logger)
+                for dependency in plugin_class.DEPENDENCIES:
+                    if dependency not in self.plugins:
+                        await self.load_plugin(dependency)
+                plugin = plugin_class(self, self.logger, plugin_name)
                 setattr(self, plugin_name, plugin)
                 self.plugins.add(plugin_name)
                 await plugin.start()
@@ -499,7 +512,7 @@ class DroneManager:
             self.logger.info(f"Completed loading Plugin {plugin_name}!")
         except Exception as e:
             self.logger.error(repr(e), exc_info=True)
-        return True
+        return plugin
 
     async def unload_plugin(self, plugin_name):
         if plugin_name not in self.plugins:

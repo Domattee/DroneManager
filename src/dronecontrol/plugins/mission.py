@@ -12,8 +12,8 @@ from dronecontrol.plugin import Plugin
 class MissionPlugin(Plugin):
     PREFIX = "mission"
 
-    def __init__(self, dm, logger):
-        super().__init__(dm, logger)
+    def __init__(self, dm, logger, name):
+        super().__init__(dm, logger, name)
         self.cli_commands = {
             "load": self.load,
             "status": self.status,
@@ -54,50 +54,10 @@ class MissionPlugin(Plugin):
 
         :return:
         """
-        try:
-            if name is None:
-                name = mission_module
-            if hasattr(self.dm, name):
-                raise RuntimeError(
-                    f"Can't load mission {mission_module} under {name} due to name collision with an existing "
-                    f"attribute! Give the mission a different name.")
-            if name in self.missions:
-                self.logger.warning(f"A mission with name {name} is already loaded!")
-                return False
-            if mission_module not in self.mission_options():
-                self.logger.warning(f"No mission '{mission_module}' found!")
-                return False
-            self.logger.info(f"Loading mission {mission_module} under name {name}...")
-            mission = None
-            try:
-                plugin_class = self._get_mission_class(mission_module)
-                if not plugin_class:
-                    self.logger.error(
-                        f"Module {mission_module} contains no or multiple missions, which is currently not supported!")
-                    return False
-                mission = plugin_class(name, self.dm, self.logger)
-                setattr(self.dm, name, mission)
-                self.missions[name] = mission
-                await mission.start()
-            except Exception as e:
-                self.logger.error(f"Couldn't load mission {mission_module} due to an exception!")
-                self.logger.debug(repr(e), exc_info=True)
-                if mission is not None:
-                    await mission.close()
-                if hasattr(self.dm, name):
-                    delattr(self.dm, name)
-                if name in self.missions:
-                    self.missions.pop(name)
-                return False
-            self.logger.debug(f"Performing callbacks for plugin loading...")
-            for func in self.dm._on_plugin_load_coros:
-                res = await asyncio.create_task(func(name, mission))
-                if isinstance(res, Exception):
-                    self.logger.warning("Couldn't perform a callback for this plugin!")
-            self.logger.info(f"Completed loading mission {mission} under name {name}!")
-        except Exception as e:
-            self.logger.error(repr(e), exc_info=True)
-        return True
+        mission = await self.dm.load_plugin(mission_module, name, self.mission_options(), self._get_mission_class)
+        if mission:
+            self.missions[name] = mission
+        return mission
 
     async def status(self):
         """ Status of running missions and missions that could be loaded."""
@@ -149,9 +109,9 @@ class FlightArea(abc.ABC):
 class Mission(Plugin, abc.ABC):
     PREFIX = "YOUDIDSOMETHINGWRONG"
 
-    def __init__(self, name, dm, logger):
+    def __init__(self, dm, logger, name="YOUDIDSOMETHINGWRONG"):
+        super().__init__(dm, logger, name)
         self.PREFIX = name
-        super().__init__(dm, logger)
         self.cli_commands = {
             "reset": self.reset,
             "status": self.status,

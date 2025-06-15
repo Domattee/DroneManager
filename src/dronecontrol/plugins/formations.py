@@ -133,8 +133,8 @@ class FormationsPlugin(Plugin):
     PREFIX = "form"
     active_formation: None | Formation = None
 
-    def __init__(self, dm, logger):
-        super().__init__(dm, logger)
+    def __init__(self, dm, logger, name):
+        super().__init__(dm, logger, name)
         self.formations: dict[str, Formation] = {}
         self.available_types = {cls.__name__: cls for cls in Formation.__subclasses__()}
         self.cli_commands = {
