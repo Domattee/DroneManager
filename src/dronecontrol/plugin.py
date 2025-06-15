@@ -23,11 +23,16 @@ class Plugin(ABC):
     polling for status updates from a camera. They will be started during construction of the class object, usually
     when the module is loaded. Note that these must be coroutines.
 
+    A common kwarg is "name", for plugins of which multiple copies may be loaded, in which case the name acts as the
+    unique identifier.
+
     """
 
-    PREFIX = "abs"
+    PREFIX = "abc"
+    DEPENDENCIES = []  # Other plugin dependencies, which should be loaded (and are by dronemanager) before this one.
+    # TODO: Proper dependency management
 
-    def __init__(self, dm, logger):
+    def __init__(self, dm, logger, name, *args, **kwargs):
         self.dm: "dronecontrol.dronemanager.DroneManager" = dm
         self.logger = logger.getChild(self.__class__.__name__)
         self.cli_commands = {}
