@@ -105,10 +105,11 @@ class EcoWittData:
         entry_value = float(entry_value)
         return entry_id, entry_value, entry_unit
 
+
 class EcoWittSensor(Sensor):
     """ Class for EcoWitt Weather stations that support their HTTP API."""
 
-    def __init__(self, dm, logger, name="weather"):
+    def __init__(self, dm, logger, name="ecowitt"):
         super().__init__(dm, logger, name)
         self.ip = None
         self.last_data: EcoWittData | None = None
