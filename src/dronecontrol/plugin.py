@@ -11,6 +11,7 @@ from abc import ABC
 #   Have to interact with drone queues ("Move to position X, then turn gimbal, then move to position Y)
 #   BUT, also want to perform plugin actions immediately mid flight without killing other drone tasks, (except if we do)
 # TODO: Figure out how to do help strings for plugins, choices, store_true, etc... general CLI information.
+# TODO: Move a bunch of the plugin handling from DroneManager to here.
 
 class Plugin(ABC):
     """ Generic plugin class.
@@ -30,6 +31,9 @@ class Plugin(ABC):
 
     PREFIX = "abc"
     DEPENDENCIES = []  # Other plugin dependencies, which should be loaded (and are by dronemanager) before this one.
+    # Nested dependencies can also be done with a dot notation, i.e. "mission.uam". The load function of the first
+    # plugin will be used to load the second, i.e. we would load the plugin "mission" and then use the mission.load to
+    # load the subplugin uam.
     # TODO: Proper dependency management
 
     def __init__(self, dm, logger, name, *args, **kwargs):

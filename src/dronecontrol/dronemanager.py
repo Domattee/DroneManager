@@ -480,7 +480,7 @@ class DroneManager:
                 return False
 
             self.logger.info(f"Loading plugin {plugin_name}...")
-            plugin = None
+            plugin = False
             try:
                 plugin_class = class_getter(plugin_module)
                 if not plugin_class:
@@ -488,8 +488,16 @@ class DroneManager:
                                       f"supported!")
                     return False
                 for dependency in plugin_class.DEPENDENCIES:
-                    if dependency not in self.plugins:
-                        await self.load_plugin(dependency)
+                    deps = dependency.split(".")
+                    if len(deps) == 2:
+                        dep1, dep2 = deps
+                        plugin1 = await self.load_plugin(dep1)
+                        subplugin = await plugin1.load(dep2)
+                    elif len(deps) == 1:
+                        if dependency not in self.plugins:
+                            await self.load_plugin(dependency)
+                    else:
+                        self.logger.warning("Nested dependencies are only supported to the first level, i.e. one dot.")
                 plugin = plugin_class(self, self.logger, plugin_name)
                 setattr(self, plugin_name, plugin)
                 self.plugins.add(plugin_name)
