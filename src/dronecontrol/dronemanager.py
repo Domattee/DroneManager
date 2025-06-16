@@ -482,7 +482,7 @@ class DroneManager:
             self.logger.info(f"Loading plugin {plugin_name}...")
             plugin = None
             try:
-                plugin_class = class_getter(plugin_module)
+                plugin_class = await asyncio.get_running_loop().run_in_executor(None, class_getter, plugin_module)
                 if not plugin_class:
                     self.logger.error(f"Module {plugin_name} contains no or multiple plugins, which is currently not "
                                       f"supported!")

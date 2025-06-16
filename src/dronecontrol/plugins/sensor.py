@@ -38,9 +38,9 @@ class SensorPlugin(Plugin):
                    if name.is_file() and name.suffix == ".py" and not name.stem.startswith("_")]
         return modules
 
-    def _get_mission_class(self, module) -> None | type:
+    def _get_sensor_class(self, module) -> None | type:
         try:
-            plugin_mod = importlib.import_module("." + module, "dronecontrol.missions")
+            plugin_mod = importlib.import_module("." + module, "dronecontrol.sensors")
             plugin_classes = [member[1] for member in inspect.getmembers(plugin_mod, inspect.isclass)
                               if issubclass(member[1], Sensor)
                               and not member[1] is Sensor]  # Strict subclass check
@@ -50,13 +50,14 @@ class SensorPlugin(Plugin):
         except ImportError as e:
             self.logger.error(f"Couldn't load mission {module} due to a python import error!")
             self.logger.debug(repr(e), exc_info=True)
+            return None
 
     async def load(self, mission_module: str, name: str | None = None):
         """ Load a new sensor, which work like plugins with the name taking the role of the prefix.
 
         :return:
         """
-        sensor = await self.dm.load_plugin(mission_module, name, self.sensor_options(), self._get_mission_class)
+        sensor = await self.dm.load_plugin(mission_module, name, self.sensor_options(), self._get_sensor_class)
         if sensor:
             self.sensors[name] = sensor
         return sensor
@@ -79,6 +80,7 @@ class Sensor(Plugin, abc.ABC):
         self.PREFIX = name
         self.cli_commands = {
             "connect": self.connect,
+            "data": self.log_data,
             "status": self.status,
             "disconnect": self.disconnect,
             "reconnect": self.reconnect,
@@ -87,6 +89,9 @@ class Sensor(Plugin, abc.ABC):
         # Connection arguments for convenient reconnect.
         self.connect_args = None
         self.connect_kwargs = None
+
+        # The last received/collected data should be stored here for others to use without access delay
+        self.last_data = None
 
     async def start(self):
         """ This function is called when the sensor plugin is loaded to automatically start any background functions.
@@ -104,6 +109,14 @@ class Sensor(Plugin, abc.ABC):
         """ Connect to a sensor."""
         self.connect_args = args
         self.connect_kwargs = kwargs
+
+    @abc.abstractmethod
+    async def get_data(self):
+        """ Should return whatever information the sensor provides,"""
+        pass
+
+    async def log_data(self):
+        self.logger.info(await self.get_data())
 
     @abc.abstractmethod
     async def status(self):
