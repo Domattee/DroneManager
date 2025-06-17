@@ -86,13 +86,24 @@ class GimbalPlugin(Plugin):
         if self.check_has_gimbal(drone):
             await self.gimbals[drone].release_control(gimbal_id)
 
-    async def set_gimbal_angles(self, drone: str, roll: float, pitch: float, yaw: float, gimbal_id: int = None):
+    async def set_gimbal_angles(self, drone: str, pitch: float, yaw: float, gimbal_id: int = None):
         if self.check_has_gimbal(drone):
             try:
-                self.logger.debug(f"Setting gimbal angles for gimbal {gimbal_id} on {drone} to {roll, pitch, yaw}")
-                return await self.gimbals[drone].set_gimbal_angles(gimbal_id, roll, pitch, yaw)
+                self.logger.debug(f"Setting gimbal angles for gimbal {gimbal_id} on {drone} to {pitch, yaw}")
+                return await self.gimbals[drone].set_gimbal_angles(gimbal_id, pitch, yaw)
             except Exception as e:
                 self.logger.error("Couldn't set angles due to an exception!")
+                self.logger.debug(repr(e), exc_info=True)
+                return False
+        return False
+
+    async def set_gimbal_rate(self, drone: str, pitch_rate: float, yaw_rate: float, gimbal_id: int = None):
+        if self.check_has_gimbal(drone):
+            try:
+                self.logger.debug(f"Setting gimbal rates for gimbal {gimbal_id} on {drone} to {pitch_rate, yaw_rate}")
+                return await self.gimbals[drone].set_gimbal_angles(gimbal_id, pitch_rate, yaw_rate)
+            except Exception as e:
+                self.logger.error("Couldn't set angular rates due to an exception!")
                 self.logger.debug(repr(e), exc_info=True)
                 return False
         return False
