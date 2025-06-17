@@ -215,11 +215,17 @@ class Gimbal:
         lat, long, amsl = relative_gps(x, y, z, *self.drone.position_global[:3])
         return await self.point_gimbal_at(gimbal_id, lat, long, amsl)
 
-    async def set_gimbal_angles(self, gimbal_id, roll, pitch, yaw):
+    async def set_gimbal_angles(self, gimbal_id, pitch, yaw):
         if gimbal_id is None:
             gimbal_id = self.gimbal_id
-        await self._error_wrapper(self.drone.system.gimbal.set_angles, gimbal_id, roll, pitch, yaw, self.mode.get(gimbal_id, GimbalMode.YAW_FOLLOW),
-                                  SendMode.ONCE)
+        await self._error_wrapper(self.drone.system.gimbal.set_angles, gimbal_id, 0, pitch, yaw,
+                                  self.mode.get(gimbal_id, GimbalMode.YAW_FOLLOW), SendMode.ONCE)
+
+    async def set_gimbal_rates(self, gimbal_id, pitch_rate, yaw_rate):
+        if gimbal_id is None:
+            gimbal_id = self.gimbal_id
+        await self._error_wrapper(self.drone.system.gimbal.set_angular_rates, 0, pitch_rate, yaw_rate,
+                                  self.mode.get(gimbal_id, GimbalMode.YAW_FOLLOW), SendMode.ONCE)
 
     async def set_gimbal_mode(self, gimbal_id, mode):
         assert mode in ["follow", "lock"]
