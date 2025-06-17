@@ -3,6 +3,7 @@ import asyncio
 
 import requests
 import math
+import datetime
 
 from dronecontrol.plugins.sensor import Sensor
 
@@ -43,7 +44,7 @@ class EcoWittDataEntry:
 
 class EcoWittData:
 
-    def __init__(self):
+    def __init__(self, timestamp = None):
         self.temperature = EcoWittDataEntry("0x02", "Temperature")
         self.dew_point = EcoWittDataEntry("0x03", "Dew point")
         self.humidity = EcoWittDataEntry("0x07", "Humidity")
@@ -62,10 +63,17 @@ class EcoWittData:
         self.cum_rain_year = EcoWittDataEntry("0x13", "Rain Year")
 
         self.pressure = EcoWittDataEntry("", "Pressure")
+        self.time = timestamp
+        self.data_entries = [self.temperature, self.dew_point, self.humidity, self.light, self.uvi, self.wind_speed,
+                     self.wind_direction, self.gust_speed, self.wind_speed_max_day, self.rain_event, self.rain_rate,
+                     self.cum_rain_today, self.cum_rain_week, self.cum_rain_month, self.cum_rain_year, self.pressure]
+
+    def __str__(self):
+        return "\t".join([f"{entry.name}: {entry.value}{entry.unit}" for entry in self.data_entries]) + f"\t Time {self.time}"
 
     @classmethod
-    def from_dict(cls, input_dict):
-        output = cls()
+    def from_dict(cls, input_dict, timestamp = None):
+        output = cls(timestamp=timestamp)
         # Parse common list entry
         if "common_list" in input_dict:
             for entry in input_dict["common_list"]:
@@ -93,12 +101,16 @@ class EcoWittData:
 
     def parse_entry(self, entry):
         entry_id = entry.get("id")
-        entry_value = entry.get("val", default=math.nan)
+        entry_value = entry.get("val", math.nan)
         entry_unit = entry.get("unit", None)
         if entry_unit is None:  # Unit probably in value
             splits = entry_value.split(" ")
-            if len(splits) == 1:  # No unit in value either, so no unit
-                entry_unit = ""
+            if len(splits) == 1:  # Either no unit in value, or a percentage
+                if str(entry_value).endswith("%"):
+                    entry_value = entry_value[:-1]
+                    entry_unit = "%"
+                else:
+                    entry_unit = ""
             elif len(splits) == 2:  # Second entry is probably the unit
                 entry_unit = splits[1]
                 entry_value = splits[0]
@@ -117,13 +129,23 @@ class EcoWittSensor(Sensor):
 
     async def connect(self, ip: str):
         """ No connection procedure"""
-        self.logger.debug(f"Added GW with {ip}")
+        self.logger.info(f"Adding sensor with {ip}...")
+        try:
+            response = await asyncio.get_running_loop().run_in_executor(None, requests.get,
+                                                                        f"http://{ip}/get_livedata_info")
+        except Exception as e:
+            self.logger.warning(f"No response from Ecowitt sensor at {ip}")
+            self.logger.debug(repr(e), exc_info = True)
+            return False
         self.ip = ip
+        self.logger.info(f"Connected to sensor at {self.ip}")
+        return True
 
     async def get_data(self) -> EcoWittData | None:
         try:
+            timestamp = datetime.datetime.now(datetime.UTC)
             response = await asyncio.get_running_loop().run_in_executor(None, requests.get,f"http://{self.ip}/get_livedata_info")
-            data = EcoWittData.from_dict(response.json())
+            data = EcoWittData.from_dict(response.json(), timestamp=timestamp)
             self.last_data = data
             return data
         except Exception as e:
