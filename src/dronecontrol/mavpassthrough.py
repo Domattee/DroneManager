@@ -1,3 +1,4 @@
+import collections
 import logging
 import datetime
 import math
@@ -48,7 +49,7 @@ class MAVPassthrough:
         self.running_tasks = set()
         self.should_stop = False
 
-        self.drone_receive_callbacks: dict[int, list[asyncio.Coroutine]] = {}
+        self.drone_receive_callbacks: dict[int, set[collections.Callable[[any], collections.Coroutine]]] = {}
 
     def connect_gcs(self, address):
         self.running_tasks.add(asyncio.create_task(self._connect_gcs(address)))
@@ -291,8 +292,12 @@ class MAVPassthrough:
             self.logger.debug(f"GCS connection target system {self.con_gcs.target_system}")
             await asyncio.sleep(0.5)
 
-    def add_drone_message_callback(self, message_id: int, func: callable):
-        self.drone_receive_callbacks[message_id].append(func)
+    def add_drone_message_callback(self, message_id: int, func: collections.Callable[[any], collections.Coroutine]):
+        self.drone_receive_callbacks[message_id].add(func)
+
+    def remove_drone_message_callback(self, message_id: int, func: collections.Callable[[any], collections.Coroutine]):
+        if message_id in self.drone_receive_callbacks:
+            self.drone_receive_callbacks[message_id].remove(func)
 
     async def stop(self):
         self.logger.debug("Stopping")

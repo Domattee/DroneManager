@@ -182,7 +182,7 @@ def check_cli_command_signatures(command):
     return list(zip(args_invalid, args_name, args_list, args_required, args_accepts_none, args_types, args_kwonly))
 
 
-async def coroutine_awaiter(task, logger):
+async def coroutine_awaiter(task: asyncio.Task, logger):
     try:
         if isinstance(task, asyncio.Task):
             await task
