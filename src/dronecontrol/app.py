@@ -310,25 +310,6 @@ class CommandScreen(Screen):
 
         exit_parser = command_parsers.add_parser("exit", aliases=self._exit_aliases, help="Exits the application")
 
-        cam_prepare_parser = command_parsers.add_parser("cam-prep", help="Prepare camera plugin")
-        cam_prepare_parser.add_argument("drone", type=str, help="Which drones should take a picture")
-
-        cam_settings_parser = command_parsers.add_parser("cam-settings", help="Start recording video")
-        cam_settings_parser.add_argument("drone", type=str, help="Which drones should take a picture")
-
-        cam_picture_parser = command_parsers.add_parser("cam-photo", help="Take a picture")
-        cam_picture_parser.add_argument("drone", type=str, help="Which drones should take a picture")
-
-        cam_video_start_parser = command_parsers.add_parser("cam-start", help="Start recording video")
-        cam_video_start_parser.add_argument("drone", type=str, help="Which drones should take a picture")
-
-        cam_video_stop_parser = command_parsers.add_parser("cam-stop", help="Start recording video")
-        cam_video_stop_parser.add_argument("drone", type=str, help="Which drones should take a picture")
-
-        cam_zoom_parser = command_parsers.add_parser("cam-zoom", help="Start recording video")
-        cam_zoom_parser.add_argument("drone", type=str, help="Which drones should take a picture")
-        cam_zoom_parser.add_argument("zoom", type=float, help="Target zoom level")
-
         ### RC - Parsers
 
         ql_parser = command_parsers.add_parser("qualify", help="Executes the 'qualify' function for the specified drones")
@@ -501,18 +482,6 @@ class CommandScreen(Screen):
                 func_arguments = vars(args).copy()
                 func_arguments.pop("command")
                 tmp = asyncio.create_task(self.dynamic_commands[command](**func_arguments))
-            elif command == "cam-prep":
-                tmp = asyncio.create_task(self.dm.prepare(args.drone))
-            elif command == "cam-settings":
-                tmp = asyncio.create_task(self.dm.get_settings(args.drone))
-            elif command == "cam-photo":
-                tmp = asyncio.create_task(self.dm.take_picture(args.drone))
-            elif command == "cam-start":
-                tmp = asyncio.create_task(self.dm.start_video(args.drone))
-            elif command == "cam-stop":
-                tmp = asyncio.create_task(self.dm.stop_video(args.drone))
-            elif command == "cam-zoom":
-                tmp = asyncio.create_task(self.dm.set_zoom(args.drone, args.zoom))
             self.running_tasks.add(tmp)
             self._awaiter_tasks.add(asyncio.create_task(self._cli_awaiter(tmp)))
         except Exception as e:

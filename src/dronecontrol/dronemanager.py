@@ -535,23 +535,3 @@ class DroneManager:
         await asyncio.gather(*unload_tasks, return_exceptions=True)
         await plugin.close()
         delattr(self, plugin_name)
-
-# Camera Stuff #########################################################################################################
-
-    async def prepare(self, name):
-        await self.drones[name].prepare()
-
-    async def get_settings(self, name):
-        await self.drones[name].get_settings()
-
-    async def take_picture(self, name):
-        await self.drones[name].take_picture()
-
-    async def start_video(self, name):
-        await self.drones[name].start_video()
-
-    async def stop_video(self, name):
-        await self.drones[name].stop_video()
-
-    async def set_zoom(self, name, zoom):
-        await self.drones[name].set_zoom(zoom)
