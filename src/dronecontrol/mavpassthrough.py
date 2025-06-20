@@ -7,7 +7,7 @@ import asyncio
 
 from pymavlink import mavutil
 
-from dronecontrol.utils import common_formatter
+from dronecontrol.utils import common_formatter, coroutine_awaiter
 
 # TODO: Routing between multiple GCS so we can have my app and QGroundControl connected at the same time
 # TODO: Implement sending as drone/drone components
@@ -47,6 +47,8 @@ class MAVPassthrough:
 
         self.running_tasks = set()
         self.should_stop = False
+
+        self.drone_receive_callbacks: dict[int, list[asyncio.Coroutine]] = {}
 
     def connect_gcs(self, address):
         self.running_tasks.add(asyncio.create_task(self._connect_gcs(address)))
@@ -251,6 +253,12 @@ class MAVPassthrough:
                                 except Exception as e:
                                     self.logger.debug(f"Encountered an exception sending message to GCS: {repr(e)}",
                                                       exc_info=True)
+                                # Do callbacks
+                                callbacks = self.drone_receive_callbacks.get(msg.get_msgId, [])
+                                for coro in callbacks:
+                                    task = asyncio.create_task(coro(msg))
+                                    self.running_tasks.add(task)
+                                    self.running_tasks.add(asyncio.create_task(coroutine_awaiter(task, self.logger)))
                             self.con_gcs.mav.srcSystem = self.source_system
                             self.con_gcs.mav.srcComponent = self.source_component
             else:
@@ -282,6 +290,9 @@ class MAVPassthrough:
                                             mavutil.mavlink.MAV_AUTOPILOT_INVALID, 0, 0, 0)
             self.logger.debug(f"GCS connection target system {self.con_gcs.target_system}")
             await asyncio.sleep(0.5)
+
+    def add_drone_message_callback(self, message_id: int, func: callable):
+        self.drone_receive_callbacks[message_id].append(func)
 
     async def stop(self):
         self.logger.debug("Stopping")

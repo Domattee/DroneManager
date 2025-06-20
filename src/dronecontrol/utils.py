@@ -6,6 +6,7 @@ import socket
 import inspect
 import typing
 import types
+import asyncio
 from haversine import inverse_haversine, haversine, Direction, Unit
 
 common_formatter = logging.Formatter('%(asctime)s.%(msecs)03d %(levelname)s %(name)s - %(message)s', datefmt="%H:%M:%S")
@@ -179,3 +180,14 @@ def check_cli_command_signatures(command):
         args_kwonly.append(is_kwonly)
 
     return list(zip(args_invalid, args_name, args_list, args_required, args_accepts_none, args_types, args_kwonly))
+
+
+async def coroutine_awaiter(task, logger):
+    try:
+        if isinstance(task, asyncio.Task):
+            await task
+    except asyncio.CancelledError:
+        pass
+    except Exception as e:
+        logger.error(f"Encountered an exception in a coroutine! See the log for more details")
+        logger.debug(e, exc_info=True)

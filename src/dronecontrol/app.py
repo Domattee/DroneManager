@@ -5,7 +5,7 @@ import shlex
 
 from dronecontrol.dronemanager import DroneManager
 from dronecontrol.drone import Drone, DroneMAVSDK
-from dronecontrol.utils import common_formatter, check_cli_command_signatures
+from dronecontrol.utils import common_formatter, check_cli_command_signatures, coroutine_awaiter
 
 import textual.css.query
 from textual import on, events
@@ -383,16 +383,6 @@ class CommandScreen(Screen):
         except KeyError:
             pass
 
-    async def _cli_awaiter(self, task):
-        try:
-            if isinstance(task, asyncio.Task):
-                await task
-        except asyncio.CancelledError:
-            pass
-        except Exception as e:
-            self.logger.error(f"Encountered an exception in a coroutine! See the log for more details")
-            self.logger.debug(e, exc_info=True)
-
     @on(InputWithHistory.Submitted, "#cli")
     async def cli(self, message):
         value = message.value
@@ -483,7 +473,7 @@ class CommandScreen(Screen):
                 func_arguments.pop("command")
                 tmp = asyncio.create_task(self.dynamic_commands[command](**func_arguments))
             self.running_tasks.add(tmp)
-            self._awaiter_tasks.add(asyncio.create_task(self._cli_awaiter(tmp)))
+            self._awaiter_tasks.add(asyncio.create_task(coroutine_awaiter(tmp, self.logger)))
         except Exception as e:
             self.logger.error("Encountered an exception executing the CLI!")
             self.logger.debug(repr(e), exc_info=True)

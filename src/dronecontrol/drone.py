@@ -18,7 +18,6 @@ from mavsdk.telemetry import StatusTextType
 from mavsdk.action import ActionError, OrbitYawBehavior
 from mavsdk.offboard import PositionNedYaw, PositionGlobalYaw, VelocityNedYaw, AccelerationNed, OffboardError
 from mavsdk.manual_control import ManualControlError
-from mavsdk.camera import CameraError
 
 from dronecontrol.utils import dist_ned, dist_gps, relative_gps
 from dronecontrol.utils import parse_address, common_formatter, get_free_port
@@ -592,12 +591,6 @@ class DroneMAVSDK(Drone):
         else:
             async for state in self.system.core.connection_state():
                 self._is_connected = state.is_connected
-
-    async def _ensure_message_rates(self):
-        # Send our desired message rates every so often to ensure
-        while True:
-            await self._configure_message_rates()
-            await asyncio.sleep(5)
 
     async def _arm_check(self):
         async for arm in self.system.telemetry.armed():
