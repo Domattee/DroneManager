@@ -174,10 +174,11 @@ class Camera:
     async def get_settings(self, camera_id: int = None):
         if camera_id is None:
             camera_id = self.camera_id
-        cur_settings = await self.drone.system.camera.current_settings()
-        for setting in cur_settings.current_settings:
-            self.logger.info(f"Setting {setting.setting_id} set to {setting.option}, {setting.is_range}. "
-                             f"Description: {setting.setting_description}")
+        cur_settings = await self._error_wrapper(self.drone.system.camera.get_current_settings, camera_id)
+        if cur_settings:
+            for setting in cur_settings:
+                self.logger.info(f"Setting {setting.setting_id} set to {setting.option}, {setting.is_range}. "
+                                 f"Description: {setting.setting_description}")
         #await self.mav_conn.send_cmd_long(target_system=self.drone_system_id, target_component=100, cmd=521, )
         #await self.mav_conn.send_cmd_long(target_system=self.drone_system_id, target_component=100, cmd=522, param1=1)
 
