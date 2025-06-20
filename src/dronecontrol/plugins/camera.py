@@ -6,6 +6,8 @@ import mavsdk.camera
 from dronecontrol.plugin import Plugin
 
 # TODO: Check if a drone supports camera commands when adding cameras
+# TODO: Probably want to set in the add command what type of camera, and then have classes for each specific camera,
+#  i.e. Workswell, the raspberry pi ones, etc. to allow specific commands, such as swapping to ir
 
 
 class CameraPlugin(Plugin):
@@ -19,6 +21,10 @@ class CameraPlugin(Plugin):
             "status": self.status,
             "list": self.list_cameras,
             "settings": self.get_settings,
+            "photo": self.take_picture,
+            "start": self.start_video,
+            "stop": self.stop_video,
+            "zoom": self.set_zoom,
         }
         self.background_functions = [
         ]
@@ -102,7 +108,7 @@ class Camera:
 
     def _start_background_tasks(self):
         #self._running_tasks.add(asyncio.create_task(self._check_gimbal_attitude()))
-        #self._running_tasks.add(asyncio.create_task(self._check_gimbal_control()))
+        self._running_tasks.add(asyncio.create_task(self._capture_info_updates()))
         self._running_tasks.add(asyncio.create_task(self._check_connected_cameras()))
 
     async def _check_connected_cameras(self):
@@ -111,6 +117,12 @@ class Camera:
                 self.camera_id = camera.component_id
                 self.cameras.add((camera.component_id, camera.model_name,
                                   camera.horizontal_resolution_px, camera.vertical_resolution_px))
+
+    async def _capture_info_updates(self):
+        self.drone.system.camera: mavsdk.camera.Camera
+        async for capture_info in self.drone.system.camera.capture_info():
+            capture_info: mavsdk.camera.CaptureInfo
+            self.logger.info(f"Capture update: Camera {capture_info.component_id} {'succeeded' if capture_info.is_success else 'failed'} with photo at {capture_info.time_utc_us}")
 
     async def close(self):
         for task in self._running_tasks:
