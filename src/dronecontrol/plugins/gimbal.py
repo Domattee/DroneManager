@@ -11,7 +11,7 @@ from dronecontrol.plugin import Plugin
 from dronecontrol.utils import relative_gps
 
 # TODO: Big refactor, swap control management to gimbal class, better gimbal presence checking
-# TODO: Specific gimbal type for our POS gremsy that doesn't properly implement mavlink
+# TODO: PX4 only supports a single gimbal apparently
 
 ControlMode = MAVControlMode
 GimbalMode = MAVGimbalMode
@@ -86,7 +86,6 @@ class GimbalPlugin(Plugin):
             else:
                 self.logger.info(f"Couldn't take control over gimbal on {drone}!")
 
-
     async def release_control(self, drone: str, gimbal_id: int = None):
         if self.check_has_gimbal(drone):
             self.logger.info(f"Releasing control over gimbal {gimbal_id}")
@@ -134,6 +133,137 @@ class Gimbal:
         self.dm = dm
         self.drone = drone
 
+        self.gimbal_id_commands = 0
+        self.gimbal_id_messages = 0
+        self.roll: float = math.nan
+        self.pitch: float = math.nan
+        self.yaw: float = math.nan
+        self.mode: GimbalMode = GimbalMode.YAW_FOLLOW
+        self.primary_control: tuple[float, float] = (math.nan, math.nan)
+        self.secondary_control: tuple[float, float] = (math.nan, math.nan)
+        self._running_tasks = set()
+        self.update_rate = 5  # How often we request updates on control and attitude
+        self._start_background_tasks()
+
+    def _start_background_tasks(self):
+        self._running_tasks.add(asyncio.create_task(self._check_gimbal_attitude()))
+        self._running_tasks.add(asyncio.create_task(self._check_gimbal_control()))
+
+    async def close(self):
+        try:
+            await self.release_control(0)
+        except Exception as e:
+            self.logger.warning("Exception while closing gimbal object, check logs")
+            self.logger.debug(repr(e), exc_info=True)
+        for task in self._running_tasks:
+            if isinstance(task, asyncio.Task):
+                task.cancel()
+
+    async def _check_gimbal_attitude(self):
+        while True:
+            try:
+                self._running_tasks.add(asyncio.create_task(self._check_gimbal_attitude_gimbal(self.gimbal_id_messages)))
+                await asyncio.sleep(1/self.update_rate)
+            except Exception as e:
+                self.logger.warning(f"Exception in the gimbal attitude check function! See logs for details.")
+                self.logger.debug(repr(e), exc_info=True)
+
+    async def _check_gimbal_attitude_gimbal(self, gimbal_id):
+        attitude = await self.drone.system.gimbal.get_attitude(gimbal_id)
+        rpy = attitude.euler_angle_forward
+        self.roll = rpy.roll_deg
+        self.pitch = rpy.pitch_deg
+        self.yaw = rpy.yaw_deg
+        self.logger.debug(f"eulers: {rpy.roll_deg, rpy.pitch_deg, rpy.yaw_deg}, "
+                          f"eulers NED: {attitude.euler_angle_north.roll_deg, attitude.euler_angle_north.pitch_deg, attitude.euler_angle_north.yaw_deg}, "
+                          f"quat: {attitude.quaternion_forward.__dict__},"
+                          f"quat ned {attitude.quaternion_north.__dict__}")
+
+    async def _check_gimbal_control(self):
+        while True:
+            try:
+                self._running_tasks.add(asyncio.create_task(self._check_gimbal_control_gimbal(self.gimbal_id_messages)))
+                await asyncio.sleep(1/self.update_rate)
+            except Exception as e:
+                self.logger.warning(f"Exception in the gimbal control check function! See logs for details.")
+                self.logger.debug(repr(e), exc_info=True)
+
+    async def _check_gimbal_control_gimbal(self, gimbal_id):
+        gimbal_control = await self.drone.system.gimbal.get_control_status(gimbal_id)
+        self.primary_control = (gimbal_control.sysid_primary_control, gimbal_control.compid_primary_control)
+        self.secondary_control = (gimbal_control.sysid_secondary_control, gimbal_control.compid_secondary_control)
+        self.logger.debug(f"{gimbal_id, gimbal_control.sysid_primary_control}")
+
+    def log_status(self):
+        self.logger.info(f"Gimbal control P:{self.primary_control}, "
+                         f"S: {self.secondary_control}, "
+                         f"Roll: {self.roll}, Pitch: {self.pitch}, Yaw: {self.yaw}")
+
+    def in_control(self, gimbal_id: int | None):
+        gimbal_id = self.gimbal_id_commands
+        return self.primary_control[gimbal_id] == (self.dm.system_id, self.dm.component_id)
+
+    async def take_control(self, gimbal_id: int | None):
+        gimbal_id = self.gimbal_id_commands
+        self.logger.info(f"Taking control of gimbal {gimbal_id}")
+        return await self._error_wrapper(self.drone.system.gimbal.take_control, gimbal_id, ControlMode.PRIMARY)
+
+    async def release_control(self, gimbal_id: int | None):
+        gimbal_id = self.gimbal_id_commands
+        return await self._error_wrapper(self.drone.system.gimbal.release_control, gimbal_id)
+
+    async def point_gimbal_at(self, gimbal_id: int | None, lat, long, amsl):
+        gimbal_id = self.gimbal_id_commands
+        if not self.in_control(gimbal_id):
+            self.logger.warning("Trying to point a gimbal we don't control, might not work!")
+        return await self._error_wrapper(self.drone.system.gimbal.set_roi_location, gimbal_id, lat, long, amsl)
+
+    async def point_gimbal_at_relative(self, gimbal_id: int | None, x, y, z):
+        gimbal_id = self.gimbal_id_commands
+        if not self.in_control(gimbal_id):
+            self.logger.warning("Trying to point a gimbal we don't control, might not work!")
+        lat, long, amsl = relative_gps(x, y, z, *self.drone.position_global[:3])
+        return await self.point_gimbal_at(gimbal_id, lat, long, amsl)
+
+    async def set_gimbal_angles(self, gimbal_id: int | None, pitch, yaw):
+        gimbal_id = self.gimbal_id_commands
+        if not self.in_control(gimbal_id):
+            self.logger.warning("Trying to point a gimbal we don't control, might not work!")
+        self.logger.debug(f"Setting gimbal angles for gimbal {gimbal_id} to {pitch, yaw}")
+        return await self._error_wrapper(self.drone.system.gimbal.set_angles, gimbal_id, 0, pitch, yaw, self.mode,
+                                         SendMode.ONCE)
+
+    async def set_gimbal_rates(self, gimbal_id: int | None, pitch_rate, yaw_rate):
+        gimbal_id = self.gimbal_id_commands
+        if not self.in_control(gimbal_id):
+            self.logger.warning("Trying to point a gimbal we don't control, might not work!")
+        return await self._error_wrapper(self.drone.system.gimbal.set_angular_rates, 0, pitch_rate, yaw_rate,
+                                         self.mode, SendMode.ONCE)
+
+    async def set_gimbal_mode(self, gimbal_id: int | None, mode):
+        assert mode in ["follow", "lock"]
+        gimbal_id = self.gimbal_id_commands
+        if mode == "follow":
+            self.mode = GimbalMode.YAW_FOLLOW
+        elif mode == "lock":
+            self.mode = GimbalMode.YAW_LOCK
+
+    async def _error_wrapper(self, func, *args, **kwargs):
+        try:
+            await func(*args, **kwargs)
+        except GimbalError as e:
+            self.logger.error(f"GimbalError: {e._result.result_str}")
+            return False
+        return True
+
+
+class GimbalMulti:
+
+    def __init__(self, logger, dm, drone):
+        self.logger = logger
+        self.dm = dm
+        self.drone = drone
+
         self.gimbal_list: set[int] = set()
         self.roll: dict[int, float] = {}
         self.pitch: dict[int, float] = {}
@@ -147,9 +277,9 @@ class Gimbal:
         self._start_background_tasks()
 
     def _start_background_tasks(self):
-        self._running_tasks.add(asyncio.create_task(self._check_gimbal_attitude_cont()))
-        self._running_tasks.add(asyncio.create_task(self._check_gimbal_control_cont()))
-#        self._running_tasks.add(asyncio.create_task(self._check_connected_gimbals()))
+        self._running_tasks.add(asyncio.create_task(self._check_gimbal_attitude()))
+        self._running_tasks.add(asyncio.create_task(self._check_gimbal_control()))
+        self._running_tasks.add(asyncio.create_task(self._check_connected_gimbals()))
 
     async def close(self):
         try:
@@ -199,15 +329,6 @@ class Gimbal:
                 self.logger.warning(f"Exception in the gimbal attitude check function! See logs for details.")
                 self.logger.debug(repr(e), exc_info=True)
 
-    async def _check_gimbal_attitude_cont(self):
-        gimbal_id = self._gimbal_id_check(None)
-        async for attitude in self.drone.system.gimbal.attitude():
-            rpy = attitude.euler_angle_forward
-            self.roll[gimbal_id] = rpy.roll_deg
-            self.pitch[gimbal_id] = rpy.pitch_deg
-            self.yaw[gimbal_id] = rpy.yaw_deg
-            self.logger.debug(f"Desired {gimbal_id} actual {attitude.gimbal_id}, eulers: {rpy.roll_deg, rpy.pitch_deg, rpy.yaw_deg}, ")
-
     async def _check_gimbal_attitude_gimbal(self, gimbal_id):
         attitude = await self.drone.system.gimbal.get_attitude(gimbal_id)
         attitude: mavsdk.gimbal.Attitude
@@ -217,18 +338,10 @@ class Gimbal:
         self.yaw[gimbal_id] = rpy.yaw_deg
         self.logger.debug(f"Desired {gimbal_id} actual {attitude.gimbal_id}, "
                           f"eulers: {rpy.roll_deg, rpy.pitch_deg, rpy.yaw_deg}, "
-                          f"eulers NED: {attitude.euler_angle_north.roll_deg, attitude.euler_angle_north.pitch_deg, attitude.euler_angle_north.yaw_deg}, "
+                          f"eulers NED: {attitude.euler_angle_north.roll_deg}, "
+                          f"{attitude.euler_angle_north.pitch_deg, attitude.euler_angle_north.yaw_deg}, "
                           f"quat: {attitude.quaternion_forward.__dict__},"
                           f"quat ned {attitude.quaternion_north.__dict__}")
-
-    async def _check_gimbal_control_cont(self):
-        gimbal_id = self._gimbal_id_check(None)
-        async for gimbal_control in self.drone.system.gimbal.control_status():
-            self.primary_control[gimbal_id] = (gimbal_control.sysid_primary_control,
-                                               gimbal_control.compid_primary_control)
-            self.secondary_control[gimbal_id] = (gimbal_control.sysid_secondary_control,
-                                                 gimbal_control.compid_secondary_control)
-            self.logger.debug(f"{gimbal_id, gimbal_control.sysid_primary_control}")
 
     async def _check_gimbal_control(self):
         while True:
@@ -242,8 +355,10 @@ class Gimbal:
 
     async def _check_gimbal_control_gimbal(self, gimbal_id):
         gimbal_control = await self.drone.system.gimbal.get_control_status(gimbal_id)
-        self.primary_control[gimbal_id] = (gimbal_control.sysid_primary_control, gimbal_control.compid_primary_control)
-        self.secondary_control[gimbal_id] = (gimbal_control.sysid_secondary_control, gimbal_control.compid_secondary_control)
+        self.primary_control[gimbal_id] = (gimbal_control.sysid_primary_control,
+                                           gimbal_control.compid_primary_control)
+        self.secondary_control[gimbal_id] = (gimbal_control.sysid_secondary_control,
+                                             gimbal_control.compid_secondary_control)
         self.logger.debug(f"{gimbal_id, gimbal_control.sysid_primary_control}")
 
     def log_status(self):
@@ -293,14 +408,14 @@ class Gimbal:
             self.logger.warning("Trying to point a gimbal we don't control, might not work!")
         self.logger.debug(f"Setting gimbal angles for gimbal {gimbal_id} to {pitch, yaw}")
         return await self._error_wrapper(self.drone.system.gimbal.set_angles, gimbal_id, 0, pitch, yaw,
-                                  self.mode.get(gimbal_id, GimbalMode.YAW_FOLLOW), SendMode.ONCE)
+                                         self.mode.get(gimbal_id, GimbalMode.YAW_FOLLOW), SendMode.ONCE)
 
     async def set_gimbal_rates(self, gimbal_id: int | None, pitch_rate, yaw_rate):
         gimbal_id = self._gimbal_id_check(gimbal_id)
         if not self.in_control(gimbal_id):
             self.logger.warning("Trying to point a gimbal we don't control, might not work!")
         return await self._error_wrapper(self.drone.system.gimbal.set_angular_rates, 0, pitch_rate, yaw_rate,
-                                  self.mode.get(gimbal_id, GimbalMode.YAW_FOLLOW), SendMode.ONCE)
+                                         self.mode.get(gimbal_id, GimbalMode.YAW_FOLLOW), SendMode.ONCE)
 
     async def set_gimbal_mode(self, gimbal_id: int | None, mode):
         assert mode in ["follow", "lock"]
@@ -308,7 +423,7 @@ class Gimbal:
         if mode == "follow":
             self.mode[gimbal_id] = GimbalMode.YAW_FOLLOW
         elif mode == "lock":
-            self.mode[gimbal_id] =GimbalMode.YAW_LOCK
+            self.mode[gimbal_id] = GimbalMode.YAW_LOCK
 
     async def _error_wrapper(self, func, *args, **kwargs):
         try:
