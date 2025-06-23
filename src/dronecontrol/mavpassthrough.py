@@ -1,10 +1,10 @@
-import collections
 import logging
 import datetime
 import math
 import time
 import os
 import asyncio
+import typing
 
 from pymavlink import mavutil
 
@@ -49,7 +49,7 @@ class MAVPassthrough:
         self.running_tasks = set()
         self.should_stop = False
 
-        self.drone_receive_callbacks: dict[int, set[collections.Callable[[any], collections.Coroutine]]] = {}
+        self.drone_receive_callbacks: dict[int, set[typing.Callable[[any], typing.Coroutine]]] = {}
 
     def connect_gcs(self, address):
         self.running_tasks.add(asyncio.create_task(self._connect_gcs(address)))
@@ -255,11 +255,14 @@ class MAVPassthrough:
                                     self.logger.debug(f"Encountered an exception sending message to GCS: {repr(e)}",
                                                       exc_info=True)
                                 # Do callbacks
-                                callbacks = self.drone_receive_callbacks.get(msg.get_msgId, [])
-                                for coro in callbacks:
-                                    task = asyncio.create_task(coro(msg))
-                                    self.running_tasks.add(task)
-                                    self.running_tasks.add(asyncio.create_task(coroutine_awaiter(task, self.logger)))
+                                msg_id = msg.get_msgId()
+                                if msg_id in self.drone_receive_callbacks:
+                                    callbacks = self.drone_receive_callbacks[msg.get_msgId()]
+                                    for coro in callbacks:
+                                        self.logger.debug(f"Doing callback {coro} for message with ID {msg.get_msgId()}")
+                                        task = asyncio.create_task(coro(msg))
+                                        self.running_tasks.add(task)
+                                        self.running_tasks.add(asyncio.create_task(coroutine_awaiter(task, self.logger)))
                             self.con_gcs.mav.srcSystem = self.source_system
                             self.con_gcs.mav.srcComponent = self.source_component
             else:
@@ -292,10 +295,13 @@ class MAVPassthrough:
             self.logger.debug(f"GCS connection target system {self.con_gcs.target_system}")
             await asyncio.sleep(0.5)
 
-    def add_drone_message_callback(self, message_id: int, func: collections.Callable[[any], collections.Coroutine]):
-        self.drone_receive_callbacks[message_id].add(func)
+    def add_drone_message_callback(self, message_id: int, func: typing.Callable[[any], typing.Coroutine]):
+        if message_id in self.drone_receive_callbacks:
+            self.drone_receive_callbacks[message_id].add(func)
+        else:
+            self.drone_receive_callbacks[message_id] = {func}
 
-    def remove_drone_message_callback(self, message_id: int, func: collections.Callable[[any], collections.Coroutine]):
+    def remove_drone_message_callback(self, message_id: int, func: typing.Callable[[any], typing.Coroutine]):
         if message_id in self.drone_receive_callbacks:
             self.drone_receive_callbacks[message_id].remove(func)
 

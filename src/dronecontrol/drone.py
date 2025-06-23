@@ -8,6 +8,7 @@ import platform
 import time
 from subprocess import Popen, DEVNULL
 from abc import ABC, abstractmethod
+from typing import Coroutine
 
 import numpy as np
 
@@ -70,7 +71,7 @@ class Drone(ABC, threading.Thread):
         self.name = name
         self.drone_addr = None
         self.drone_ip = None
-        self.action_queue: deque[tuple[asyncio.Coroutine, asyncio.Future]] = deque()
+        self.action_queue: deque[tuple[Coroutine, asyncio.Future]] = deque()
         self.current_action: asyncio.Task | None = None
         self.should_stop = threading.Event()
         self.logger = logging.getLogger(name)
@@ -412,7 +413,7 @@ class DroneMAVSDK(Drone):
         # planning algorithms for their time resolution.
         self.position_update_rate = 5
 
-        self.mav_conn = MAVPassthrough(loggername=f"{name}_MAVLINK", log_messages=False)
+        self.mav_conn: MAVPassthrough = MAVPassthrough(loggername=f"{name}_MAVLINK", log_messages=True)
         try:
             #self.trajectory_generator = GMP3Generator(self, 1/self.position_update_rate, self.logger, use_gps=False)
             self.trajectory_generator = DirectTargetGenerator(self, self.logger, WayPointType.POS_NED, use_gps=False)
