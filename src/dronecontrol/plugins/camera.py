@@ -8,6 +8,7 @@ from dronecontrol.plugin import Plugin
 # TODO: Check if a drone supports camera commands when adding cameras
 # TODO: Probably want to set in the add command what type of camera, and then have classes for each specific camera,
 #  i.e. Workswell, the raspberry pi ones, etc. to allow specific commands, such as swapping between vis and ir
+# TODO: Work with the parameters and the param file somehow, have to get and parse the xmls
 
 
 class CameraPlugin(Plugin):
@@ -48,12 +49,12 @@ class CameraPlugin(Plugin):
             return False
         return True
 
-    async def add_cameras(self, drone: str):
+    async def add_cameras(self, drone: str, camera_id: int = 100):
         """ Add cameras from/for a given drone to the plugin"""
         self.logger.info(f"Adding camera to drone {drone}")
         try:
             drone_object = self.dm.drones[drone]
-            self.cameras[drone] = Camera(self.logger, self.dm, drone_object)
+            self.cameras[drone] = Camera(self.logger, self.dm, drone_object, camera_id=camera_id)
         except Exception as e:
             self.logger.warning(repr(e))
 
@@ -71,38 +72,45 @@ class CameraPlugin(Plugin):
     async def get_settings(self, drone: str):
         if self.check_has_camera(drone):
             return await self.cameras[drone].get_settings()
+        return False
 
     async def take_picture(self, drone: str):
         if self.check_has_camera(drone):
             return await self.cameras[drone].take_picture()
+        return False
 
     async def start_video(self, drone: str):
         if self.check_has_camera(drone):
             return await self.cameras[drone].start_video()
+        return False
 
     async def stop_video(self, drone: str):
         if self.check_has_camera(drone):
             return await self.cameras[drone].stop_video()
+        return False
 
     async def set_zoom(self, drone: str, zoom: float):
         if self.check_has_camera(drone):
             return await self.cameras[drone].set_zoom(zoom)
+        return False
 
     async def swap_ir_vis(self, drone: str):
         if self.check_has_camera(drone):
             return await self.cameras[drone].swap_ir_vis()
+        return False
 
 
 class Camera:
 
-    def __init__(self, logger, dm, drone):
+    def __init__(self, logger, dm, drone, camera_id: int = 100):
         self.logger = logger
         self.dm = dm
         self.drone = drone
 
-        self.camera_id = 100
+        self.camera_id = camera_id
         self._running_tasks = set()
         self._start_background_tasks()
+        self._request_cam_info()
 
     def _start_background_tasks(self):
         self._running_tasks.add(asyncio.create_task(self._capture_info_updates()))
@@ -141,10 +149,19 @@ class Camera:
     async def stop_video(self):
         self.drone.mav_conn.send_cmd_long(target_component=self.camera_id, cmd=2501)
 
+    def _request_cam_info(self):
+        self.drone.mav_conn.request_message(target_component=self.camera_id, message_id=259)
+
     async def get_settings(self):
         # TODO: Wait and handle answers, have to work in mavpassthrough for that
-        self.drone.mav_conn.request_message(target_component=self.camera_id, message_id=259)
-        self.drone.mav_conn.request_message(target_component=self.camera_id, message_id=260, param1=1)
+        # TODO: In MAVPassthrough, three "listen to" functions:
+        #  Single response, with matching check, async, returns when matching message returns, with timeout option
+        #  Multi response, with either timeout or number of messages, with matching, returns when timeout or number of messages is complete
+        #  Indefinite response
+        # TODO: Handle here for checks on if we have all the messages we want or not
+        # TODO: Changing and reading setting values in the CLI
+        self.drone.mav_conn.send_param_ext_request_list(self.drone.mav_conn.drone_system, self.camera_id)
+        #self.drone.mav_conn.request_message(target_component=self.camera_id, message_id=260, param1=1)
 
     async def set_zoom(self, zoom):
         self.drone.mav_conn.send_cmd_long(target_component=self.camera_id, cmd=203, param2=zoom, param5=0)

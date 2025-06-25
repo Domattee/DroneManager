@@ -188,9 +188,13 @@ class MAVPassthrough:
                                                         param1, param2, param3, param4, param5, param6, param7)
         self.send_as_gcs(msg)
 
-    def request_message(self,target_component, message_id, param1=math.nan, param2=math.nan,
+    def request_message(self, target_component, message_id, param1=math.nan, param2=math.nan,
                         param3=math.nan, param4=math.nan, param5=math.nan, response_target=1):
         self.send_cmd_long(target_component, 512, message_id, param1, param2, param3, param4, param5, response_target)
+
+    def send_param_ext_request_list(self, target_system, target_component):
+        msg = self.con_drone_in.mav.param_ext_request_list_encode(target_system, target_component)
+        self.send_as_gcs(msg)
 
     def _process_message_for_return(self, msg):
         msg_id = msg.get_msgId()  # msg.id is sometimes not set correctly.

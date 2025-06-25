@@ -137,8 +137,6 @@ class Gimbal:
         self.dm = dm
         self.drone = drone
 
-        if device_id is None:
-            device_id = 154
         self.device_id = device_id  # mavlink component id of the gimbal
 
         self.gimbal_id_commands = 0
