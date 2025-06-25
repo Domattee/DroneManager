@@ -141,7 +141,7 @@ class Camera:
         camera_id = self.camera_id
         self.logger.info(f"Camera {camera_id}")
 
-    async def take_picture(self):
+    async def take_picture(self, ir=True, vis=True):
         flags = 0
         if ir:
             flags += 1
