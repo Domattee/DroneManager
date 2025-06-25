@@ -20,12 +20,11 @@ class CameraPlugin(Plugin):
             "add": self.add_cameras,
             "remove": self.remove_camera,
             "status": self.status,
-            "settings": self.get_settings,
+            "settings": self.settings,
             "photo": self.take_picture,
             "start": self.start_video,
             "stop": self.stop_video,
             "zoom": self.set_zoom,
-            "swap": self.swap_ir_vis,
         }
         self.background_functions = [
         ]
@@ -69,9 +68,9 @@ class CameraPlugin(Plugin):
         if self.check_has_camera(drone):
             self.cameras[drone].log_status()
 
-    async def get_settings(self, drone: str):
+    async def settings(self, drone: str):
         if self.check_has_camera(drone):
-            return await self.cameras[drone].get_settings()
+            return await self.cameras[drone].settings()
         return False
 
     async def take_picture(self, drone: str):
@@ -94,11 +93,6 @@ class CameraPlugin(Plugin):
             return await self.cameras[drone].set_zoom(zoom)
         return False
 
-    async def swap_ir_vis(self, drone: str):
-        if self.check_has_camera(drone):
-            return await self.cameras[drone].swap_ir_vis()
-        return False
-
 
 class Camera:
 
@@ -110,7 +104,6 @@ class Camera:
         self.camera_id = camera_id
         self._running_tasks = set()
         self._start_background_tasks()
-        self._request_cam_info()
 
     def _start_background_tasks(self):
         self._running_tasks.add(asyncio.create_task(self._capture_info_updates()))
@@ -121,6 +114,24 @@ class Camera:
             capture_info: mavsdk.camera.CaptureInfo
             self.logger.info(f"Capture update: Camera {capture_info.component_id} {'succeeded' if capture_info.is_success else 'failed'} with photo at {capture_info.time_utc_us}: {capture_info.file_url}")
 
+    async def start(self):
+        have_cam = await self._request_cam_info()
+        if have_cam:
+            self._get_cam_params()
+            # Check that we have all the params
+
+    async def _request_cam_info(self):
+        cam_info = await self.drone.mav_conn.get_message(target_component=self.camera_id, message_id=259)
+        if not cam_info:
+            self.logger.warning("No camera found!")
+        else:
+            pass
+            # TODO: Do the thing with cam info
+        return False
+
+    def _get_cam_params(self):
+        self.drone.mav_conn.send_param_ext_request_list(self.drone.mav_conn.drone_system, self.camera_id)
+
     async def close(self):
         for task in self._running_tasks:
             if isinstance(task, asyncio.Task):
@@ -130,13 +141,13 @@ class Camera:
         camera_id = self.camera_id
         self.logger.info(f"Camera {camera_id}")
 
-    async def take_picture(self, ir=True, vis=True):
+    async def take_picture(self):
         flags = 0
         if ir:
             flags += 1
         if vis:
             flags += 8
-        self.drone.mav_conn.send_cmd_long(target_component=100, cmd=2000, param3=1.0, param5=int(flags))
+        await self.drone.mav_conn.send_cmd_long(target_component=100, cmd=2000, param3=1.0, param5=int(flags))
 
     async def start_video(self, ir=True, vis=True):
         flags = 0
@@ -144,30 +155,17 @@ class Camera:
             flags += 2
         if vis:
             flags += 4
-        self.drone.mav_conn.send_cmd_long(target_component=self.camera_id, cmd=2500, param1=int(flags), param2=2)
+        await self.drone.mav_conn.send_cmd_long(target_component=self.camera_id, cmd=2500, param1=int(flags), param2=2)
 
     async def stop_video(self):
-        self.drone.mav_conn.send_cmd_long(target_component=self.camera_id, cmd=2501)
+        await self.drone.mav_conn.send_cmd_long(target_component=self.camera_id, cmd=2501)
 
-    def _request_cam_info(self):
-        self.drone.mav_conn.request_message(target_component=self.camera_id, message_id=259)
-
-    async def get_settings(self):
-        # TODO: Wait and handle answers, have to work in mavpassthrough for that
-        # TODO: In MAVPassthrough, three "listen to" functions:
-        #  Single response, with matching check, async, returns when matching message returns, with timeout option
-        #  Multi response, with either timeout or number of messages, with matching, returns when timeout or number of messages is complete
-        #  Indefinite response
-        # TODO: Handle here for checks on if we have all the messages we want or not
-        # TODO: Changing and reading setting values in the CLI
-        self.drone.mav_conn.send_param_ext_request_list(self.drone.mav_conn.drone_system, self.camera_id)
-        #self.drone.mav_conn.request_message(target_component=self.camera_id, message_id=260, param1=1)
+    async def settings(self):
+        # Print out the settings
+        pass
 
     async def set_zoom(self, zoom):
-        self.drone.mav_conn.send_cmd_long(target_component=self.camera_id, cmd=203, param2=zoom, param5=0)
-
-    async def swap_ir_vis(self):
-        self.drone.mav_conn.send_cmd_long(target_component=self.camera_id, cmd=530, param6=1)
+        await self.drone.mav_conn.send_cmd_long(target_component=self.camera_id, cmd=203, param2=zoom, param5=0)
 
     async def _error_wrapper(self, func, *args, **kwargs):
         try:
