@@ -27,6 +27,8 @@ FENCES = {
 
 pane_formatter = logging.Formatter('%(asctime)s %(levelname)s %(name)s - %(message)s', datefmt="%H:%M:%S")
 
+# TODO: Config file with stull like this dictionary or the cache and log locations
+
 DRONE_DICT = {
     "luke":   "udp://192.168.1.31:14561",
     "wedge":  "udp://192.168.1.32:14562",

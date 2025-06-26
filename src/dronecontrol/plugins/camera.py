@@ -243,7 +243,6 @@ class Camera:
 
     async def _request_cam_info(self):
         cam_info = await self.drone.mav_conn.get_message(target_component=self.camera_id, message_id=259)
-        cam_info: pymavlink.dialects.v20.ardupilotmega.MAVLink_camera_information_message
         if not cam_info:
             self.logger.warning("No camera found!")
         else:
@@ -252,28 +251,33 @@ class Camera:
             cam_def_uri = cam_info.cam_definition_uri
             cam_def_version = cam_info.cam_definition_version
             try:
-                xml_str = await self._get_cam_definition(cam_def_uri, cam_def_version)
-                self.logger.info(xml_str)
-                self._parse_cam_definition(xml_str)
+                xml_str = await self.get_cam_definition(cam_def_uri, cam_def_version)
+                if xml_str:
+                    self.logger.info(xml_str)
+                    self._parse_cam_definition(xml_str)
             except Exception as e:
                 self.logger.warning("Couldn't get the camera definition XML due to an exception!")
                 self.logger.debug(repr(e), exc_info=True)
         return False
 
-    async def _get_cam_definition(self, uri, version):
-        # TODO: Cache the file with the uri and version and check if we have it already
+    async def get_cam_definition(self, uri, version):
         cached_path = self._xml_cache_filepath(uri, version)
         if cached_path.exists():
             xml_str = await asyncio.get_running_loop().run_in_executor(self._load_xml, uri, version)
         else:
             self.logger.debug("Camera definition file not cached, downloading...")
             xml_str = await asyncio.get_running_loop().run_in_executor(None, self._download_xml, uri)
-            await asyncio.get_running_loop().run_in_executor(None, self._save_xml, xml_str, uri, version)
+            if xml_str:
+                await asyncio.get_running_loop().run_in_executor(None, self._save_xml, xml_str, uri, version)
         return xml_str
 
     async def _download_xml(self, uri):
-        response = requests.get(uri, verify=False)
-        return response.text
+        try:
+            response = requests.get(uri, verify=False)
+            return response.text
+        except requests.RequestException:
+            self.logger.warning("Couldn't download the camera definition, probably due to no internet.")
+            return None
 
     async def _save_xml(self, xml_str, uri, version):
         filepath = self._xml_cache_filepath(uri, version)
@@ -290,8 +294,9 @@ class Camera:
                 xml_str = f.read()
             return xml_str
         except OSError as e:
+            self.logger.error("Couldn't load the cached camera definition.")
             self.logger.debug(repr(e), exc_info=True)
-            return False
+            return None
 
     def _xml_cache_filepath(self, uri, version):
         pathsafe_uri = uri.replace("/", "_").replace("\\", "_").replace(":", "_").replace("?", "_")
