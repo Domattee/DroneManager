@@ -56,11 +56,15 @@ class CameraPlugin(Plugin):
         """ Add cameras from/for a given drone to the plugin"""
         self.logger.info(f"Adding camera to drone {drone}")
         try:
-            drone_object = self.dm.drones[drone]
-            self.cameras[drone] = Camera(self.logger, self.dm, drone_object, camera_id=camera_id)
-            await self.cameras[drone].start()
+            drone_object = self.dm.drones.get(drone, None)
+            if drone_object:
+                self.cameras[drone] = Camera(self.logger, self.dm, drone_object, camera_id=camera_id)
+                await self.cameras[drone].start()
+            else:
+                self.logger.warning(f"No drone named {drone}")
         except Exception as e:
-            self.logger.warning(repr(e))
+            self.logger.warning("Couldn't add the camera to the drone due to an exception!")
+            self.logger.debug(repr(e), exc_info=True)
 
     async def remove_camera(self, drone: str):
         """ Remove a camera from the plugin"""
