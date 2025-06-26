@@ -6,7 +6,6 @@ import requests
 from lxml import etree
 
 import mavsdk.camera
-import pymavlink.dialects.v20.ardupilotmega
 
 from dronecontrol.plugin import Plugin
 from dronecontrol.utils import CACHE_DIR
@@ -58,8 +57,12 @@ class CameraPlugin(Plugin):
         try:
             drone_object = self.dm.drones.get(drone, None)
             if drone_object:
-                self.cameras[drone] = Camera(self.logger, self.dm, drone_object, camera_id=camera_id)
-                await self.cameras[drone].start()
+                new_cam = Camera(self.logger, self.dm, drone_object, camera_id=camera_id)
+                success = await new_cam.start()
+                if success:
+                    self.cameras[drone] = new_cam
+                else:
+                    await new_cam.close()
             else:
                 self.logger.warning(f"No drone named {drone}")
         except Exception as e:
@@ -167,6 +170,9 @@ class CameraParameter:
     def get_option_by_name(self, option_name):
         return self._options_by_name.get(option_name, None)
 
+    def get_option_by_value(self, option_value):
+        return self._options.get(option_value)
+
     def get_options(self):
         return list(self._options.values())
 
@@ -190,18 +196,17 @@ class Camera:
         self._running_tasks.add(asyncio.create_task(self._capture_info_updates()))
 
     async def _capture_info_updates(self):
-        self.drone.system.camera: mavsdk.camera.Camera
         async for capture_info in self.drone.system.camera.capture_info():
-            capture_info: mavsdk.camera.CaptureInfo
             self.logger.info(f"Capture update: Camera {capture_info.component_id} "
                              f"{'succeeded' if capture_info.is_success else 'failed'} with photo at "
                              f"{capture_info.time_utc_us}: {capture_info.file_url}")
 
     async def start(self):
-        have_cam = await self._request_cam_info()
+        have_cam = await self.init_cam_info()
         if have_cam:
             self._get_cam_params()
-            # Check that we have all the params
+            return True
+        return False
 
     async def close(self):
         self.drone.mav_conn.remove_drone_message_callback(322, self._listen_param_updates)
@@ -209,9 +214,13 @@ class Camera:
             if isinstance(task, asyncio.Task):
                 task.cancel()
 
+    @property
+    def params_loaded(self):
+        return len(self.parameters) != 0
+
     def log_status(self):
         camera_id = self.camera_id
-        self.logger.info(f"Camera {camera_id}")
+        self.logger.info(f"Camera {camera_id}, parameters {'not ' if self.params_loaded else ''}loaded")
 
     async def take_picture(self,):
         res = await self.drone.mav_conn.send_cmd_long(target_component=100, cmd=2000, param3=1.0)
@@ -241,7 +250,7 @@ class Camera:
             return False
         return res
 
-    async def _request_cam_info(self):
+    async def init_cam_info(self):
         cam_info = await self.drone.mav_conn.get_message(target_component=self.camera_id, message_id=259)
         if not cam_info:
             self.logger.warning("No camera found!")
@@ -251,19 +260,20 @@ class Camera:
             cam_def_uri = cam_info.cam_definition_uri
             cam_def_version = cam_info.cam_definition_version
             try:
-                xml_str = await self.get_cam_definition(cam_def_uri, cam_def_version)
+                xml_str = await self._get_cam_definition(cam_def_uri, cam_def_version)
                 if xml_str:
                     self.logger.info(xml_str)
                     self._parse_cam_definition(xml_str)
+                    return True
             except Exception as e:
                 self.logger.warning("Couldn't get the camera definition XML due to an exception!")
                 self.logger.debug(repr(e), exc_info=True)
         return False
 
-    async def get_cam_definition(self, uri, version):
+    async def _get_cam_definition(self, uri, version) -> str | None:
         cached_path = self._xml_cache_filepath(uri, version)
         if cached_path.exists():
-            xml_str = await asyncio.get_running_loop().run_in_executor(self._load_xml, uri, version)
+            xml_str = await asyncio.get_running_loop().run_in_executor(None, self._load_xml, uri, version)
         else:
             self.logger.debug("Camera definition file not cached, downloading...")
             xml_str = await asyncio.get_running_loop().run_in_executor(None, self._download_xml, uri)
@@ -271,7 +281,7 @@ class Camera:
                 await asyncio.get_running_loop().run_in_executor(None, self._save_xml, xml_str, uri, version)
         return xml_str
 
-    async def _download_xml(self, uri):
+    def _download_xml(self, uri):
         try:
             response = requests.get(uri, verify=False)
             return response.text
@@ -279,14 +289,14 @@ class Camera:
             self.logger.warning("Couldn't download the camera definition, probably due to no internet.")
             return None
 
-    async def _save_xml(self, xml_str, uri, version):
+    def _save_xml(self, xml_str, uri, version):
         filepath = self._xml_cache_filepath(uri, version)
         self.logger.debug(f"Saving camera definition xml {filepath}")
         os.makedirs(filepath.parent, exist_ok=True)
         with open(filepath, "wt", encoding="utf-8") as f:
             f.write(xml_str)
 
-    async def _load_xml(self, uri, version):
+    def _load_xml(self, uri, version):
         try:
             filepath = self._xml_cache_filepath(uri, version)
             self.logger.debug(f"Loading camera definition xml {filepath}")
@@ -342,6 +352,7 @@ class Camera:
     def _get_cam_params(self):
         self.drone.mav_conn.send_param_ext_request_list(self.drone.mav_conn.drone_system, self.camera_id)
         self.drone.mav_conn.add_drone_message_callback(322, self._listen_param_updates)
+        # TODO: Check that we have all the params loaded
 
     async def _listen_param_updates(self, msg):
         if msg.get_srcComponent() == self.camera_id and msg.get_srcSystem() == self.drone.mav_conn.drone_system:
@@ -351,20 +362,27 @@ class Camera:
                 self.parameters[param_name].value = param_value
 
     async def print_parameters(self):
+        if len(self.parameters) == 0:
+            self.logger.info("No parameters loaded, trying to download...")
+            await self.init_cam_info()
         for param_name, parameter in self.parameters.items():
             if parameter.is_option:
                 info_string = "".join([option.name for option in parameter.get_options()])
+                param_value = parameter.get_option_by_value(parameter.value).name
             elif parameter.is_bool:
                 info_string = "True or False"
+                param_value = parameter.value
             elif parameter.is_range:
                 if parameter.step_size:
                     info_string = f"Range between {parameter.min} and {parameter.max} " \
                                   f"with step size {parameter.step_size}"
                 else:
                     info_string = f"Range between {parameter.min} and {parameter.max}"
+                param_value = parameter.value
             else:
                 info_string = "Invalid option somewhow"
-            self.logger.info(f"Parameter {param_name}: {parameter.value}. {parameter.description}\n"
+                param_value = "You found an edge case for the parameter type, congratulations!"
+            self.logger.info(f"Parameter {param_name}: {param_value}. {parameter.description}\n"
                              f"\tOptions: {info_string}")
 
     async def set_parameter(self, param_name, param_value: str):
@@ -403,4 +421,3 @@ class Camera:
         # Request updates on any params that might have changed.
         for updated_param_name in parameter.updates:
             self.drone.mav_conn.send_param_ext_request_read(self.camera_id, updated_param_name)
-
