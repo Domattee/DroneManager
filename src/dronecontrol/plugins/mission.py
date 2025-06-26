@@ -119,7 +119,7 @@ class Mission(Plugin, abc.ABC):
             "remove": self.remove_drones,
         }
 
-        # These attributes may be used by other part of the package, for example to determine the window size for a map
+        # These attributes may be used by other part of the software, for example to determine the window size for a map
         self.current_stage: MissionStage | None = None  # For missions with multiple stages
         self.flight_area: FlightArea | None = None  # For missions with a defined flight area
         self.drones = collections.OrderedDict()  # The drones participating in the mission
