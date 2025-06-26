@@ -417,7 +417,12 @@ class Camera:
             return False
 
         self.drone.mav_conn.send_param_ext_set(self.camera_id, param_name, parsed_value, parameter.param_type)
+        ack_msg = await self.drone.mav_conn.listen_message(324, self.camera_id)
+        if ack_msg.param_result != 0:
+            self.logger.warning("Couldn't set parameter!")
+            return False
 
         # Request updates on any params that might have changed.
         for updated_param_name in parameter.updates:
             self.drone.mav_conn.send_param_ext_request_read(self.camera_id, updated_param_name)
+        return True

@@ -184,18 +184,18 @@ class MAVPassthrough:
         except Exception as e:
             self.logger.debug(repr(e), exc_info=True)
 
-    def listen_ack(self, command_id, target_system, target_component) -> asyncio.Future:
+    def listen_ack(self, command_id, target_component) -> asyncio.Future:
         received = asyncio.Future()
-        msg_tuple = (command_id, target_system, target_component, self.gcs_system, self.gcs_component)
+        msg_tuple = (command_id, self.drone_system, target_component, self.gcs_system, self.gcs_component)
         if msg_tuple in self._ack_waiters:
             self._ack_waiters[msg_tuple].append(received)
         else:
             self._ack_waiters[msg_tuple] = [received]
         return received
 
-    def listen_message(self, message_id, target_system, target_component) -> asyncio.Future:
+    def listen_message(self, message_id, target_component) -> asyncio.Future:
         received = asyncio.Future()
-        msg_tuple = (message_id, target_system, target_component)
+        msg_tuple = (message_id, self.drone_system, target_component)
         if msg_tuple in self._msg_waiters:
             self._msg_waiters[msg_tuple].append(received)
         else:
@@ -207,12 +207,12 @@ class MAVPassthrough:
         msg = self.con_drone_in.mav.command_long_encode(self.drone_system, target_component, cmd, 0,
                                                         param1, param2, param3, param4, param5, param6, param7)
         self.send_as_gcs(msg)
-        return self.listen_ack(cmd, self.drone_system, target_component)
+        return self.listen_ack(cmd, target_component)
 
     def send_request_message(self, target_component, message_id, param1=math.nan, param2=math.nan,
                              param3=math.nan, param4=math.nan, param5=math.nan, response_target=1):
         request_ack = self.send_cmd_long(target_component, 512, message_id, param1, param2, param3, param4, param5, response_target)
-        message = self.listen_message(message_id, self.drone_system, target_component)
+        message = self.listen_message(message_id, target_component)
         return message, request_ack
 
     async def get_message(self, target_component, message_id, param1=math.nan, param2=math.nan,
@@ -249,6 +249,7 @@ class MAVPassthrough:
     def send_param_ext_request_read(self, target_component, param_name: str):
         msg = self.con_drone_in.mav.param_ext_request_read_encode(self.drone_system, target_component,
                                                                   bytes(param_name, "utf-8"))
+        self.send_as_gcs(msg)
 
     def _process_message_for_return(self, msg):
         msg_id = msg.get_msgId()  # msg.id is sometimes not set correctly.
