@@ -22,6 +22,7 @@ from mavsdk.manual_control import ManualControlError
 
 from dronecontrol.utils import dist_ned, dist_gps, relative_gps
 from dronecontrol.utils import parse_address, common_formatter, get_free_port
+from dronecontrol.utils import LOG_DIR
 from dronecontrol.mavpassthrough import MAVPassthrough
 from dronecontrol.navigation.core import WayPointType, Waypoint, TrajectoryGenerator, TrajectoryFollower, Fence
 from dronecontrol.navigation.directsetpointfollower import DirectSetpointFollower
@@ -31,8 +32,6 @@ from dronecontrol.navigation.gmp3generator import GMP3Generator
 import logging
 
 _cur_dir = os.path.dirname(os.path.abspath(__file__))
-logdir = os.path.abspath("./logs")
-os.makedirs(logdir, exist_ok=True)
 _mav_server_file = os.path.join(_cur_dir, "mavsdk_server_bin.exe")
 
 
@@ -81,7 +80,8 @@ class Drone(ABC, threading.Thread):
         if self.log_to_file:
             log_file_name = f"drone_{self.name}_{datetime.datetime.now()}"
             log_file_name = log_file_name.replace(":", "_").replace(".", "_") + ".log"
-            file_handler = logging.FileHandler(os.path.join(logdir, log_file_name))
+            os.makedirs(LOG_DIR, exist_ok=True)
+            file_handler = logging.FileHandler(os.path.join(LOG_DIR, log_file_name))
             file_handler.setLevel(logging.DEBUG)
             file_handler.setFormatter(common_formatter)
             self.add_handler(file_handler)
@@ -912,6 +912,7 @@ class DroneMAVSDK(Drone):
         :param waypoint:
         :param tolerance:
         :param put_into_offboard:
+        :param log:
         :return:
         """
         # Check that we have one full set of coordinates and are in a flyable state

@@ -11,7 +11,7 @@ from asyncio.exceptions import TimeoutError, CancelledError
 
 from dronecontrol.drone import Drone, parse_address
 from dronecontrol.navigation.rectlocalfence import RectLocalFence
-from dronecontrol.utils import common_formatter, get_free_port
+from dronecontrol.utils import common_formatter, get_free_port, LOG_DIR
 from dronecontrol.navigation.core import Waypoint
 from dronecontrol.plugin import Plugin
 
@@ -66,9 +66,8 @@ class DroneManager:
             self.logger.setLevel(logging.DEBUG)
             filename = f"manager_{datetime.datetime.now()}"
             filename = filename.replace(":", "_").replace(".", "_") + ".log"
-            logdir = os.path.abspath("./logs")
-            os.makedirs(logdir, exist_ok=True)
-            file_handler = logging.FileHandler(os.path.join(logdir, filename))
+            os.makedirs(LOG_DIR, exist_ok=True)
+            file_handler = logging.FileHandler(os.path.join(LOG_DIR, filename))
             file_handler.setLevel(logging.DEBUG)
             file_handler.setFormatter(common_formatter)
             self.logger.addHandler(file_handler)

@@ -144,7 +144,7 @@ class EcoWittSensor(Sensor):
     async def get_data(self) -> EcoWittData | None:
         try:
             timestamp = datetime.datetime.now(datetime.UTC)
-            response = await asyncio.get_running_loop().run_in_executor(None, requests.get,f"http://{self.ip}/get_livedata_info")
+            response = await asyncio.get_running_loop().run_in_executor(None, requests.get, f"http://{self.ip}/get_livedata_info")
             data = EcoWittData.from_dict(response.json(), timestamp=timestamp)
             self.last_data = data
             return data

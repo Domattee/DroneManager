@@ -8,7 +8,7 @@ import typing
 
 from pymavlink import mavutil
 
-from dronecontrol.utils import common_formatter, coroutine_awaiter
+from dronecontrol.utils import common_formatter, coroutine_awaiter, LOG_DIR
 
 # TODO: Routing between multiple GCS so we can have my app and QGroundControl connected at the same time
 # TODO: Implement sending as drone/drone components
@@ -37,9 +37,8 @@ class MAVPassthrough:
         self.logger.setLevel(logging.DEBUG)
         filename = f"{loggername}_{datetime.datetime.now()}"
         filename = filename.replace(":", "_").replace(".", "_") + ".log"
-        logdir = os.path.abspath("./logs")
-        os.makedirs(logdir, exist_ok=True)
-        file_handler = logging.FileHandler(os.path.join(logdir, filename))
+        os.makedirs(LOG_DIR, exist_ok=True)
+        file_handler = logging.FileHandler(os.path.join(LOG_DIR, filename))
         file_handler.setLevel(logging.DEBUG)
         file_handler.setFormatter(common_formatter)
         self.logger.addHandler(file_handler)
@@ -192,7 +191,6 @@ class MAVPassthrough:
             self._ack_waiters[msg_tuple].append(received)
         else:
             self._ack_waiters[msg_tuple] = [received]
-        # Have a list with futures waiting on acks, with the params as tuples, and then go through this list during message processing?
         return received
 
     def listen_message(self, message_id, target_system, target_component) -> asyncio.Future:
@@ -218,7 +216,7 @@ class MAVPassthrough:
         return message, request_ack
 
     async def get_message(self, target_component, message_id, param1=math.nan, param2=math.nan,
-                        param3=math.nan, param4=math.nan, param5=math.nan, response_target=1, timeout=5):
+                          param3=math.nan, param4=math.nan, param5=math.nan, response_target=1, timeout=5):
         message, request_ack = self.send_request_message(target_component, message_id, param1=param1, param2=param2,
                                                          param3=param3, param4=param4, param5=param5, response_target=response_target)
         ack_wait = asyncio.wait_for(request_ack, timeout)
@@ -239,9 +237,18 @@ class MAVPassthrough:
                 self.logger.debug("Received the request acknowledgement, but not the message.")
             return msg
 
-    def send_param_ext_request_list(self, target_system, target_component):
-        msg = self.con_drone_in.mav.param_ext_request_list_encode(target_system, target_component)
+    def send_param_ext_request_list(self, target_component):
+        msg = self.con_drone_in.mav.param_ext_request_list_encode(self.drone_system, target_component)
         self.send_as_gcs(msg)
+
+    def send_param_ext_set(self, target_component, param_id, param_value, param_type):
+        msg = self.con_drone_in.mav.param_ext_set_encode(self.drone_system, target_component,
+                                                         param_id, param_value, param_type)
+        self.send_as_gcs(msg)
+
+    def send_param_ext_request_read(self, target_component, param_name: str):
+        msg = self.con_drone_in.mav.param_ext_request_read_encode(self.drone_system, target_component,
+                                                                  bytes(param_name, "utf-8"))
 
     def _process_message_for_return(self, msg):
         msg_id = msg.get_msgId()  # msg.id is sometimes not set correctly.

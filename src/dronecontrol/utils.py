@@ -2,6 +2,7 @@ import math
 from urllib.parse import urlparse
 import numpy as np
 import logging
+from pathlib import Path
 import socket
 import inspect
 import typing
@@ -10,6 +11,10 @@ import asyncio
 from haversine import inverse_haversine, haversine, Direction, Unit
 
 common_formatter = logging.Formatter('%(asctime)s.%(msecs)03d %(levelname)s %(name)s - %(message)s', datefmt="%H:%M:%S")
+
+CACHE_DIR = Path(__file__).parent.parent.joinpath(".cache")
+
+LOG_DIR = Path(__file__).parent.parent.joinpath("logs")
 
 
 def dist_ned(pos1, pos2):
