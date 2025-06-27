@@ -12,9 +12,9 @@ from haversine import inverse_haversine, haversine, Direction, Unit
 
 common_formatter = logging.Formatter('%(asctime)s.%(msecs)03d %(levelname)s %(name)s - %(message)s', datefmt="%H:%M:%S")
 
-CACHE_DIR = Path(__file__).parent.parent.joinpath(".cache")
+CACHE_DIR = Path(__file__).parent.parent.parent.joinpath(".cache")
 
-LOG_DIR = Path(__file__).parent.parent.joinpath("logs")
+LOG_DIR = Path(__file__).parent.parent.parent.joinpath("logs")
 
 
 def dist_ned(pos1, pos2):

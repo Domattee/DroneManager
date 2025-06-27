@@ -164,7 +164,7 @@ class DroneManager:
     async def disconnect(self, names, force=False):
         self.logger.info(f"Disconnecting {names} ...")
         async with self.drone_lock:
-            for name in names:
+            for name in list(names):
                 try:
                     drone = self.drones[name]
                 except KeyError:
@@ -426,6 +426,7 @@ class DroneManager:
     async def close(self):
         for plugin in list(self.plugins):
             await self.unload_plugin(plugin)
+        await self.disconnect(self.drones)
 
 # PLUGINS ##############################################################################################################
 

@@ -1,17 +1,17 @@
 """ Plugin for controlling MAVSDK Cameras """
 import asyncio
 import os
-
+import struct
 import requests
 from lxml import etree
 
 import mavsdk.camera
 
 from dronecontrol.plugin import Plugin
-from dronecontrol.utils import CACHE_DIR
+from dronecontrol.utils import CACHE_DIR, coroutine_awaiter
 
 # TODO: Overlooked the mavsdk param plugin, check if that makes the camera plugin work properly
-
+# TODO: Parameterrange in the cam def xml parsing function
 
 class CameraPlugin(Plugin):
     PREFIX = "cam"
@@ -19,7 +19,7 @@ class CameraPlugin(Plugin):
     def __init__(self, dm, logger, name):
         super().__init__(dm, logger, name)
         self.cli_commands = {
-            "add": self.add_cameras,
+            "add": self.add_camera,
             "remove": self.remove_camera,
             "status": self.status,
             "settings": self.parameters,
@@ -36,8 +36,6 @@ class CameraPlugin(Plugin):
     async def start(self):
         self.logger.debug("Starting Camera plugin...")
         await super().start()
-        for drone in self.dm.drones:
-            await self.add_cameras(drone)
 
     async def close(self):
         """ Removes all cameras """
@@ -51,13 +49,13 @@ class CameraPlugin(Plugin):
             return False
         return True
 
-    async def add_cameras(self, drone: str, camera_id: int = 100):
+    async def add_camera(self, drone: str, camera_id: int = 100):
         """ Add cameras from/for a given drone to the plugin"""
         self.logger.info(f"Adding camera to drone {drone}")
         try:
             drone_object = self.dm.drones.get(drone, None)
             if drone_object:
-                new_cam = Camera(self.logger, self.dm, drone_object, camera_id=camera_id)
+                new_cam = Camera(drone_object.logger, self.dm, drone_object, camera_id=camera_id)
                 success = await new_cam.start()
                 if success:
                     self.cameras[drone] = new_cam
@@ -126,7 +124,8 @@ class CameraParameter:
                  step_size: float | None):
         self.name = name  # Name of the parameter as str, params will be referred to with this
         self.value = default  # Value of the parameter
-        self.param_type = param_type  # Mavlink parameter type
+        self.param_type = param_type  # Mavlink parameter type, as in definition file
+        self.param_type_id = None  # Mavlink parameter type as used by extended parameter protocol
         self.default = default  # Default value
         self.control = control
         self.description = description  # Human readable description
@@ -167,6 +166,9 @@ class CameraParameter:
         else:
             return value in self._options
 
+    def get_current_otion(self):
+        return self._options[self.value]
+
     def get_option_by_name(self, option_name):
         return self._options_by_name.get(option_name, None)
 
@@ -190,10 +192,14 @@ class Camera:
 
         self.vendor_name = None
         self.model_name = None
+        self.cam_def_uri: str | None = None
+        self.cam_def_version = None
         self.parameters: dict[str, CameraParameter] = {}
 
     def _start_background_tasks(self):
-        self._running_tasks.add(asyncio.create_task(self._capture_info_updates()))
+        capture_info_task = asyncio.create_task(self._capture_info_updates())
+        self._running_tasks.add(capture_info_task)
+        self._running_tasks.add(asyncio.create_task(coroutine_awaiter(capture_info_task, self.logger)))
 
     async def _capture_info_updates(self):
         async for capture_info in self.drone.system.camera.capture_info():
@@ -204,6 +210,12 @@ class Camera:
     async def start(self):
         have_cam = await self.init_cam_info()
         if have_cam:
+            self.logger.info(f"Found camera {self.camera_id}")
+            got_params = await self.get_cam_param_definition()
+            if not got_params:
+                self.logger.info("Connected to a camera, but couldn't load the camera definition")
+            else:
+                self.logger.info("Loaded camera parameter definition")
             self._get_cam_params()
             return True
         return False
@@ -257,34 +269,43 @@ class Camera:
         else:
             self.vendor_name = bytearray(cam_info.vendor_name).rstrip(b"\x00").decode("ascii")
             self.model_name = bytearray(cam_info.model_name).rstrip(b"\x00").decode("ascii")
-            cam_def_uri = cam_info.cam_definition_uri
-            cam_def_version = cam_info.cam_definition_version
-            try:
-                xml_str = await self._get_cam_definition(cam_def_uri, cam_def_version)
-                if xml_str:
-                    self.logger.info(xml_str)
-                    self._parse_cam_definition(xml_str)
-                    return True
-            except Exception as e:
-                self.logger.warning("Couldn't get the camera definition XML due to an exception!")
-                self.logger.debug(repr(e), exc_info=True)
+            self.cam_def_uri = cam_info.cam_definition_uri
+            self.cam_def_version = cam_info.cam_definition_version
+            return True
         return False
 
-    async def _get_cam_definition(self, uri, version) -> str | None:
-        cached_path = self._xml_cache_filepath(uri, version)
-        if cached_path.exists():
-            xml_str = await asyncio.get_running_loop().run_in_executor(None, self._load_xml, uri, version)
-        else:
-            self.logger.debug("Camera definition file not cached, downloading...")
-            xml_str = await asyncio.get_running_loop().run_in_executor(None, self._download_xml, uri)
+    async def get_cam_param_definition(self):
+        try:
+            xml_str = await self._get_cam_definition(self.cam_def_uri, self.cam_def_version)
             if xml_str:
-                await asyncio.get_running_loop().run_in_executor(None, self._save_xml, xml_str, uri, version)
+                self._parse_cam_definition(xml_str)
+                return True
+        except Exception as e:
+            self.logger.warning("Couldn't get the camera definition XML due to an exception!")
+            self.logger.debug(repr(e), exc_info=True)
+        return False
+
+    async def _get_cam_definition(self, uri: str, version) -> str | None:
+        xml_str = None
+        try:
+            self.logger.info("Loading cam definition")
+            cached_path = self._xml_cache_filepath(uri, version)
+            if cached_path.exists():
+                xml_str = await asyncio.get_running_loop().run_in_executor(None, self._load_xml, uri, version)
+            else:
+                self.logger.debug("Camera definition file not cached, downloading...")
+                xml_str = await asyncio.get_running_loop().run_in_executor(None, self._download_xml, uri)
+                if xml_str:
+                    await asyncio.get_running_loop().run_in_executor(None, self._save_xml, xml_str, uri, version)
+        except Exception as e:
+            self.logger.warning("Exception trying to load the camera definition file!")
+            self.logger.debug(repr(e), exc_info=True)
         return xml_str
 
     def _download_xml(self, uri):
         try:
             response = requests.get(uri, verify=False)
-            return response.text
+            return response.content
         except requests.RequestException:
             self.logger.warning("Couldn't download the camera definition, probably due to no internet.")
             return None
@@ -309,65 +330,105 @@ class Camera:
             return None
 
     def _xml_cache_filepath(self, uri, version):
-        pathsafe_uri = uri.replace("/", "_").replace("\\", "_").replace(":", "_").replace("?", "_")
+        pathsafe_uri = uri.replace("/", "_").replace("\\", "_").replace(":", "_").replace("?", "_").replace("\n", "")
         filename = f"{version}_{pathsafe_uri}.xml"
         cache_dir = CACHE_DIR.joinpath("camera_definitions")
         return cache_dir.joinpath(filename)
 
     def _parse_cam_definition(self, cam_def_xml: str):
-        root = etree.fromstring(cam_def_xml)
-        params = root.findall(".//parameter")
-        for param in params:
-            name = param.get("name")
-            param_type = param.get("type")
-            default = param.get("default")
-            control = param.get("control") is None
-            min_val = param.get("min")
-            max_val = param.get("max")
-            step_size = param.get("step")
-            description = param.find("description").text
+        try:
+            root = etree.fromstring(cam_def_xml)
+            params = root.findall(".//parameter")
+            for param in params:
+                name = param.get("name")
+                param_type = param.get("type")
+                if param_type == "float":
+                    cast_type = float
+                elif param_type == "bool":
+                    cast_type = bool
+                else:
+                    cast_type = int
+                default = cast_type(param.get("default"))
+                control = param.get("control") is None or param.get("control") == "1"
+                min_val = param.get("min")
+                if min_val:
+                    min_val = cast_type(min_val)
+                max_val = param.get("max")
+                if max_val:
+                    max_val = cast_type(max_val)
+                step_size = param.get("step")
+                if step_size:
+                    step_size = cast_type(step_size)
+                description = param.find("description").text
 
-            options = []
-            options_element = param.find("options")
-            if options_element:
-                option_name = options_element.get("name")
-                option_value = options_element.get("value")
-                excludes = []
-                exclusions_element = options_element.find("exclusions")
-                if exclusions_element:
-                    for exclude_element in exclusions_element:
-                        excludes.append(exclude_element.text)
-                options.append(ParameterOption(option_name, option_value, excludes))
+                options = []
+                options_element = param.find("options")
+                if options_element:
+                    for option_element in options_element:
+                        option_name = option_element.get("name")
+                        option_value = cast_type(option_element.get("value"))
+                        excludes = []
+                        exclusions_element = option_element.find("exclusions")
+                        if exclusions_element:
+                            for exclude_element in exclusions_element:
+                                excludes.append(exclude_element.text)
+                        options.append(ParameterOption(option_name, option_value, excludes))
 
-            updates = []
-            updates_element = param.find("updates")
-            if updates_element:
-                for update_element in updates_element:
-                    updates.append(update_element.text)
+                updates = []
+                updates_element = param.find("updates")
+                if updates_element:
+                    for update_element in updates_element:
+                        updates.append(update_element.text)
 
-            self.parameters[name] = CameraParameter(name=name, param_type=param_type, default=default, control=control,
-                                                    description=description, updates=updates, options=options,
-                                                    min_value=min_val, max_value=max_val, step_size=step_size)
+                self.parameters[name] = CameraParameter(name=name, param_type=param_type, default=default, control=control,
+                                                        description=description, updates=updates, options=options,
+                                                        min_value=min_val, max_value=max_val, step_size=step_size)
+        except Exception as e:
+            self.logger.warning("Couldn't parse the parameter XML")
+            self.logger.debug(repr(e), exc_info=True)
 
     def _get_cam_params(self):
-        self.drone.mav_conn.send_param_ext_request_list(self.drone.mav_conn.drone_system, self.camera_id)
+        self.logger.debug("Listening to camera parameters")
+        self.drone.mav_conn.send_param_ext_request_list(self.camera_id)
         self.drone.mav_conn.add_drone_message_callback(322, self._listen_param_updates)
         # TODO: Check that we have all the params loaded
 
+    def _parse_param_update_values(self, msg):
+        param_name = msg.param_id
+        param_type = msg.param_type
+        raw_param_value = msg.param_value.encode("ascii")
+        if param_type in [1, 3, 5, 7]:
+            param_value = int.from_bytes(raw_param_value, signed=False)
+        elif param_type in [2, 4, 6, 8]:
+            param_value = int.from_bytes(raw_param_value, signed=True)
+        else:
+            if not msg.param_value == "":
+                raw_param_value = raw_param_value.ljust(4, b"\x00")
+                param_value = struct.unpack("f", raw_param_value)[0]
+            else:
+                param_value = None  # Param either isn't relevant or otherwise not set
+        return param_name, param_value
+
+    def _update_param_value(self, param_name, param_value, param_type_id):
+        if param_name in self.parameters:
+            if param_value is not None:
+                self.logger.debug("Updating param!")
+                self.parameters[param_name].value = param_value
+            self.parameters[param_name].param_type_id = param_type_id
+
     async def _listen_param_updates(self, msg):
         if msg.get_srcComponent() == self.camera_id and msg.get_srcSystem() == self.drone.mav_conn.drone_system:
-            param_name = msg.param_id
-            param_value = msg.param_value
-            if param_name in self.parameters:
-                self.parameters[param_name].value = param_value
+            param_name, param_value = self._parse_param_update_values(msg)
+            self.logger.debug(f"Received parameter update message: {param_name, param_value, msg.param_value, msg.param_type}")
+            self._update_param_value(param_name, param_value, msg.param_type)
 
     async def print_parameters(self):
         if len(self.parameters) == 0:
             self.logger.info("No parameters loaded, trying to download...")
-            await self.init_cam_info()
+            await self.get_cam_param_definition()
         for param_name, parameter in self.parameters.items():
             if parameter.is_option:
-                info_string = "".join([option.name for option in parameter.get_options()])
+                info_string = " ".join([f"'{option.name}'" for option in parameter.get_options()])
                 param_value = parameter.get_option_by_value(parameter.value).name
             elif parameter.is_bool:
                 info_string = "True or False"
@@ -385,6 +446,15 @@ class Camera:
             self.logger.info(f"Parameter {param_name}: {param_value}. {parameter.description}\n"
                              f"\tOptions: {info_string}")
 
+    def _encode_update_param_values(self, param_value, param_type):
+        if param_type in [1, 3, 5, 7]:
+            encoded_param_value = int.to_bytes(param_value, length=int((param_type + 1) / 2), signed=False)
+        elif param_type in [2, 4, 6, 8]:
+            encoded_param_value = int.to_bytes(param_value, length = int(param_type / 2), signed=True)
+        else:
+            encoded_param_value = struct.pack("f", param_value)
+        return encoded_param_value.decode("ascii")
+
     async def set_parameter(self, param_name, param_value: str):
         # Send the change param message and request updates for any params in the updates list
 
@@ -395,32 +465,49 @@ class Camera:
         # Determine the type based on the parameter
         parameter = self.parameters[param_name]
 
-        if parameter.is_option:  # Treat it as a string option name, get value from the option object
-            parsed_value = parameter.get_option_by_name(param_value).value
+        self.logger.debug(f"Trying to set option {param_name} to {param_value}")
 
+        # Figure out what the input should be from param_type, is_option and is_bool
+
+        if parameter.is_option:  # Treat it as a string option name, get value (as int) from the option object
+            try:
+                parsed_value = parameter.get_option_by_name(param_value).value
+            except KeyError:
+                self.logger.warning(f"{param_value} isn't a valid option!")
+                parsed_value = None
         elif parameter.is_bool:  # Treat it as a string, get appropriate bool value
             if param_value in ["True", "true", "1"]:
-                parsed_value = True
+                parsed_value = 1
             elif param_value in ["False", "false", "0"]:
-                parsed_value = False
+                parsed_value = 0
             else:
                 parsed_value = None
-
-        else:  # Try to parse it into a float
+                self.logger.warning("Must be True or False!")
+        else:  # Try to parse it into either a float or an int depending on param_type
             try:
-                parsed_value = float(param_value)
+                if parameter.param_type_id < 9:
+                    parsed_value = int(param_value)
+                else:
+                    parsed_value = float(param_value)
             except ValueError:
                 parsed_value = None
+                self.logger.warning("Couldn't parse the input into a valid numeric entry!")
 
-        if not parameter.check_option_valid(parsed_value):
-            self.logger.warning(f"Value {parsed_value} is invalid for {param_name}")
+        if parsed_value is None:
             return False
 
-        self.drone.mav_conn.send_param_ext_set(self.camera_id, param_name, parsed_value, parameter.param_type)
+        send_value = self._encode_update_param_values(parsed_value, parameter.param_type_id)
+
+        self.drone.mav_conn.send_param_ext_set(self.camera_id, param_name, send_value, parameter.param_type_id)
         ack_msg = await self.drone.mav_conn.listen_message(324, self.camera_id)
         if ack_msg.param_result != 0:
             self.logger.warning("Couldn't set parameter!")
             return False
+        else:
+            param_name, param_value = self._parse_param_update_values(ack_msg)
+            self._update_param_value(param_name, param_value, ack_msg.param_type)
+            parameter = self.parameters[param_name]
+            self.logger.info(f"Set Parameter {param_name} to {param_value if not parameter.is_option else parameter.get_current_otion().name}")
 
         # Request updates on any params that might have changed.
         for updated_param_name in parameter.updates:

@@ -67,7 +67,7 @@ class GimbalPlugin(Plugin):
         self.logger.info(f"Adding gimbal to drone {drone}")
         try:
             drone_object = self.dm.drones[drone]
-            self.gimbals[drone] = Gimbal(self.logger, self.dm, drone_object, device_id=device_id)
+            self.gimbals[drone] = Gimbal(drone_object.logger, self.dm, drone_object, device_id=device_id)
         except Exception as e:
             self.logger.warning(repr(e))
 

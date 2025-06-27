@@ -505,7 +505,6 @@ class CommandScreen(Screen):
                 if self.dm.drones[name].is_armed:
                     stop_app = False
             if stop_app:
-                await asyncio.gather(*[self.dm.drones[name].disconnect(force=True) for name in self.dm.drones])
                 for task in self.running_tasks:
                     if isinstance(task, asyncio.Task):
                         task.cancel()
@@ -514,8 +513,8 @@ class CommandScreen(Screen):
                         task.cancel()
                 await asyncio.sleep(0.2)  # Beauty pause
                 self.logger.info("Exiting...")
-                await asyncio.sleep(1)  # Beauty pause
                 await self.dm.close()
+                await asyncio.sleep(1)  # Beauty pause
                 self.app.exit()
             else:
                 self.logger.warning("Can't exit the app with armed drones!")
