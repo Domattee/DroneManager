@@ -5,6 +5,7 @@ import time
 import os
 import asyncio
 import typing
+import struct
 
 from pymavlink import mavutil
 
@@ -241,14 +242,24 @@ class MAVPassthrough:
         msg = self.con_drone_in.mav.param_ext_request_list_encode(self.drone_system, target_component)
         self.send_as_gcs(msg)
 
-    def send_param_ext_set(self, target_component, param_id, param_value, param_type):
+    def send_param_ext_set(self, target_component, param_id, param_value: int | float, param_type: int):
+        if param_type in [1, 3, 5, 7]:
+            encoded_param_value = int.to_bytes(param_value, length=2 ** int(param_type / 2), signed=False)
+        elif param_type in [2, 4, 6, 8]:
+            encoded_param_value = int.to_bytes(param_value, length=2 ** int(param_type / 2), signed=True)
+        elif param_type == 9:
+            encoded_param_value = struct.pack("<f", param_value)
+        elif param_type == 10:
+            encoded_param_value = struct.pack("<d", param_value)
+        else:
+            raise NotImplementedError("Custom parameter types are not supported!")
         msg = self.con_drone_in.mav.param_ext_set_encode(self.drone_system, target_component,
-                                                         param_id.encode("ascii"), param_value.encode("ascii"), param_type)
+                                                         param_id.encode("ascii"), encoded_param_value, param_type)
         self.send_as_gcs(msg)
 
-    def send_param_ext_request_read(self, target_component, param_name: str):
+    def send_param_ext_request_read(self, target_component, param_id: str):
         msg = self.con_drone_in.mav.param_ext_request_read_encode(self.drone_system, target_component,
-                                                                  bytes(param_name, "ascii"), -1)
+                                                                  param_id.encode("ascii"), -1)
         self.send_as_gcs(msg)
 
     def _process_message_for_return(self, msg):

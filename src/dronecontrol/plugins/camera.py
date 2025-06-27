@@ -13,6 +13,7 @@ from dronecontrol.utils import CACHE_DIR, coroutine_awaiter
 # TODO: Overlooked the mavsdk param plugin, check if that makes the camera plugin work properly
 # TODO: Parameterrange in the cam def xml parsing function
 
+
 class CameraPlugin(Plugin):
     PREFIX = "cam"
 
@@ -112,8 +113,8 @@ class CameraPlugin(Plugin):
 class ParameterOption:
 
     def __init__(self, name, value, excludes):
-        self.name = name  # For display
-        self.value = value  # This is used internally
+        self.name: str = name  # For display
+        self.value: int | float = value  # This is used internally
         self.excludes = excludes  # These parameters are rendered irrelevant if this option is set
 
 
@@ -123,7 +124,7 @@ class CameraParameter:
                  options: list[ParameterOption], min_value: float | None, max_value: float | None,
                  step_size: float | None):
         self.name = name  # Name of the parameter as str, params will be referred to with this
-        self.value = default  # Value of the parameter
+        self.value: int | float = default  # Value of the parameter
         self.param_type = param_type  # Mavlink parameter type, as in definition file
         self.param_type_id = None  # Mavlink parameter type as used by extended parameter protocol
         self.default = default  # Default value
@@ -380,9 +381,10 @@ class Camera:
                     for update_element in updates_element:
                         updates.append(update_element.text)
 
-                self.parameters[name] = CameraParameter(name=name, param_type=param_type, default=default, control=control,
-                                                        description=description, updates=updates, options=options,
-                                                        min_value=min_val, max_value=max_val, step_size=step_size)
+                self.parameters[name] = CameraParameter(name=name, param_type=param_type, default=default,
+                                                        control=control, description=description, updates=updates,
+                                                        options=options, min_value=min_val, max_value=max_val,
+                                                        step_size=step_size)
         except Exception as e:
             self.logger.warning("Couldn't parse the parameter XML")
             self.logger.debug(repr(e), exc_info=True)
@@ -396,17 +398,18 @@ class Camera:
     def _parse_param_update_values(self, msg):
         param_name = msg.param_id
         param_type = msg.param_type
-        raw_param_value = msg.param_value.encode("ascii")
+        raw_param_value = msg._raw_param_value  #  TODO: CHECK THAT THIS WORKS FOR INTS AS WELL
         if param_type in [1, 3, 5, 7]:
             param_value = int.from_bytes(raw_param_value, signed=False)
         elif param_type in [2, 4, 6, 8]:
             param_value = int.from_bytes(raw_param_value, signed=True)
+        elif param_type == 9:
+            param_value = struct.unpack("<f", raw_param_value)[0]
+        elif param_type == 10:
+            param_value = struct.unpack("<d", raw_param_value)[0]
         else:
-            if not msg.param_value == "":
-                raw_param_value = raw_param_value.ljust(4, b"\x00")
-                param_value = struct.unpack("f", raw_param_value)[0]
-            else:
-                param_value = None  # Param either isn't relevant or otherwise not set
+            self.logger.warning("Camera sending custom parameter type, not supported!")
+            param_value = None
         return param_name, param_value
 
     def _update_param_value(self, param_name, param_value, param_type_id):
@@ -419,7 +422,8 @@ class Camera:
     async def _listen_param_updates(self, msg):
         if msg.get_srcComponent() == self.camera_id and msg.get_srcSystem() == self.drone.mav_conn.drone_system:
             param_name, param_value = self._parse_param_update_values(msg)
-            self.logger.debug(f"Received parameter update message: {param_name, param_value, msg.param_value, msg.param_type}")
+            self.logger.debug(f"Received parameter update message: "
+                              f"{param_name, param_value, msg.param_value, msg._raw_param_value, msg.param_type}")
             self._update_param_value(param_name, param_value, msg.param_type)
 
     async def print_parameters(self):
@@ -445,15 +449,6 @@ class Camera:
                 param_value = "You found an edge case for the parameter type, congratulations!"
             self.logger.info(f"Parameter {param_name}: {param_value}. {parameter.description}\n"
                              f"\tOptions: {info_string}")
-
-    def _encode_update_param_values(self, param_value, param_type):
-        if param_type in [1, 3, 5, 7]:
-            encoded_param_value = int.to_bytes(param_value, length=int((param_type + 1) / 2), signed=False)
-        elif param_type in [2, 4, 6, 8]:
-            encoded_param_value = int.to_bytes(param_value, length = int(param_type / 2), signed=True)
-        else:
-            encoded_param_value = struct.pack("f", param_value)
-        return encoded_param_value.decode("ascii")
 
     async def set_parameter(self, param_name, param_value: str):
         # Send the change param message and request updates for any params in the updates list
@@ -489,6 +484,9 @@ class Camera:
                     parsed_value = int(param_value)
                 else:
                     parsed_value = float(param_value)
+                if not parameter.check_option_valid(parsed_value):
+                    self.logger.warning(f"{parsed_value} isn't a valid choice for this parameter!")
+                    parsed_value = None
             except ValueError:
                 parsed_value = None
                 self.logger.warning("Couldn't parse the input into a valid numeric entry!")
@@ -496,9 +494,7 @@ class Camera:
         if parsed_value is None:
             return False
 
-        send_value = self._encode_update_param_values(parsed_value, parameter.param_type_id)
-
-        self.drone.mav_conn.send_param_ext_set(self.camera_id, param_name, send_value, parameter.param_type_id)
+        self.drone.mav_conn.send_param_ext_set(self.camera_id, param_name, parsed_value, parameter.param_type_id)
         ack_msg = await self.drone.mav_conn.listen_message(324, self.camera_id)
         if ack_msg.param_result != 0:
             self.logger.warning("Couldn't set parameter!")
@@ -507,7 +503,8 @@ class Camera:
             param_name, param_value = self._parse_param_update_values(ack_msg)
             self._update_param_value(param_name, param_value, ack_msg.param_type)
             parameter = self.parameters[param_name]
-            self.logger.info(f"Set Parameter {param_name} to {param_value if not parameter.is_option else parameter.get_current_otion().name}")
+            self.logger.info(f"Set Parameter {param_name} to "
+                             f"{param_value if not parameter.is_option else parameter.get_current_otion().name}")
 
         # Request updates on any params that might have changed.
         for updated_param_name in parameter.updates:
