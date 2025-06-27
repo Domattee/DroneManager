@@ -333,11 +333,12 @@ class MAVPassthrough:
                                                      msg.target_system, msg.target_component)
                                         if msg_tuple in self._ack_waiters:
                                             futs = self._ack_waiters[msg_tuple]
-                                            fut = futs.pop(0)
-                                            if msg.result == 0:
-                                                fut.set_result(True)
-                                            else:
-                                                fut.set_result(False)
+                                            if len(futs) > 0:
+                                                fut = futs.pop(0)
+                                                if msg.result == 0:
+                                                    fut.set_result(True)
+                                                else:
+                                                    fut.set_result(False)
                                     # Check other msgs
                                     else:
                                         msg_tuple = (msg.get_msgId(), msg.get_srcSystem(), msg.get_srcComponent())
