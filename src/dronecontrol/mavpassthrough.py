@@ -212,14 +212,16 @@ class MAVPassthrough:
 
     def send_request_message(self, target_component, message_id, param1=math.nan, param2=math.nan,
                              param3=math.nan, param4=math.nan, param5=math.nan, response_target=1):
-        request_ack = self.send_cmd_long(target_component, 512, message_id, param1, param2, param3, param4, param5, response_target)
+        request_ack = self.send_cmd_long(target_component, 512, message_id, param1, param2, param3, param4, param5,
+                                         response_target)
         message = self.listen_message(message_id, target_component)
         return message, request_ack
 
     async def get_message(self, target_component, message_id, param1=math.nan, param2=math.nan,
                           param3=math.nan, param4=math.nan, param5=math.nan, response_target=1, timeout=5):
         message, request_ack = self.send_request_message(target_component, message_id, param1=param1, param2=param2,
-                                                         param3=param3, param4=param4, param5=param5, response_target=response_target)
+                                                         param3=param3, param4=param4, param5=param5,
+                                                         response_target=response_target)
         ack_wait = asyncio.wait_for(request_ack, timeout)
         msg_wait = asyncio.wait_for(message, timeout)
         ack_good, msg = await asyncio.gather(ack_wait, msg_wait, return_exceptions=True)
@@ -244,9 +246,11 @@ class MAVPassthrough:
 
     def send_param_ext_set(self, target_component, param_id, param_value: int | float, param_type: int):
         if param_type in [1, 3, 5, 7]:
-            encoded_param_value = int.to_bytes(param_value, length=2 ** int(param_type / 2), signed=False)
+            encoded_param_value = int.to_bytes(param_value, length=2 ** int(param_type / 2),
+                                               byteorder="little", signed=False)
         elif param_type in [2, 4, 6, 8]:
-            encoded_param_value = int.to_bytes(param_value, length=2 ** int(param_type / 2), signed=True)
+            encoded_param_value = int.to_bytes(param_value, length=2 ** int(param_type / 2),
+                                               byteorder="little", signed=True)
         elif param_type == 9:
             encoded_param_value = struct.pack("<f", param_value)
         elif param_type == 10:
@@ -334,10 +338,12 @@ class MAVPassthrough:
                                     if msg_id in self._drone_receive_callbacks:
                                         callbacks = list(self._drone_receive_callbacks[msg.get_msgId()])
                                         for coro in callbacks:
-                                            self.logger.debug(f"Doing callback {coro} for message with ID {msg.get_msgId()}")
+                                            self.logger.debug(f"Doing callback {coro} for message "
+                                                              f"with ID {msg.get_msgId()}")
                                             task = asyncio.create_task(coro(msg))
                                             self.running_tasks.add(task)
-                                            self.running_tasks.add(asyncio.create_task(coroutine_awaiter(task, self.logger)))
+                                            self.running_tasks.add(asyncio.create_task(coroutine_awaiter(task,
+                                                                                                         self.logger)))
                                     # Check acks
                                     if msg_id == 77:
                                         msg_tuple = (msg.command, msg.get_srcSystem(), msg.get_srcComponent(),

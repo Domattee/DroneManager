@@ -110,6 +110,13 @@ class CameraPlugin(Plugin):
         return False
 
 
+def _xml_cache_filepath(uri, version):
+    pathsafe_uri = uri.replace("/", "_").replace("\\", "_").replace(":", "_").replace("?", "_").replace("\n", "")
+    filename = f"{version}_{pathsafe_uri}.xml"
+    cache_dir = CACHE_DIR.joinpath("camera_definitions")
+    return cache_dir.joinpath(filename)
+
+
 class ParameterOption:
 
     def __init__(self, name, value, excludes):
@@ -290,7 +297,7 @@ class Camera:
         xml_str = None
         try:
             self.logger.info("Loading cam definition")
-            cached_path = self._xml_cache_filepath(uri, version)
+            cached_path = _xml_cache_filepath(uri, version)
             if cached_path.exists():
                 xml_str = await asyncio.get_running_loop().run_in_executor(None, self._load_xml, uri, version)
             else:
@@ -312,7 +319,7 @@ class Camera:
             return None
 
     def _save_xml(self, xml_str, uri, version):
-        filepath = self._xml_cache_filepath(uri, version)
+        filepath = _xml_cache_filepath(uri, version)
         self.logger.debug(f"Saving camera definition xml {filepath}")
         os.makedirs(filepath.parent, exist_ok=True)
         with open(filepath, "wt", encoding="utf-8") as f:
@@ -320,7 +327,7 @@ class Camera:
 
     def _load_xml(self, uri, version):
         try:
-            filepath = self._xml_cache_filepath(uri, version)
+            filepath = _xml_cache_filepath(uri, version)
             self.logger.debug(f"Loading camera definition xml {filepath}")
             with open(filepath, "rb") as f:
                 xml_str = f.read()
@@ -329,12 +336,6 @@ class Camera:
             self.logger.error("Couldn't load the cached camera definition.")
             self.logger.debug(repr(e), exc_info=True)
             return None
-
-    def _xml_cache_filepath(self, uri, version):
-        pathsafe_uri = uri.replace("/", "_").replace("\\", "_").replace(":", "_").replace("?", "_").replace("\n", "")
-        filename = f"{version}_{pathsafe_uri}.xml"
-        cache_dir = CACHE_DIR.joinpath("camera_definitions")
-        return cache_dir.joinpath(filename)
 
     def _parse_cam_definition(self, cam_def_xml: str):
         try:
@@ -398,11 +399,11 @@ class Camera:
     def _parse_param_update_values(self, msg):
         param_name = msg.param_id
         param_type = msg.param_type
-        raw_param_value = msg._raw_param_value  #  TODO: CHECK THAT THIS WORKS FOR INTS AS WELL
+        raw_param_value = msg._raw_param_value  # TODO: CHECK THAT THIS WORKS FOR INTS AS WELL
         if param_type in [1, 3, 5, 7]:
-            param_value = int.from_bytes(raw_param_value, signed=False)
+            param_value = int.from_bytes(raw_param_value, byteorder="little", signed=False)
         elif param_type in [2, 4, 6, 8]:
-            param_value = int.from_bytes(raw_param_value, signed=True)
+            param_value = int.from_bytes(raw_param_value, byteorder="little", signed=True)
         elif param_type == 9:
             param_value = struct.unpack("<f", raw_param_value)[0]
         elif param_type == 10:
