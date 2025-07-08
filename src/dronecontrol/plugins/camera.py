@@ -87,7 +87,13 @@ class CameraPlugin(Plugin):
 
     async def set_parameter(self, drone: str, param_name: str, param_value: str):
         if self.check_has_camera(drone):
-            await self.cameras[drone].set_parameter(param_name, param_value)
+            parsed_value = self.cameras[drone].parse_param_value(param_name, param_value)
+            if parsed_value is None:
+                self.logger.warning("Couldn't set parameter due to invalid input!")
+            else:
+                await self.cameras[drone].set_parameter(param_name, parsed_value)
+                return True
+        return False
 
     async def take_picture(self, drone: str):
         if self.check_has_camera(drone):
@@ -399,19 +405,29 @@ class Camera:
     def _parse_param_update_values(self, msg):
         param_name = msg.param_id
         param_type = msg.param_type
-        raw_param_value = msg._raw_param_value  # TODO: CHECK THAT THIS WORKS FOR INTS AS WELL
-        if param_type in [1, 3, 5, 7]:
-            param_value = int.from_bytes(raw_param_value, byteorder="little", signed=False)
-        elif param_type in [2, 4, 6, 8]:
-            param_value = int.from_bytes(raw_param_value, byteorder="little", signed=True)
+        raw_param_value = msg._param_value_raw
+        if param_type < 9:
+            length = 2 ** int(param_type / 2)
         elif param_type == 9:
-            param_value = struct.unpack("<f", raw_param_value)[0]
+            length = 4
         elif param_type == 10:
-            param_value = struct.unpack("<d", raw_param_value)[0]
+            length = 8
+        else:
+            raise NotImplementedError("Custom parameter types not supported!")
+        if param_type in [1, 3, 5, 7]:
+            parsed_param_value = int.from_bytes(raw_param_value[:length], byteorder="little", signed=False)
+        elif param_type in [2, 4, 6, 8]:
+            parsed_param_value = int.from_bytes(raw_param_value[:length], byteorder="little", signed=True)
+        elif param_type == 9:
+            parsed_param_value = struct.unpack("<f", raw_param_value[:length])[0]
+        elif param_type == 10:
+            parsed_param_value = struct.unpack("<d", raw_param_value[:length])[0]
         else:
             self.logger.warning("Camera sending custom parameter type, not supported!")
-            param_value = None
-        return param_name, param_value
+            parsed_param_value = None
+        self.logger.debug(f"Received parameter update message: "
+                          f"{param_name, parsed_param_value, msg.param_value, msg._param_value_raw, msg.param_type}")
+        return param_name, parsed_param_value
 
     def _update_param_value(self, param_name, param_value, param_type_id):
         if param_name in self.parameters:
@@ -423,8 +439,6 @@ class Camera:
     async def _listen_param_updates(self, msg):
         if msg.get_srcComponent() == self.camera_id and msg.get_srcSystem() == self.drone.mav_conn.drone_system:
             param_name, param_value = self._parse_param_update_values(msg)
-            self.logger.debug(f"Received parameter update message: "
-                              f"{param_name, param_value, msg.param_value, msg._raw_param_value, msg.param_type}")
             self._update_param_value(param_name, param_value, msg.param_type)
 
     async def print_parameters(self):
@@ -451,20 +465,14 @@ class Camera:
             self.logger.info(f"Parameter {param_name}: {param_value}. {parameter.description}\n"
                              f"\tOptions: {info_string}")
 
-    async def set_parameter(self, param_name, param_value: str):
-        # Send the change param message and request updates for any params in the updates list
+    def parse_param_value(self, param_name: str, param_value: str) -> bool | int | float | None:
+        parameter = self.parameters[param_name]
 
         if param_name not in self.parameters:
             self.logger.warning(f"Don't have a parameter {param_name}!")
             return False
 
-        # Determine the type based on the parameter
-        parameter = self.parameters[param_name]
-
-        self.logger.debug(f"Trying to set option {param_name} to {param_value}")
-
         # Figure out what the input should be from param_type, is_option and is_bool
-
         if parameter.is_option:  # Treat it as a string option name, get value (as int) from the option object
             try:
                 parsed_value = parameter.get_option_by_name(param_value).value
@@ -492,13 +500,23 @@ class Camera:
                 parsed_value = None
                 self.logger.warning("Couldn't parse the input into a valid numeric entry!")
 
-        if parsed_value is None:
+        return parsed_value
+
+    async def set_parameter(self, param_name: str, param_value: bool | int | float):
+        # Send the change param message and request updates for any params in the updates list
+
+        if param_name not in self.parameters:
+            self.logger.warning(f"Don't have a parameter {param_name}!")
             return False
 
-        self.drone.mav_conn.send_param_ext_set(self.camera_id, param_name, parsed_value, parameter.param_type_id)
+        parameter = self.parameters[param_name]
+
+        self.logger.debug(f"Trying to set option {param_name} to {param_value}")
+
+        self.drone.mav_conn.send_param_ext_set(self.camera_id, param_name, param_value, parameter.param_type_id)
         ack_msg = await self.drone.mav_conn.listen_message(324, self.camera_id)
         if ack_msg.param_result != 0:
-            self.logger.warning("Couldn't set parameter!")
+            self.logger.warning("Camera denied parameter change!")
             return False
         else:
             param_name, param_value = self._parse_param_update_values(ack_msg)
