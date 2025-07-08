@@ -21,13 +21,6 @@ class UDPPlugin(Plugin):
             self._send_continuously()
         ]
 
-    def _send_msg(self, msg: str):
-        try:
-            self.socket.sendto(msg.encode("utf-8"), ("localhost", self.port))
-        except Exception as e:
-            self.logger.warning("Exception sending out data! Check the log for details.")
-            self.logger.debug(repr(e), exc_info=True)
-
     async def _send_continuously(self):
         while True:
             try:
@@ -70,3 +63,10 @@ class UDPPlugin(Plugin):
                         self.logger.warning("Couldn't collect all mission information to send out due to an exception!")
                         self.logger.debug(repr(e), exc_info=True)
         return json.dumps(data)
+
+    def _send_msg(self, msg: str):
+        try:
+            self.socket.sendto(msg.encode("utf-8"), ("localhost", self.port))
+        except Exception as e:
+            self.logger.warning("Exception sending out data! Check the log for details.")
+            self.logger.debug(repr(e), exc_info=True)

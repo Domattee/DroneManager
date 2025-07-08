@@ -4,13 +4,16 @@ import math
 import time
 import os
 import asyncio
+import typing
+import struct
 
 from pymavlink import mavutil
 
-from dronecontrol.utils import common_formatter
+from dronecontrol.utils import common_formatter, coroutine_awaiter, LOG_DIR
 
 # TODO: Routing between multiple GCS so we can have my app and QGroundControl connected at the same time
 # TODO: Implement sending as drone/drone components
+# TODO: Some kind of generic message matching method for callbacks to use
 
 
 class MAVPassthrough:
@@ -35,9 +38,8 @@ class MAVPassthrough:
         self.logger.setLevel(logging.DEBUG)
         filename = f"{loggername}_{datetime.datetime.now()}"
         filename = filename.replace(":", "_").replace(".", "_") + ".log"
-        logdir = os.path.abspath("./logs")
-        os.makedirs(logdir, exist_ok=True)
-        file_handler = logging.FileHandler(os.path.join(logdir, filename))
+        os.makedirs(LOG_DIR, exist_ok=True)
+        file_handler = logging.FileHandler(os.path.join(LOG_DIR, filename))
         file_handler.setLevel(logging.DEBUG)
         file_handler.setFormatter(common_formatter)
         self.logger.addHandler(file_handler)
@@ -47,6 +49,10 @@ class MAVPassthrough:
 
         self.running_tasks = set()
         self.should_stop = False
+
+        self._drone_receive_callbacks: dict[int, set[typing.Callable[[any], typing.Coroutine]]] = {}
+        self._ack_waiters: dict[tuple[int, int, int, int, int], list[asyncio.Future]] = {}
+        self._msg_waiters: dict[tuple[int, int, int], list[asyncio.Future]] = {}
 
     def connect_gcs(self, address):
         self.running_tasks.add(asyncio.create_task(self._connect_gcs(address)))
@@ -179,10 +185,85 @@ class MAVPassthrough:
         except Exception as e:
             self.logger.debug(repr(e), exc_info=True)
 
-    def send_cmd_long(self, target_system, target_component, cmd, param1=math.nan, param2=math.nan, param3=math.nan,
-                      param4=math.nan, param5=math.nan, param6=math.nan, param7=math.nan):
-        msg = self.con_drone_in.mav.command_long_encode(target_system, target_component, cmd, 0,
+    def listen_ack(self, command_id, target_component) -> asyncio.Future:
+        received = asyncio.Future()
+        msg_tuple = (command_id, self.drone_system, target_component, self.gcs_system, self.gcs_component)
+        if msg_tuple in self._ack_waiters:
+            self._ack_waiters[msg_tuple].append(received)
+        else:
+            self._ack_waiters[msg_tuple] = [received]
+        return received
+
+    def listen_message(self, message_id, target_component) -> asyncio.Future:
+        received = asyncio.Future()
+        msg_tuple = (message_id, self.drone_system, target_component)
+        if msg_tuple in self._msg_waiters:
+            self._msg_waiters[msg_tuple].append(received)
+        else:
+            self._msg_waiters[msg_tuple] = [received]
+        return received
+
+    def send_cmd_long(self, target_component, cmd, param1=math.nan, param2=math.nan, param3=math.nan,
+                      param4=math.nan, param5=math.nan, param6=math.nan, param7=math.nan) -> asyncio.Future:
+        msg = self.con_drone_in.mav.command_long_encode(self.drone_system, target_component, cmd, 0,
                                                         param1, param2, param3, param4, param5, param6, param7)
+        self.send_as_gcs(msg)
+        return self.listen_ack(cmd, target_component)
+
+    def send_request_message(self, target_component, message_id, param1=math.nan, param2=math.nan,
+                             param3=math.nan, param4=math.nan, param5=math.nan, response_target=1):
+        request_ack = self.send_cmd_long(target_component, 512, message_id, param1, param2, param3, param4, param5,
+                                         response_target)
+        message = self.listen_message(message_id, target_component)
+        return message, request_ack
+
+    async def get_message(self, target_component, message_id, param1=math.nan, param2=math.nan,
+                          param3=math.nan, param4=math.nan, param5=math.nan, response_target=1, timeout=5):
+        message, request_ack = self.send_request_message(target_component, message_id, param1=param1, param2=param2,
+                                                         param3=param3, param4=param4, param5=param5,
+                                                         response_target=response_target)
+        ack_wait = asyncio.wait_for(request_ack, timeout)
+        msg_wait = asyncio.wait_for(message, timeout)
+        ack_good, msg = await asyncio.gather(ack_wait, msg_wait, return_exceptions=True)
+        if isinstance(ack_good, Exception):
+            self.logger.debug(repr(ack_good), exc_info=True)
+            ack_good = False
+        if isinstance(msg, Exception):
+            self.logger.debug(repr(msg), exc_info=True)
+            msg = False
+        if msg:
+            if not ack_good:
+                self.logger.debug("Received the requested message, but not the request acknowledgement.")
+            return msg
+        else:
+            if ack_good:
+                self.logger.debug("Received the request acknowledgement, but not the message.")
+            return msg
+
+    def send_param_ext_request_list(self, target_component):
+        msg = self.con_drone_in.mav.param_ext_request_list_encode(self.drone_system, target_component)
+        self.send_as_gcs(msg)
+
+    def send_param_ext_set(self, target_component, param_id, param_value: int | float, param_type: int):
+        if param_type in [1, 3, 5, 7]:
+            encoded_param_value = int.to_bytes(param_value, length=2 ** int(param_type / 2),
+                                               byteorder="little", signed=False)
+        elif param_type in [2, 4, 6, 8]:
+            encoded_param_value = int.to_bytes(param_value, length=2 ** int(param_type / 2),
+                                               byteorder="little", signed=True)
+        elif param_type == 9:
+            encoded_param_value = struct.pack("<f", param_value)
+        elif param_type == 10:
+            encoded_param_value = struct.pack("<d", param_value)
+        else:
+            raise NotImplementedError("Custom parameter types are not supported!")
+        msg = self.con_drone_in.mav.param_ext_set_encode(self.drone_system, target_component,
+                                                         param_id.encode("ascii"), encoded_param_value, param_type)
+        self.send_as_gcs(msg)
+
+    def send_param_ext_request_read(self, target_component, param_id: str):
+        msg = self.con_drone_in.mav.param_ext_request_read_encode(self.drone_system, target_component,
+                                                                  param_id.encode("ascii"), -1)
         self.send_as_gcs(msg)
 
     def _process_message_for_return(self, msg):
@@ -231,30 +312,63 @@ class MAVPassthrough:
     async def _listen_drone(self):
         self.logger.debug("Starting to listen to drone")
         while not self.should_stop:
-            if self.con_drone_in is not None:
-                while not self.should_stop:
-                    # Receive and log all messages from the GCS
-                    msg = self.con_drone_in.recv_match(blocking=False)
-                    if msg is None:
-                        await asyncio.sleep(0.0001)
-                    else:
-                        if self.log_messages:
-                            self.logger.debug(f"Message from Drone {msg.get_srcSystem(), msg.get_srcComponent()}, "
-                                              f"{msg.to_dict()}")
-                        self.time_of_last_drone = time.time_ns()
-                        if self.con_gcs is not None and self.connected_to_drone():
-                            self.con_gcs.mav.srcSystem = msg.get_srcSystem()
-                            self.con_gcs.mav.srcComponent = msg.get_srcComponent()
-                            if self._process_message_for_return(msg):
-                                try:
-                                    self.con_gcs.mav.send(msg)
-                                except Exception as e:
-                                    self.logger.debug(f"Encountered an exception sending message to GCS: {repr(e)}",
-                                                      exc_info=True)
-                            self.con_gcs.mav.srcSystem = self.source_system
-                            self.con_gcs.mav.srcComponent = self.source_component
-            else:
-                await asyncio.sleep(1)
+            try:
+                if self.con_drone_in is not None:
+                    while not self.should_stop:
+                        # Receive and log all messages from the GCS
+                        msg = self.con_drone_in.recv_match(blocking=False)
+                        if msg is None:
+                            await asyncio.sleep(0.0001)
+                        else:
+                            if self.log_messages:
+                                self.logger.debug(f"Message from Drone {msg.get_srcSystem(), msg.get_srcComponent()}, "
+                                                  f"{msg.to_dict()}")
+                            self.time_of_last_drone = time.time_ns()
+                            if self.con_gcs is not None and self.connected_to_drone():
+                                self.con_gcs.mav.srcSystem = msg.get_srcSystem()
+                                self.con_gcs.mav.srcComponent = msg.get_srcComponent()
+                                if self._process_message_for_return(msg):
+                                    try:
+                                        self.con_gcs.mav.send(msg)
+                                    except Exception as e:
+                                        self.logger.debug(f"Encountered an exception sending message to GCS: {repr(e)}",
+                                                          exc_info=True)
+                                    # Do callbacks
+                                    msg_id = msg.get_msgId()
+                                    if msg_id in self._drone_receive_callbacks:
+                                        callbacks = list(self._drone_receive_callbacks[msg.get_msgId()])
+                                        for coro in callbacks:
+                                            self.logger.debug(f"Doing callback {coro} for message "
+                                                              f"with ID {msg.get_msgId()}")
+                                            task = asyncio.create_task(coro(msg))
+                                            self.running_tasks.add(task)
+                                            self.running_tasks.add(asyncio.create_task(coroutine_awaiter(task,
+                                                                                                         self.logger)))
+                                    # Check acks
+                                    if msg_id == 77:
+                                        msg_tuple = (msg.command, msg.get_srcSystem(), msg.get_srcComponent(),
+                                                     msg.target_system, msg.target_component)
+                                        if msg_tuple in self._ack_waiters:
+                                            futs = self._ack_waiters[msg_tuple]
+                                            if len(futs) > 0:
+                                                fut = futs.pop(0)
+                                                if msg.result == 0:
+                                                    fut.set_result(True)
+                                                else:
+                                                    fut.set_result(False)
+                                    # Check other msgs
+                                    else:
+                                        msg_tuple = (msg.get_msgId(), msg.get_srcSystem(), msg.get_srcComponent())
+                                        if msg_tuple in self._msg_waiters:
+                                            futs = self._msg_waiters.pop(msg_tuple)
+                                            for fut in futs:
+                                                fut.set_result(msg)
+                                self.con_gcs.mav.srcSystem = self.source_system
+                                self.con_gcs.mav.srcComponent = self.source_component
+                else:
+                    await asyncio.sleep(1)
+            except Exception as e:
+                self.logger.debug(f"Exception in the drone connection function: {repr(e)}", exc_info=True)
 
     async def _send_pings_gcs(self):
         while not self.should_stop:
@@ -282,6 +396,16 @@ class MAVPassthrough:
                                             mavutil.mavlink.MAV_AUTOPILOT_INVALID, 0, 0, 0)
             self.logger.debug(f"GCS connection target system {self.con_gcs.target_system}")
             await asyncio.sleep(0.5)
+
+    def add_drone_message_callback(self, message_id: int, func: typing.Callable[[any], typing.Coroutine]):
+        if message_id in self._drone_receive_callbacks:
+            self._drone_receive_callbacks[message_id].add(func)
+        else:
+            self._drone_receive_callbacks[message_id] = {func}
+
+    def remove_drone_message_callback(self, message_id: int, func: typing.Callable[[any], typing.Coroutine]):
+        if message_id in self._drone_receive_callbacks:
+            self._drone_receive_callbacks[message_id].remove(func)
 
     async def stop(self):
         self.logger.debug("Stopping")

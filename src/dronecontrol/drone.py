@@ -8,6 +8,7 @@ import platform
 import time
 from subprocess import Popen, DEVNULL
 from abc import ABC, abstractmethod
+from typing import Coroutine
 
 import numpy as np
 
@@ -18,10 +19,10 @@ from mavsdk.telemetry import StatusTextType
 from mavsdk.action import ActionError, OrbitYawBehavior
 from mavsdk.offboard import PositionNedYaw, PositionGlobalYaw, VelocityNedYaw, AccelerationNed, OffboardError
 from mavsdk.manual_control import ManualControlError
-from mavsdk.camera import CameraError
 
 from dronecontrol.utils import dist_ned, dist_gps, relative_gps
 from dronecontrol.utils import parse_address, common_formatter, get_free_port
+from dronecontrol.utils import LOG_DIR
 from dronecontrol.mavpassthrough import MAVPassthrough
 from dronecontrol.navigation.core import WayPointType, Waypoint, TrajectoryGenerator, TrajectoryFollower, Fence
 from dronecontrol.navigation.directsetpointfollower import DirectSetpointFollower
@@ -31,8 +32,6 @@ from dronecontrol.navigation.gmp3generator import GMP3Generator
 import logging
 
 _cur_dir = os.path.dirname(os.path.abspath(__file__))
-logdir = os.path.abspath("./logs")
-os.makedirs(logdir, exist_ok=True)
 _mav_server_file = os.path.join(_cur_dir, "mavsdk_server_bin.exe")
 
 
@@ -71,7 +70,7 @@ class Drone(ABC, threading.Thread):
         self.name = name
         self.drone_addr = None
         self.drone_ip = None
-        self.action_queue: deque[tuple[asyncio.Coroutine, asyncio.Future]] = deque()
+        self.action_queue: deque[tuple[Coroutine, asyncio.Future]] = deque()
         self.current_action: asyncio.Task | None = None
         self.should_stop = threading.Event()
         self.logger = logging.getLogger(name)
@@ -81,7 +80,8 @@ class Drone(ABC, threading.Thread):
         if self.log_to_file:
             log_file_name = f"drone_{self.name}_{datetime.datetime.now()}"
             log_file_name = log_file_name.replace(":", "_").replace(".", "_") + ".log"
-            file_handler = logging.FileHandler(os.path.join(logdir, log_file_name))
+            os.makedirs(LOG_DIR, exist_ok=True)
+            file_handler = logging.FileHandler(os.path.join(LOG_DIR, log_file_name))
             file_handler.setLevel(logging.DEBUG)
             file_handler.setFormatter(common_formatter)
             self.add_handler(file_handler)
@@ -413,7 +413,7 @@ class DroneMAVSDK(Drone):
         # planning algorithms for their time resolution.
         self.position_update_rate = 5
 
-        self.mav_conn = MAVPassthrough(loggername=f"{name}_MAVLINK", log_messages=False)
+        self.mav_conn: MAVPassthrough = MAVPassthrough(loggername=f"{name}_MAVLINK", log_messages=True)
         try:
             #self.trajectory_generator = GMP3Generator(self, 1/self.position_update_rate, self.logger, use_gps=False)
             self.trajectory_generator = DirectTargetGenerator(self, self.logger, WayPointType.POS_NED, use_gps=False)
@@ -592,12 +592,6 @@ class DroneMAVSDK(Drone):
         else:
             async for state in self.system.core.connection_state():
                 self._is_connected = state.is_connected
-
-    async def _ensure_message_rates(self):
-        # Send our desired message rates every so often to ensure
-        while True:
-            await self._configure_message_rates()
-            await asyncio.sleep(5)
 
     async def _arm_check(self):
         async for arm in self.system.telemetry.armed():
@@ -918,6 +912,7 @@ class DroneMAVSDK(Drone):
         :param waypoint:
         :param tolerance:
         :param put_into_offboard:
+        :param log:
         :return:
         """
         # Check that we have one full set of coordinates and are in a flyable state
@@ -1128,43 +1123,3 @@ class DroneMAVSDK(Drone):
             self.logger.error(e._result.result_str)
             return False
         return True
-
-# Camera Stuff #########################################################################################################
-
-    async def prepare(self):
-        await self._error_wrapper(self.system.camera.prepare, CameraError)
-
-    async def take_picture(self, ir=True, vis=True):
-        flags = 0
-        if ir:
-            flags += 1
-        if vis:
-            flags += 8
-        await self.mav_conn.send_cmd_long(target_system=self.drone_system_id, target_component=100, cmd=2000,
-                                          param3=1.0,
-                                          param5=int(flags),
-                                          )
-
-    async def start_video(self, ir=True, vis=True):
-        flags = 0
-        if ir:
-            flags += 2
-        if vis:
-            flags += 4
-        await self.mav_conn.send_cmd_long(target_system=self.drone_system_id, target_component=100, cmd=2500,
-                                          param1=int(flags),
-                                          param2=2,
-                                          )
-
-    async def stop_video(self):
-        await self.mav_conn.send_cmd_long(target_system=self.drone_system_id, target_component=100, cmd=2501, )
-
-    async def get_settings(self):
-        await self.mav_conn.send_cmd_long(target_system=self.drone_system_id, target_component=100, cmd=521, )
-        await self.mav_conn.send_cmd_long(target_system=self.drone_system_id, target_component=100, cmd=522,
-                                          param1=1)
-
-    async def set_zoom(self, zoom):
-        await self.mav_conn.send_cmd_long(target_system=self.drone_system_id, target_component=100, cmd=203,
-                                          param2=zoom,
-                                          param5=0)

@@ -53,5 +53,8 @@ docs/_build/
 # Our own logs
 logs/
 
+# Cache for camera definitions, etc...
+.cache/
+
 # MAVSDK server executable on windows
 src/dronecontrol/mavsdk_server_bin.exe

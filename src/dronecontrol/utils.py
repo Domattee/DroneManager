@@ -2,13 +2,19 @@ import math
 from urllib.parse import urlparse
 import numpy as np
 import logging
+from pathlib import Path
 import socket
 import inspect
 import typing
 import types
+import asyncio
 from haversine import inverse_haversine, haversine, Direction, Unit
 
 common_formatter = logging.Formatter('%(asctime)s.%(msecs)03d %(levelname)s %(name)s - %(message)s', datefmt="%H:%M:%S")
+
+CACHE_DIR = Path(__file__).parent.parent.parent.joinpath(".cache")
+
+LOG_DIR = Path(__file__).parent.parent.parent.joinpath("logs")
 
 
 def dist_ned(pos1, pos2):
@@ -117,6 +123,8 @@ def check_cli_command_signatures(command):
     args_accepts_none = []
     args_types = []
     args_kwonly = []
+    args_has_defaults = []
+    args_defaults = []
     for param in sig.parameters.values():
         is_invalid = False
         is_list = False
@@ -124,6 +132,8 @@ def check_cli_command_signatures(command):
         accepts_none = False
         param_type = str
         is_kwonly = param.kind is param.KEYWORD_ONLY
+        has_default = param.default is not param.empty
+        default = param.default if has_default else None
 
         # Cases we accept: Direct type, List of a type, Union of a type and None, Union of None and a list of a type
         if param.annotation is None or param.annotation is param.empty or len(typing.get_args(param.annotation)) > 2:
@@ -177,5 +187,18 @@ def check_cli_command_signatures(command):
         args_accepts_none.append(accepts_none)
         args_types.append(param_type)
         args_kwonly.append(is_kwonly)
+        args_has_defaults.append(has_default)
+        args_defaults.append(default)
 
-    return list(zip(args_invalid, args_name, args_list, args_required, args_accepts_none, args_types, args_kwonly))
+    return list(zip(args_invalid, args_name, args_list, args_required, args_accepts_none, args_types, args_kwonly, args_has_defaults, args_defaults))
+
+
+async def coroutine_awaiter(task: asyncio.Task, logger):
+    try:
+        if isinstance(task, asyncio.Task):
+            await task
+    except asyncio.CancelledError:
+        pass
+    except Exception as e:
+        logger.error(f"Encountered an exception in a coroutine! See the log for more details")
+        logger.debug(e, exc_info=True)

@@ -5,7 +5,7 @@ import shlex
 
 from dronecontrol.dronemanager import DroneManager
 from dronecontrol.drone import Drone, DroneMAVSDK
-from dronecontrol.utils import common_formatter, check_cli_command_signatures
+from dronecontrol.utils import common_formatter, check_cli_command_signatures, coroutine_awaiter
 
 import textual.css.query
 from textual import on, events
@@ -310,25 +310,6 @@ class CommandScreen(Screen):
 
         exit_parser = command_parsers.add_parser("exit", aliases=self._exit_aliases, help="Exits the application")
 
-        cam_prepare_parser = command_parsers.add_parser("cam-prep", help="Prepare camera plugin")
-        cam_prepare_parser.add_argument("drone", type=str, help="Which drones should take a picture")
-
-        cam_settings_parser = command_parsers.add_parser("cam-settings", help="Start recording video")
-        cam_settings_parser.add_argument("drone", type=str, help="Which drones should take a picture")
-
-        cam_picture_parser = command_parsers.add_parser("cam-photo", help="Take a picture")
-        cam_picture_parser.add_argument("drone", type=str, help="Which drones should take a picture")
-
-        cam_video_start_parser = command_parsers.add_parser("cam-start", help="Start recording video")
-        cam_video_start_parser.add_argument("drone", type=str, help="Which drones should take a picture")
-
-        cam_video_stop_parser = command_parsers.add_parser("cam-stop", help="Start recording video")
-        cam_video_stop_parser.add_argument("drone", type=str, help="Which drones should take a picture")
-
-        cam_zoom_parser = command_parsers.add_parser("cam-zoom", help="Start recording video")
-        cam_zoom_parser.add_argument("drone", type=str, help="Which drones should take a picture")
-        cam_zoom_parser.add_argument("zoom", type=float, help="Target zoom level")
-
         ### RC - Parsers
 
         ql_parser = command_parsers.add_parser("qualify", help="Executes the 'qualify' function for the specified drones")
@@ -360,18 +341,23 @@ class CommandScreen(Screen):
                 self.logger.debug(f"Inspecting command {command_name}")
                 tmp_parser = self.command_parser.add_parser(cli_command)
                 for arg in check_cli_command_signatures(command):
-                    is_invalid, name, is_list, is_required, accepts_none, base_type, is_kwonly = arg
+                    is_invalid, name, is_list, is_required, accepts_none, base_type, is_kwonly, has_default, default = arg
                     arg_name = name if is_required else f"--{name}"
+                    arg_kwargs = {
+                        "type": base_type,
+                    }
                     if is_invalid:
                         raise RuntimeError(f"CLI command {command_name} has invalid parameter types for parameter {name}!")
                     if is_list and is_required:
-                        tmp_parser.add_argument(arg_name, type=base_type, nargs="+")
+                        arg_kwargs["nargs"] = "+"
                     elif is_list and not is_required:
-                        tmp_parser.add_argument(arg_name, type=base_type, nargs="*")
-                    else:
-                        tmp_parser.add_argument(arg_name, type=base_type)
+                        arg_kwargs["nargs"] = "*"
+                    if has_default:
+                        arg_kwargs["default"] = default
+                    tmp_parser.add_argument(arg_name, **arg_kwargs)
                     self.logger.debug(f"Added Argument {arg_name}: {base_type, is_list, is_required}")
                 self.dynamic_commands[cli_command] = command
+            return True
         except Exception as e:
             self.logger.warning("Failed to load CLI commands for the plugin!")
             self.logger.debug(repr(e), exc_info=True)
@@ -401,16 +387,6 @@ class CommandScreen(Screen):
             await self.drone_widgets[name].remove()
         except KeyError:
             pass
-
-    async def _cli_awaiter(self, task):
-        try:
-            if isinstance(task, asyncio.Task):
-                await task
-        except asyncio.CancelledError:
-            pass
-        except Exception as e:
-            self.logger.error(f"Encountered an exception in a coroutine! See the log for more details")
-            self.logger.debug(e, exc_info=True)
 
     @on(InputWithHistory.Submitted, "#cli")
     async def cli(self, message):
@@ -501,20 +477,8 @@ class CommandScreen(Screen):
                 func_arguments = vars(args).copy()
                 func_arguments.pop("command")
                 tmp = asyncio.create_task(self.dynamic_commands[command](**func_arguments))
-            elif command == "cam-prep":
-                tmp = asyncio.create_task(self.dm.prepare(args.drone))
-            elif command == "cam-settings":
-                tmp = asyncio.create_task(self.dm.get_settings(args.drone))
-            elif command == "cam-photo":
-                tmp = asyncio.create_task(self.dm.take_picture(args.drone))
-            elif command == "cam-start":
-                tmp = asyncio.create_task(self.dm.start_video(args.drone))
-            elif command == "cam-stop":
-                tmp = asyncio.create_task(self.dm.stop_video(args.drone))
-            elif command == "cam-zoom":
-                tmp = asyncio.create_task(self.dm.set_zoom(args.drone, args.zoom))
             self.running_tasks.add(tmp)
-            self._awaiter_tasks.add(asyncio.create_task(self._cli_awaiter(tmp)))
+            self._awaiter_tasks.add(asyncio.create_task(coroutine_awaiter(tmp, self.logger)))
         except Exception as e:
             self.logger.error("Encountered an exception executing the CLI!")
             self.logger.debug(repr(e), exc_info=True)
@@ -541,7 +505,6 @@ class CommandScreen(Screen):
                 if self.dm.drones[name].is_armed:
                     stop_app = False
             if stop_app:
-                await asyncio.gather(*[self.dm.drones[name].disconnect(force=True) for name in self.dm.drones])
                 for task in self.running_tasks:
                     if isinstance(task, asyncio.Task):
                         task.cancel()
@@ -550,8 +513,8 @@ class CommandScreen(Screen):
                         task.cancel()
                 await asyncio.sleep(0.2)  # Beauty pause
                 self.logger.info("Exiting...")
-                await asyncio.sleep(1)  # Beauty pause
                 await self.dm.close()
+                await asyncio.sleep(1)  # Beauty pause
                 self.app.exit()
             else:
                 self.logger.warning("Can't exit the app with armed drones!")

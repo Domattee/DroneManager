@@ -11,7 +11,7 @@ from asyncio.exceptions import TimeoutError, CancelledError
 
 from dronecontrol.drone import Drone, parse_address
 from dronecontrol.navigation.rectlocalfence import RectLocalFence
-from dronecontrol.utils import common_formatter, get_free_port
+from dronecontrol.utils import common_formatter, get_free_port, LOG_DIR
 from dronecontrol.navigation.core import Waypoint
 from dronecontrol.plugin import Plugin
 
@@ -26,6 +26,8 @@ FENCES = {
 # TODO: Trajectory generator/follower discovery and setting/unsetting functions, trajectory follower deactivation
 
 pane_formatter = logging.Formatter('%(asctime)s %(levelname)s %(name)s - %(message)s', datefmt="%H:%M:%S")
+
+# TODO: Config file with stull like this dictionary or the cache and log locations
 
 DRONE_DICT = {
     "luke":   "udp://192.168.1.31:14561",
@@ -66,9 +68,8 @@ class DroneManager:
             self.logger.setLevel(logging.DEBUG)
             filename = f"manager_{datetime.datetime.now()}"
             filename = filename.replace(":", "_").replace(".", "_") + ".log"
-            logdir = os.path.abspath("./logs")
-            os.makedirs(logdir, exist_ok=True)
-            file_handler = logging.FileHandler(os.path.join(logdir, filename))
+            os.makedirs(LOG_DIR, exist_ok=True)
+            file_handler = logging.FileHandler(os.path.join(LOG_DIR, filename))
             file_handler.setLevel(logging.DEBUG)
             file_handler.setFormatter(common_formatter)
             self.logger.addHandler(file_handler)
@@ -163,7 +164,7 @@ class DroneManager:
     async def disconnect(self, names, force=False):
         self.logger.info(f"Disconnecting {names} ...")
         async with self.drone_lock:
-            for name in names:
+            for name in list(names):
                 try:
                     drone = self.drones[name]
                 except KeyError:
@@ -425,6 +426,7 @@ class DroneManager:
     async def close(self):
         for plugin in list(self.plugins):
             await self.unload_plugin(plugin)
+        await self.disconnect(self.drones)
 
 # PLUGINS ##############################################################################################################
 
@@ -535,23 +537,3 @@ class DroneManager:
         await asyncio.gather(*unload_tasks, return_exceptions=True)
         await plugin.close()
         delattr(self, plugin_name)
-
-# Camera Stuff #########################################################################################################
-
-    async def prepare(self, name):
-        await self.drones[name].prepare()
-
-    async def get_settings(self, name):
-        await self.drones[name].get_settings()
-
-    async def take_picture(self, name):
-        await self.drones[name].take_picture()
-
-    async def start_video(self, name):
-        await self.drones[name].start_video()
-
-    async def stop_video(self, name):
-        await self.drones[name].stop_video()
-
-    async def set_zoom(self, name, zoom):
-        await self.drones[name].set_zoom(zoom)
