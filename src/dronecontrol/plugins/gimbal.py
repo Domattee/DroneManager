@@ -98,7 +98,8 @@ class GimbalPlugin(Plugin):
     async def set_gimbal_angles(self, drone: str, pitch: float, yaw: float):
         if self.check_has_gimbal(drone):
             try:
-                return await self.gimbals[drone].set_gimbal_angles(pitch, yaw)
+                res =  await self.gimbals[drone].set_gimbal_angles(pitch, yaw)
+                return res
             except Exception as e:
                 self.logger.error("Couldn't set angles due to an exception!")
                 self.logger.debug(repr(e), exc_info=True)
@@ -108,7 +109,6 @@ class GimbalPlugin(Plugin):
     async def set_gimbal_rate(self, drone: str, pitch_rate: float, yaw_rate: float):
         if self.check_has_gimbal(drone):
             try:
-                self.logger.debug(f"Setting gimbal rates for gimbal on {drone} to {pitch_rate, yaw_rate}")
                 return await self.gimbals[drone].set_gimbal_angles(pitch_rate, yaw_rate)
             except Exception as e:
                 self.logger.error("Couldn't set angular rates due to an exception!")
@@ -119,14 +119,20 @@ class GimbalPlugin(Plugin):
     async def point_gimbal_at(self, drone: str, x1: float, x2: float, x3: float, relative: bool = False):
         if self.check_has_gimbal(drone):
             if relative:
-                return await self.gimbals[drone].point_gimbal_at_relative(x1, x2, x3)
+                res =  await self.gimbals[drone].point_gimbal_at_relative(x1, x2, x3)
             else:
-                return await self.gimbals[drone].point_gimbal_at(x1, x2, x3)
+                res =  await self.gimbals[drone].point_gimbal_at(x1, x2, x3)
+            return res
         return False
 
     async def set_gimbal_mode(self, drone: str, mode: str):
         if self.check_has_gimbal(drone):
-            return await self.gimbals[drone].set_gimbal_mode(mode)
+            res = await self.gimbals[drone].set_gimbal_mode(mode)
+            if res:
+                self.logger.info(f"Gimbal mode changed to {mode}")
+            else:
+                self.logger.warning("Couldn't change gimbal mode!")
+            return res
         return False
 
 
@@ -152,6 +158,7 @@ class Gimbal:
         self.update_rate = 5  # How often we request updates on control and attitude
         self._message_callbacks: dict[int, typing.Callable[[any], typing.Coroutine]] = {
             265: self._gimbal_attitude_callback,
+            281: self._gimbal_control_callback,
         }
         self._add_callbacks()
         self.start()
@@ -178,6 +185,16 @@ class Gimbal:
             if isinstance(task, asyncio.Task):
                 task.cancel()
 
+    @property
+    def in_control(self):
+        return self.primary_control[0] == 245 and self.primary_control[1] == 190
+
+    async def _gimbal_control_callback(self, msg):
+        # Check for gimbal manager status messages (281)
+        if msg.gimbal_device_id == self.device_id:
+            self.primary_control = (msg.primary_control_sysid, msg.primary_control_compid)
+            self.secondary_control = (msg.secondary_control_sysid, msg.secondary_control_compid)
+
     async def _gimbal_attitude_callback(self, msg):
         # If the message is of type MOUNT_ORIENTATION (265) and source system and component match ours: save info
         if msg.get_srcComponent() == self.device_id:
@@ -187,7 +204,7 @@ class Gimbal:
             self.yaw_absolute = msg.yaw_absolute
 
     def log_status(self):
-        self.logger.info(f"Gimbal control P:{self.primary_control}, "
+        self.logger.info(f"Gimbal control: {"Yes" if self.in_control else "No"}, P:{self.primary_control}, "
                          f"S: {self.secondary_control}, "
                          f"Roll: {self.roll}, Pitch: {self.pitch}, Yaw: {self.yaw}, Absolute Yaw: {self.yaw_absolute}")
 
@@ -201,7 +218,12 @@ class Gimbal:
 
     async def point_gimbal_at(self, lat, long, amsl):
         gimbal_id = self.gimbal_id_commands
-        return await self._error_wrapper(self.drone.system.gimbal.set_roi_location, gimbal_id, lat, long, amsl)
+        res = await self._error_wrapper(self.drone.system.gimbal.set_roi_location, gimbal_id, lat, long, amsl)
+        if res:
+            self.logger.info("Gimbal accepted ROI command!")
+        else:
+            self.logger.info("Gimbal didn't accept ROI command!")
+        return res
 
     async def point_gimbal_at_relative(self, x, y, z):
         lat, long, amsl = relative_gps(x, y, z, *self.drone.position_global[:3])
@@ -209,7 +231,7 @@ class Gimbal:
 
     async def set_gimbal_angles(self, pitch, yaw):
         gimbal_id = self.gimbal_id_commands
-        self.logger.debug(f"Setting gimbal angles for gimbal {gimbal_id} to {pitch, yaw}")
+        self.logger.info(f"Setting gimbal angles for gimbal {gimbal_id} to {pitch, yaw}")
         return await self._error_wrapper(self.drone.system.gimbal.set_angles, gimbal_id, 0, pitch, yaw, self.mode,
                                          SendMode.ONCE)
 
@@ -222,8 +244,12 @@ class Gimbal:
         assert mode in ["follow", "lock"]
         if mode == "follow":
             self.mode = GimbalMode.YAW_FOLLOW
+            return True
         elif mode == "lock":
             self.mode = GimbalMode.YAW_LOCK
+            return True
+        else:
+            return False
 
     async def _error_wrapper(self, func, *args, **kwargs):
         try:

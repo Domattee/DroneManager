@@ -235,7 +235,8 @@ class Camera:
         return False
 
     async def close(self):
-        self.drone.mav_conn.remove_drone_message_callback(322, self._listen_param_updates)
+        if self.drone in self.dm.drones.values:
+            self.drone.mav_conn.remove_drone_message_callback(322, self._listen_param_updates)
         for task in self._running_tasks:
             if isinstance(task, asyncio.Task):
                 task.cancel()
