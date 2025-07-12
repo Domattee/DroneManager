@@ -47,8 +47,8 @@ class GimbalPlugin(Plugin):
     async def start(self):
         self.logger.debug("Starting Gimbal plugin...")
         await super().start()
-        for drone in self.dm.drones:
-            await self.add_gimbals(drone)
+        #for drone in self.dm.drones:
+        #    await self.add_gimbals(drone)
 
     async def close(self):
         """ Removes all gimbals """
@@ -204,7 +204,7 @@ class Gimbal:
             self.yaw_absolute = msg.yaw_absolute
 
     def log_status(self):
-        self.logger.info(f"Gimbal control: {"Yes" if self.in_control else "No"}, P:{self.primary_control}, "
+        self.logger.info(f"Gimbal control: {'Yes' if self.in_control else 'No'}, P:{self.primary_control}, "
                          f"S: {self.secondary_control}, "
                          f"Roll: {self.roll}, Pitch: {self.pitch}, Yaw: {self.yaw}, Absolute Yaw: {self.yaw_absolute}")
 
