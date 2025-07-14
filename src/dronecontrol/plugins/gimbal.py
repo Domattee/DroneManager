@@ -68,8 +68,11 @@ class GimbalPlugin(Plugin):
         try:
             drone_object = self.dm.drones[drone]
             self.gimbals[drone] = Gimbal(drone_object.logger, self.dm, drone_object, device_id=device_id)
+            return True
         except Exception as e:
-            self.logger.warning(repr(e))
+            self.logger.warning(f"Couldn't add a gimbal to {drone} due to an exception!")
+            self.logger.debug(repr(e), exc_info=True)
+            return False
 
     async def remove_gimbal(self, drone: str):
         """ Remove a gimbal from the plugin"""
