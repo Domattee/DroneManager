@@ -218,6 +218,7 @@ class Drone(ABC, threading.Thread):
     @property
     @abstractmethod
     def attitude(self) -> np.ndarray:
+        """ RPY in degrees"""
         pass
 
     @property
@@ -256,6 +257,34 @@ class Drone(ABC, threading.Thread):
     async def change_flight_mode(self, flightmode) -> bool:
         pass
 
+    def is_at_waypoint(self, waypoint: Waypoint, pos_tolerance=0.25, vel_tolerance=0.1, yaw_tolerance=1) -> bool:
+        """ Definition of "is at" depends on the waypoint type. At most checks position, yaw and
+        velocity.
+
+        :param waypoint:
+        :param pos_tolerance: In meters
+        :param vel_tolerance: In m/s
+        :param yaw_tolerance: In degrees
+        :return:
+        """
+        if waypoint.yaw is not None:
+            yaw_good = self.is_at_heading(waypoint.yaw, tolerance=yaw_tolerance)
+        else:
+            yaw_good = True
+        if waypoint.type == WayPointType.POS_GLOBAL:
+            return self.is_at_gps(waypoint.gps, tolerance=pos_tolerance) and yaw_good
+        elif waypoint.type == WayPointType.POS_NED:
+            return self.is_at_pos(waypoint.pos, tolerance=pos_tolerance) and yaw_good
+        elif waypoint.type == WayPointType.POS_VEL_NED:
+            return self.is_at_pos(waypoint.pos, tolerance=pos_tolerance) and self.is_at_vel(waypoint.vel, tolerance=vel_tolerance) and yaw_good
+        elif waypoint.type == WayPointType.POS_VEL_ACC_NED:
+            self.logger.debug("Asked to check a waypoint with acceleration, but no acceleration checks are implemented")
+            return self.is_at_pos(waypoint.pos, tolerance=pos_tolerance) and self.is_at_vel(waypoint.vel, tolerance=vel_tolerance) and yaw_good
+        elif waypoint.type == WayPointType.VEL_NED:
+            return self.is_at_vel(waypoint.vel, tolerance=vel_tolerance) and yaw_good
+        else:
+            raise ValueError("Invalid waypoint type for this function")
+
     def is_at_pos(self, target_pos, tolerance=0.25) -> bool:
         """
 
@@ -264,21 +293,19 @@ class Drone(ABC, threading.Thread):
         :return:
         """
         cur_pos = self.position_ned
-        if dist_ned(cur_pos, target_pos[:3]) < tolerance:
-            return True
-        return False
+        return dist_ned(cur_pos, target_pos[:3]) < tolerance
 
     def is_at_heading(self, target_heading, tolerance=1) -> bool:
         target_heading = (target_heading + 180) % 360 - 180
         cur_heading = self.attitude[2]
-        if abs(cur_heading - target_heading) < tolerance:
-            return True
-        return False
+        return abs(cur_heading - target_heading) < tolerance
 
     def is_at_gps(self, target_gps, tolerance=0.25) -> bool:
-        if dist_gps(target_gps, self.position_global) < tolerance:
-            return True
-        return False
+        return dist_gps(target_gps, self.position_global) < tolerance
+
+    def is_at_vel(self, target_vel, tolerance=0.1):
+        cur_vel = self.velocity
+        return dist_ned(cur_vel, target_vel) < tolerance
 
     @abstractmethod
     async def yaw_to(self, target_yaw, yaw_rate=30, local=None, tolerance=2):

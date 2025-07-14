@@ -171,7 +171,7 @@ class TrajectoryFollower(ABC):
     """ Abstract Base class to "follow" a given trajectory and maintain position at waypoints.
 
     A trajectory follower can work with different types of waypoints, but must be able to process WayPoinType.POS_NED,
-    as that is the default case.
+    as that is the default case when a generator isn't providing waypoints.
     """
 
     CAN_DO_GPS = False
