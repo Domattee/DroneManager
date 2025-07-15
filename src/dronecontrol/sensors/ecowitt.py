@@ -34,7 +34,7 @@ ECOWITT_ID_MAP_RAIN = {
 }
 
 
-class EcoWittDataEntry:
+class WeatherDataEntry:
     def __init__(self, entry_id: str, name: str, value: float = math.nan, unit: str = ""):
         self.entry_id = entry_id
         self.name = name
@@ -42,34 +42,34 @@ class EcoWittDataEntry:
         self.unit = unit
 
 
-class EcoWittData:
+class WeatherData:
 
     def __init__(self, timestamp = None):
-        self.temperature = EcoWittDataEntry("0x02", "Temperature")
-        self.dew_point = EcoWittDataEntry("0x03", "Dew point")
-        self.humidity = EcoWittDataEntry("0x07", "Humidity")
-        self.light = EcoWittDataEntry("0x15", "Light")
-        self.uvi = EcoWittDataEntry("0x17", "UVI")
-        self.wind_speed = EcoWittDataEntry("0x0B", "Wind Speed")
-        self.wind_direction = EcoWittDataEntry("0x0A", "Wind Direction")
-        self.gust_speed = EcoWittDataEntry("0x0C", "Gust Speed")
-        self.wind_speed_max_day = EcoWittDataEntry("0x19", "Day max wind")
+        self.temperature = WeatherDataEntry("0x02", "Temperature")
+        self.dew_point = WeatherDataEntry("0x03", "Dew point")
+        self.humidity = WeatherDataEntry("0x07", "Humidity")
+        self.light = WeatherDataEntry("0x15", "Light")
+        self.uvi = WeatherDataEntry("0x17", "UVI")
+        self.wind_speed = WeatherDataEntry("0x0B", "Wind Speed")
+        self.wind_direction = WeatherDataEntry("0x0A", "Wind Direction")
+        self.gust_speed = WeatherDataEntry("0x0C", "Gust Speed")
+        self.wind_speed_max_day = WeatherDataEntry("0x19", "Day max wind")
 
-        self.rain_event = EcoWittDataEntry("0x0D", "Rain Event")
-        self.rain_rate = EcoWittDataEntry("0x0E", "Current Rain Rate")
-        self.cum_rain_today = EcoWittDataEntry("0x10", "Rain this Day")
-        self.cum_rain_week = EcoWittDataEntry("0x11", "Rain this Week")
-        self.cum_rain_month = EcoWittDataEntry("0x12", "Rain this Month")
-        self.cum_rain_year = EcoWittDataEntry("0x13", "Rain Year")
+        self.rain_event = WeatherDataEntry("0x0D", "Rain Event")
+        self.rain_rate = WeatherDataEntry("0x0E", "Current Rain Rate")
+        self.cum_rain_today = WeatherDataEntry("0x10", "Rain this Day")
+        self.cum_rain_week = WeatherDataEntry("0x11", "Rain this Week")
+        self.cum_rain_month = WeatherDataEntry("0x12", "Rain this Month")
+        self.cum_rain_year = WeatherDataEntry("0x13", "Rain Year")
 
-        self.pressure = EcoWittDataEntry("", "Pressure")
+        self.pressure = WeatherDataEntry("", "Pressure")
         self.time = timestamp
         self.data_entries = [self.temperature, self.dew_point, self.humidity, self.light, self.uvi, self.wind_speed,
                      self.wind_direction, self.gust_speed, self.wind_speed_max_day, self.rain_event, self.rain_rate,
                      self.cum_rain_today, self.cum_rain_week, self.cum_rain_month, self.cum_rain_year, self.pressure]
 
     def __str__(self):
-        return "\t".join([f"{entry.name}: {entry.value}{entry.unit}" for entry in self.data_entries]) + f"\t Time {self.time}"
+        return  f"Time {self.time}\t" + "\t".join([f"{entry.name}: {entry.value}{entry.unit}" for entry in self.data_entries])
 
     @classmethod
     def from_dict(cls, input_dict, timestamp = None):
@@ -117,6 +117,28 @@ class EcoWittData:
         entry_value = float(entry_value)
         return entry_id, entry_value, entry_unit
 
+    def to_json_dict(self):
+        """ Create a json serializable dictionary"""
+        out_dict = self.__dict__.copy()
+        out_dict["time"] = self.time.isoformat()
+        out_dict.pop("data_entries")
+        for attr_name, attr_value in out_dict.items():
+            if isinstance(attr_value, WeatherDataEntry):
+                out_dict[attr_name] = attr_value.__dict__
+        return out_dict
+
+    @classmethod
+    def from_json_dict(cls, json_dict):
+        """ Recreate the object from a json serialized dictionary"""
+        timestamp = datetime.datetime.fromisoformat(json_dict.pop("time"))
+        new_obj = cls(timestamp)
+        for attr_name, attr_value in json_dict.items():
+            entry = new_obj.__getattribute__(attr_name)
+            entry.name = attr_value["name"]
+            entry.value = attr_value["value"]
+            entry.unit = attr_value["unit"]
+        return new_obj
+
 
 class EcoWittSensor(Sensor):
     """ Class for EcoWitt Weather stations that support their HTTP API."""
@@ -124,7 +146,7 @@ class EcoWittSensor(Sensor):
     def __init__(self, dm, logger, name="ecowitt"):
         super().__init__(dm, logger, name)
         self.ip = None
-        self.last_data: EcoWittData | None = None
+        self.last_data: WeatherData | None = None
         self.time_since_ping = math.nan
 
     async def connect(self, ip: str):
@@ -141,11 +163,11 @@ class EcoWittSensor(Sensor):
         self.logger.info(f"Connected to sensor at {self.ip}")
         return True
 
-    async def get_data(self) -> EcoWittData | None:
+    async def get_data(self) -> WeatherData | None:
         try:
             timestamp = datetime.datetime.now(datetime.UTC)
             response = await asyncio.get_running_loop().run_in_executor(None, requests.get, f"http://{self.ip}/get_livedata_info")
-            data = EcoWittData.from_dict(response.json(), timestamp=timestamp)
+            data = WeatherData.from_dict(response.json(), timestamp=timestamp)
             self.last_data = data
             return data
         except Exception as e:
