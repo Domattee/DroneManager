@@ -68,7 +68,7 @@ class WeatherData:
                      self.cum_rain_today, self.cum_rain_week, self.cum_rain_month, self.cum_rain_year, self.pressure]
 
     def __str__(self):
-        return "\t".join([f"{entry.name}: {entry.value}{entry.unit}" for entry in self.data_entries]) + f"\t Time {self.time}"
+        return  f"Time {self.time}\t" + "\t".join([f"{entry.name}: {entry.value}{entry.unit}" for entry in self.data_entries])
 
     @classmethod
     def from_dict(cls, input_dict, timestamp = None):
@@ -115,6 +115,28 @@ class WeatherData:
                 entry_value = splits[0]
         entry_value = float(entry_value)
         return entry_id, entry_value, entry_unit
+
+    def to_json_dict(self):
+        """ Create a json serializable dictionary"""
+        out_dict = self.__dict__.copy()
+        out_dict["time"] = self.time.isoformat()
+        out_dict.pop("data_entries")
+        for attr_name, attr_value in out_dict.items():
+            if isinstance(attr_value, WeatherDataEntry):
+                out_dict[attr_name] = attr_value.__dict__
+        return out_dict
+
+    @classmethod
+    def from_json_dict(cls, json_dict):
+        """ Recreate the object from a json serialized dictionary"""
+        timestamp = datetime.datetime.fromisoformat(json_dict.pop("time"))
+        new_obj = cls(timestamp)
+        for attr_name, attr_value in json_dict.items():
+            entry = new_obj.__getattribute__(attr_name)
+            entry.name = attr_value["name"]
+            entry.value = attr_value["value"]
+            entry.unit = attr_value["unit"]
+        return new_obj
 
 
 class EcoWittSensor(Sensor):
