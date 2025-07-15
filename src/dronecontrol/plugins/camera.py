@@ -282,7 +282,7 @@ class Camera:
         return res
 
     async def init_cam_info(self):
-        cam_info = await self.drone.mav_conn.get_message(target_component=self.camera_id, message_id=259)
+        cam_info = await self.drone.mav_conn.request_message(target_component=self.camera_id, message_id=259)
         if not cam_info:
             self.logger.warning("No camera found!")
         else:

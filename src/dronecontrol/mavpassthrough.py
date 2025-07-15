@@ -217,8 +217,8 @@ class MAVPassthrough:
         message = self.listen_message(message_id, target_component)
         return message, request_ack
 
-    async def get_message(self, target_component, message_id, param1=math.nan, param2=math.nan,
-                          param3=math.nan, param4=math.nan, param5=math.nan, response_target=1, timeout=5):
+    async def request_message(self, target_component, message_id, param1=math.nan, param2=math.nan,
+                              param3=math.nan, param4=math.nan, param5=math.nan, response_target=1, timeout=5):
         message, request_ack = self.send_request_message(target_component, message_id, param1=param1, param2=param2,
                                                          param3=param3, param4=param4, param5=param5,
                                                          response_target=response_target)
