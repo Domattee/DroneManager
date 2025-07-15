@@ -253,21 +253,25 @@ class Camera:
         res = await self.drone.mav_conn.send_cmd_long(target_component=100, cmd=2000, param3=1.0)
         if not res:
             self.logger.warning("Couldn't take picture!")
+        return res
 
     async def start_video(self):
         res = await self.drone.mav_conn.send_cmd_long(target_component=self.camera_id, cmd=2500, param2=1)
         if not res:
             self.logger.warning("Couldn't start video!")
+        return res
 
     async def stop_video(self):
         res = await self.drone.mav_conn.send_cmd_long(target_component=self.camera_id, cmd=2501)
         if not res:
             self.logger.warning("Couldn't stop video!")
+        return res
 
     async def set_zoom(self, zoom):
         res = await self.drone.mav_conn.send_cmd_long(target_component=self.camera_id, cmd=203, param2=zoom, param5=0)
         if not res:
             self.logger.warning("Couldn't set the zoom!")
+        return res
 
     async def _error_wrapper(self, func, *args, **kwargs):
         try:
