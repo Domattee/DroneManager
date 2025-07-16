@@ -128,6 +128,7 @@ class ENGELDataMission(Mission):
 
     async def do_capture(self):
         """ Capture an image and store relevant data. """
+        # TODO: Store current camera settings as well
         try:
             if self.capturing:
                 self.logger.warning("Already doing a capture, skipping")
