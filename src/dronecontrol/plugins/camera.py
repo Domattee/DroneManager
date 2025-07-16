@@ -56,7 +56,7 @@ class CameraPlugin(Plugin):
         try:
             drone_object = self.dm.drones.get(drone, None)
             if drone_object:
-                new_cam = Camera(drone_object.logger, self.dm, drone_object, camera_id=camera_id)
+                new_cam = Camera(drone_object.logger, self.dm, drone, camera_id=camera_id)
                 success = await new_cam.start()
                 if success:
                     self.cameras[drone] = new_cam
@@ -128,7 +128,7 @@ class ParameterOption:
     def __init__(self, name, value, excludes):
         self.name: str = name  # For display
         self.value: int | float = value  # This is used internally
-        self.excludes = excludes  # These parameters are rendered irrelevant if this option is set
+        self.excludes: list[str] = excludes  # These parameters are rendered irrelevant if this option is set
 
 
 class CameraParameter:
@@ -192,13 +192,41 @@ class CameraParameter:
     def get_options(self):
         return list(self._options.values())
 
+    def to_json_dict(self):
+        out_dict = {
+            "name": self.name,
+            "value": self.value,
+            "param_type": self.param_type,
+            "param_type_id": self.param_type_id,
+            "default": self.default,
+            "control": self.control,
+            "description": self.description,
+            "updates": self.updates,
+            "options": [option.__dict__ for option in self._options.values()],
+            "min_value": self.min,
+            "max_value": self.max,
+            "step_size": self.step_size,
+        }
+        return out_dict
+
+    @classmethod
+    def from_json_dict(cls, json_dict):
+        option_list = [ParameterOption(option["name"], option["value"], option["excludes"]) for option in json_dict["options"]]
+
+        param = cls(json_dict["name"], json_dict["param_type"], json_dict["default"], json_dict["control"],
+                    json_dict["description"], json_dict["updates"], option_list, json_dict["min_value"],
+                    json_dict["max_value"], json_dict["step_size"])
+        param.value = json_dict["value"]
+        param.param_type_id = json_dict["param_type_id"]
+        return param
+
 
 class Camera:
 
-    def __init__(self, logger, dm, drone, camera_id: int = 100):
+    def __init__(self, logger, dm, drone_name: str, camera_id: int = 100):
         self.logger = logger
         self.dm = dm
-        self.drone = drone
+        self.drone_name = drone_name
 
         self.camera_id = camera_id
         self._running_tasks = set()
@@ -214,6 +242,10 @@ class Camera:
         capture_info_task = asyncio.create_task(self._capture_info_updates())
         self._running_tasks.add(capture_info_task)
         self._running_tasks.add(asyncio.create_task(coroutine_awaiter(capture_info_task, self.logger)))
+
+    @property
+    def drone(self):
+        return self.dm.drones[self.drone_name]
 
     async def _capture_info_updates(self):
         async for capture_info in self.drone.system.camera.capture_info():
@@ -235,7 +267,7 @@ class Camera:
         return False
 
     async def close(self):
-        if self.drone in self.dm.drones.values:
+        if self.drone in self.dm.drones.values():
             self.drone.mav_conn.remove_drone_message_callback(322, self._listen_param_updates)
         for task in self._running_tasks:
             if isinstance(task, asyncio.Task):
@@ -431,13 +463,13 @@ class Camera:
             self.logger.warning("Camera sending custom parameter type, not supported!")
             parsed_param_value = None
         self.logger.debug(f"Received parameter update message: "
-                          f"{param_name, parsed_param_value, msg.param_value, msg._param_value_raw, msg.param_type}")
+                          f"{param_name, parsed_param_value, raw_param_value[:length], msg.param_type}")
         return param_name, parsed_param_value
 
     def _update_param_value(self, param_name, param_value, param_type_id):
         if param_name in self.parameters:
             if param_value is not None:
-                self.logger.debug("Updating param!")
+                self.logger.debug(f"Updating param {param_name} to {param_value}!")
                 self.parameters[param_name].value = param_value
             self.parameters[param_name].param_type_id = param_type_id
 
