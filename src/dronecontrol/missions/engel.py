@@ -11,12 +11,19 @@ import os
 from dronecontrol.navigation.core import Waypoint, WayPointType
 from dronecontrol.plugins.mission import Mission
 from dronecontrol.sensors.ecowitt import WeatherData
+from dronecontrol.plugins.camera import CameraParameter, Camera
+from dronecontrol.plugins.gimbal import Gimbal
 from dronecontrol.utils import LOG_DIR
+
+
+CAPTURE_DIR = os.path.join(LOG_DIR, "engel_data_captures")
+os.makedirs(CAPTURE_DIR, exist_ok=True)
 
 
 class ENGELCaptureInfo:
 
-    def __init__(self, time_utc, lat, long, amsl, drone_att, gimbal_att, gimbal_absolute, cam_file, weather_data: WeatherData):
+    def __init__(self, time_utc, lat, long, amsl, drone_att, gimbal_att, gimbal_absolute, cam_file,
+                 weather_data: WeatherData, camera_parameters: list[CameraParameter]):
         self.time = time_utc
         self.lat = lat
         self.long = long
@@ -26,6 +33,7 @@ class ENGELCaptureInfo:
         self.gimbal_yaw_absolute = gimbal_absolute
         self.file_on_camera = cam_file
         self.weather_data = weather_data
+        self.camera_parameters = camera_parameters
 
     def to_json_dict(self):
         out_dict = self.__dict__.copy()
@@ -33,6 +41,7 @@ class ENGELCaptureInfo:
         out_dict["drone_att"] = self.drone_att.tolist()
         out_dict["gimbal_att"] = self.gimbal_att.tolist()
         out_dict["weather_data"] = self.weather_data.to_json_dict()
+        out_dict["camera_parameters"] = [param.to_json_dict() for param in self.camera_parameters]
         return out_dict
 
     @classmethod
@@ -41,9 +50,10 @@ class ENGELCaptureInfo:
         drone_att = np.asarray(json_dict["drone_att"])
         gimbal_att = np.asarray(json_dict["gimbal_att"])
         weather_data = WeatherData.from_json_dict(json_dict["weather_data"])
+        cam_params = [CameraParameter.from_json_dict(entry) for entry in json_dict["camera_parameters"]]
         return cls(time_utc=time_utc, lat=json_dict["lat"], long=json_dict["long"], amsl=json_dict["amsl"],
                    drone_att=drone_att, gimbal_att=gimbal_att, gimbal_absolute=json_dict["gimbal_yaw_absolute"],
-                   cam_file=json_dict["file_on_camera"], weather_data=weather_data)
+                   cam_file=json_dict["file_on_camera"], weather_data=weather_data, camera_parameters=cam_params)
 
 
 class ENGELDataMission(Mission):
@@ -70,6 +80,8 @@ class ENGELDataMission(Mission):
         self.background_functions = [
         ]
         self.drone_name = None
+        self.gimbal: Gimbal | None = None
+        self.camera: Camera | None = None
 
         # Information on previous and current captures
         self.capturing = False  # Set to True while a capture is in process to only allow a single capture at a time
@@ -86,11 +98,33 @@ class ENGELDataMission(Mission):
             self.weather_sensor = self.dm.ecowitt
 
     async def configure_cam(self):
-        """ Set parameters for our camera (workswell wiris enterprise)"""
-        # TODO: All of it
-        # Parameters to set:
-        # Zoom, which images, thermal range maybe?
-        pass
+        """ Set parameters for our camera (workswell wiris enterprise), won't work with others"""
+        # Standard Parameter Set:
+        # IMG_RAD_TIFF      1
+        # IMG_RAD_JPEG      0
+        # IMG_IR_SUPER      "Off"
+        # IMG_SCREEN        0
+        # IMG_VIS           1
+        # IMG_VHR           1
+        # RANGE_TYPE        "Manual"
+        # RANGE_MAX         40.0
+        # RANGE_MIN         10.0
+        # MAIN_CAM          "Visible"
+        # ZOOM_THERMO_I     1.0
+        # ZOOM_VISIBLE_I    1.0
+        self.logger.info("Setting camera parameters to default...")
+        await self.camera.set_parameter("IMG_RAD_TIFF", True)
+        await self.camera.set_parameter("IMG_RAD_JPEG", False)
+        await self.camera.set_parameter("IMG_IR_SUPER", self.camera.parse_param_value("IMG_IR_SUPER", "Off"))
+        await self.camera.set_parameter("IMG_SCREEN", False)
+        await self.camera.set_parameter("IMG_VIS", True)
+        await self.camera.set_parameter("IMG_VHR", True)
+        await self.camera.set_parameter("RANGE_TYPE", self.camera.parse_param_value("RANGE_TYPE", "Manual"))
+        await self.camera.set_parameter("RANGE_MAX", 40.0)
+        await self.camera.set_parameter("RANGE_MIN", 10.0)
+        await self.camera.set_parameter("MAIN_CAM", self.camera.parse_param_value("MAIN_CAM", "Visible"))
+        await self.camera.set_parameter("ZOOM_THERMO_I", self.camera.parse_param_value("ZOOM_THERMO_I", "1.0"))
+        await self.camera.set_parameter("ZOOM_VISIBLE_I", self.camera.parse_param_value("ZOOM_VISIBLE_I", "1.0"))
 
     async def _imaged_captured_callback(self, msg):
         """ Check CAMERA_IMAGE_CAPTURED messages for capture_result and save info if success, log failure otherwise
@@ -115,33 +149,33 @@ class ENGELDataMission(Mission):
             amsl = msg.alt / 1e3
             file_url = msg.file_url
             drone = self.drones.items()[0]
-            gimbal = self.dm.gimbal.gimbals[self.drone_name]
+            cam_params = list(self.camera.parameters.values())
             cur_drone_att = drone.attitude
-            cur_gimbal_att = np.asarray([gimbal.roll, gimbal.pitch, gimbal.yaw])
+            cur_gimbal_att = np.asarray([self.gimbal.roll, self.gimbal.pitch, self.gimbal.yaw])
             weather_data = await self.weather_sensor.last_data
 
             self.logger.debug("Captured image, saving info...")
-            self.captures.append(ENGELCaptureInfo(time_utc=time_stamp, lat=lat, long=long, amsl=amsl, drone_att=cur_drone_att, gimbal_att=cur_gimbal_att, gimbal_absolute=gimbal.yaw_absolute, cam_file=file_url, weather_data=weather_data))
+            self.captures.append(ENGELCaptureInfo(time_utc=time_stamp, lat=lat, long=long, amsl=amsl,
+                                                  drone_att=cur_drone_att, gimbal_att=cur_gimbal_att,
+                                                  gimbal_absolute=self.gimbal.yaw_absolute, cam_file=file_url,
+                                                  weather_data=weather_data, camera_parameters=cam_params))
         else:
             self.logger.warning("Camera reports failure to capture image!")
             self.logger.debug(msg.to_dict())
 
     async def do_capture(self):
         """ Capture an image and store relevant data. """
-        # TODO: Store current camera settings as well
         try:
             if self.capturing:
                 self.logger.warning("Already doing a capture, skipping")
                 return False
-
-            camera = self.dm.camera.cameras[self.drone_name]
 
             # Make sure weather sensor has grabbed latest data
             await self.weather_sensor.get_data()
 
             # Send capture command
             self.capturing = True
-            res = await camera.take_picture()
+            res = await self.camera.take_picture()
 
             # If command denied: log, return False
             if not res:
@@ -165,26 +199,41 @@ class ENGELDataMission(Mission):
             self.capturing = False
             return False
 
+    async def set_camera_parameters(self, params: list[CameraParameter]):
+        for parameter in params:
+            await self.camera.set_parameter(parameter.name, parameter.value)
+
     async def replay_captures(self):
         """ Function to take the position from previous captures saved to file and capture them all again."""
-        # TODO: All of it
-        # For each loaded capture: Fly to position, optionally refine position, take new capture
+        # TODO: Flying, position and angle refinement, connecting replay to original capture somehow
+        # For each loaded capture: Set camera parameters, fly to position, optionally refine position, take new capture
         # Currently just prints loaded info for debug purposes
         for capture in self.loaded_captures:
-            self.logger.info(capture.to_json_dict())
+            # Set camera parameters
+            await self.set_camera_parameters(capture.camera_parameters)
+            # Fly to position and point gimbal
+            # TODO: Don't do position flight while testing
+            gimbal_pitch = capture.gimbal_att[1]
+            gimbal_yaw = capture.gimbal_yaw_absolute
+            await self.gimbal.set_gimbal_mode("lock")
+            await self.gimbal.set_gimbal_angles(gimbal_pitch, gimbal_yaw)
+            # Refine position and gimbal attitude
+            # TODO
+            # New capture
+            await self.do_capture()
 
     async def save_captures_to_file(self):
         """ Save all capture information to a file, images will have to be downloaded separately anyway. """
         timestamp = datetime.datetime.now(datetime.UTC)
         capture_info_file_name = f"engel_captures_{timestamp.hour}{timestamp.minute}{timestamp.second}-{timestamp.day}-{timestamp.month}-{timestamp.year}.json"
-        capture_file_path = os.path.join(LOG_DIR, capture_info_file_name)
+        capture_file_path = os.path.join(CAPTURE_DIR, capture_info_file_name)
         with open(capture_file_path, "wt") as f:
             output = [capture.to_json_dict() for capture in self.captures]
             json.dump(output, f)
 
     async def load_captures_from_file(self, filename: str):
         """ Load capture information from a file for the purpose of replaying it. """
-        file_path = os.path.join(LOG_DIR, filename)
+        file_path = os.path.join(CAPTURE_DIR, filename)
         with open(file_path, "rt") as f:
             json_list = json.load(f)
             captures = [ENGELCaptureInfo.from_json_dict(capture_dict) for capture_dict in json_list]
@@ -217,6 +266,8 @@ class ENGELDataMission(Mission):
                 if gimbal_ok and cam_ok:
                     self.drones[name] = self.dm.drones[name]
                     self.drone_name = name
+                    self.gimbal = self.dm.gimbal.gimbals[name]
+                    self.camera = self.dm.camera.cameras[name]
                     rtl_pos[2] += self.rtl_height
                     self.launch_point = Waypoint(WayPointType.POS_GLOBAL, gps=rtl_pos, yaw=cur_yaw)
                     self.logger.info(f"Added drone {name} to mission!")
@@ -235,6 +286,8 @@ class ENGELDataMission(Mission):
                 self.drones.pop(name)
                 self.launch_point = None
                 self.drone_name = None
+                self.gimbal = None
+                self.camera = None
                 await self.dm.gimbal.remove_gimbal(name)
                 await self.dm.camera.remove_camera(name)
             except KeyError:

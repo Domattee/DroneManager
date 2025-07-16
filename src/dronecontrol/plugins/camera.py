@@ -552,10 +552,15 @@ class Camera:
 
         self.drone.mav_conn.send_param_ext_set(self.camera_id, param_name, param_value, parameter.param_type_id)
         ack_msg = await self.drone.mav_conn.listen_message(324, self.camera_id)
-        if ack_msg.param_result != 0:
-            self.logger.warning("Camera denied parameter change!")
+        if ack_msg.param_result == 1:
+            self.logger.warning("Camera denied parameter change, unsupported value!")
             return False
-        else:
+        elif ack_msg.param_result == 2:
+            self.logger.warning("Camera denied parameter change, failed to set!")
+            return False
+        elif ack_msg.param_result in [0,3]:
+            if ack_msg.param_result == 3:
+                self.logger.info("Parameter change in progress...")
             param_name, param_value = self._parse_param_update_values(ack_msg)
             self._update_param_value(param_name, param_value, ack_msg.param_type)
             parameter = self.parameters[param_name]
