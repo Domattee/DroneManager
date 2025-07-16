@@ -18,7 +18,7 @@ class UDPReceiver:
     async def _receive(self):
         while True:
             try:
-                msg = await asyncio.wait_for(asyncio.get_running_loop().run_in_executor(None, self.socket.recv, 1024), LISTEN_TIME)
+                msg = await asyncio.wait_for(asyncio.get_running_loop().sock_recv(self.socket, 1024), LISTEN_TIME)
                 json_str = json.loads(msg)
                 print(json_str)
             except TimeoutError:

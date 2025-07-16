@@ -24,7 +24,7 @@ class UDPClient:
 
 class UDPPlugin(Plugin):
     """ Communication happens over port 31659. A client will send a json message with the desired frequency and duration
-    (in seconds) to this port and the server starts answering. A duration of 0 means infinite. Frequency is capped between 1/60 and 20Hz.
+    (in seconds) to this port and the server starts answering. Frequency is capped between 1/60 and 20Hz.
 
     Example message from client:
     {
@@ -39,15 +39,16 @@ class UDPPlugin(Plugin):
         self.inport = 31659
         sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         sock.setblocking(False)
-        sock.bind(("", self.inport))
+        #sock.bind(("", self.inport))
         self.socket = sock
 
+        self.default_duration = 30
         outsock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self.outsocket = outsock
-        self.frequency = 5
+        self.default_frequency = 5
         self.background_functions = [
-            #self._send_continuously(),
-            self._listen_for_clients(),
+            self._send_continuously(),
+            #self._listen_for_clients(),
         ]
 
     async def _listen_for_clients(self):
@@ -70,7 +71,7 @@ class UDPPlugin(Plugin):
                     frequency = 1/60
                 duration = json_dict["duration"]
                 if duration <= 0:
-                    duration = 0
+                    duration = self.default_duration
                 client = UDPClient(ip, port, frequency, duration)
                 send_task = asyncio.create_task(self._client_sender(client))
                 awaiter_task = asyncio.create_task(coroutine_awaiter(send_task, self.logger))
@@ -104,7 +105,7 @@ class UDPPlugin(Plugin):
     async def _send_continuously(self):
         while True:
             try:
-                await asyncio.sleep(1 / self.frequency)
+                await asyncio.sleep(1 / self.default_frequency)
                 json_str = self._make_json()
                 self.logger.debug(f"Sending json {json_str}")
                 self._send_msg(json_str)
