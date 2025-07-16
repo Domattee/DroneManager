@@ -56,7 +56,7 @@ class CameraPlugin(Plugin):
         try:
             drone_object = self.dm.drones.get(drone, None)
             if drone_object:
-                new_cam = Camera(drone_object.logger, self.dm, drone_object, camera_id=camera_id)
+                new_cam = Camera(drone_object.logger, self.dm, drone, camera_id=camera_id)
                 success = await new_cam.start()
                 if success:
                     self.cameras[drone] = new_cam
@@ -195,10 +195,10 @@ class CameraParameter:
 
 class Camera:
 
-    def __init__(self, logger, dm, drone, camera_id: int = 100):
+    def __init__(self, logger, dm, drone_name: str, camera_id: int = 100):
         self.logger = logger
         self.dm = dm
-        self.drone = drone
+        self.drone_name = drone_name
 
         self.camera_id = camera_id
         self._running_tasks = set()
@@ -214,6 +214,10 @@ class Camera:
         capture_info_task = asyncio.create_task(self._capture_info_updates())
         self._running_tasks.add(capture_info_task)
         self._running_tasks.add(asyncio.create_task(coroutine_awaiter(capture_info_task, self.logger)))
+
+    @property
+    def drone(self):
+        return self.dm.drones[self.drone_name]
 
     async def _capture_info_updates(self):
         async for capture_info in self.drone.system.camera.capture_info():
@@ -235,7 +239,7 @@ class Camera:
         return False
 
     async def close(self):
-        if self.drone in self.dm.drones.values:
+        if self.drone in self.dm.drones.values():
             self.drone.mav_conn.remove_drone_message_callback(322, self._listen_param_updates)
         for task in self._running_tasks:
             if isinstance(task, asyncio.Task):
@@ -427,13 +431,13 @@ class Camera:
             self.logger.warning("Camera sending custom parameter type, not supported!")
             parsed_param_value = None
         self.logger.debug(f"Received parameter update message: "
-                          f"{param_name, parsed_param_value, msg.param_value, msg._param_value_raw, msg.param_type}")
+                          f"{param_name, parsed_param_value, raw_param_value[:length], msg.param_type}")
         return param_name, parsed_param_value
 
     def _update_param_value(self, param_name, param_value, param_type_id):
         if param_name in self.parameters:
             if param_value is not None:
-                self.logger.debug("Updating param!")
+                self.logger.debug(f"Updating param {param_name} to {param_value}!")
                 self.parameters[param_name].value = param_value
             self.parameters[param_name].param_type_id = param_type_id
 
