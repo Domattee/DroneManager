@@ -16,7 +16,7 @@ class UDPSender:
         self.frequency = 5
         self.start = time.time()
 
-    async def _send(self):
+    async def send(self):
         while True:
             try:
                 await asyncio.sleep(1 / self.frequency)
@@ -59,7 +59,7 @@ class UDPSender:
 
 async def main():
     sender = UDPSender()
-    await sender._send()
+    await sender.send()
     sender.socket.close()
 
 
