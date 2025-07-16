@@ -17,11 +17,11 @@ class UDPClient:
         self.duration = 30
         self.frequency = 1
 
-    async def _send_init_message(self):
+    async def send_init_message(self):
         msg = json.dumps({"duration": self.duration, "frequency": self.frequency})
         self.socket.sendto(msg.encode("utf-8"), self.target)
 
-    async def _receive(self):
+    async def receive(self):
         while True:
             try:
                 msg = await asyncio.wait_for(asyncio.get_running_loop().sock_recv(self.socket, 1024), LISTEN_TIME)
@@ -35,8 +35,8 @@ class UDPClient:
 
 async def main():
     receiver = UDPClient()
-    await receiver._send_init_message()
-    await receiver._receive()
+    await receiver.send_init_message()
+    await receiver.receive()
     receiver.socket.close()
 
 
