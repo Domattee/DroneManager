@@ -87,6 +87,9 @@ class CameraPlugin(Plugin):
 
     async def set_parameter(self, drone: str, param_name: str, param_value: str):
         if self.check_has_camera(drone):
+            if param_name not in self.cameras[drone].parameters:
+                self.logger.warning(f"Camera {self.cameras[drone].camera_id} on {drone} has no parameter {param_name}")
+                return False
             parsed_value = self.cameras[drone].parse_param_value(param_name, param_value)
             if parsed_value is None:
                 self.logger.warning("Couldn't set parameter due to invalid input!")
