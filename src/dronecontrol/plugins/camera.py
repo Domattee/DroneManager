@@ -128,7 +128,7 @@ class ParameterOption:
     def __init__(self, name, value, excludes):
         self.name: str = name  # For display
         self.value: int | float = value  # This is used internally
-        self.excludes = excludes  # These parameters are rendered irrelevant if this option is set
+        self.excludes: list[str] = excludes  # These parameters are rendered irrelevant if this option is set
 
 
 class CameraParameter:
@@ -191,6 +191,34 @@ class CameraParameter:
 
     def get_options(self):
         return list(self._options.values())
+
+    def to_json_dict(self):
+        out_dict = {
+            "name": self.name,
+            "value": self.value,
+            "param_type": self.param_type,
+            "param_type_id": self.param_type_id,
+            "default": self.default,
+            "control": self.control,
+            "description": self.description,
+            "updates": self.updates,
+            "options": [option.__dict__ for option in self._options.values()],
+            "min_value": self.min,
+            "max_value": self.max,
+            "step_size": self.step_size,
+        }
+        return out_dict
+
+    @classmethod
+    def from_json_dict(cls, json_dict):
+        option_list = [ParameterOption(option["name"], option["value"], option["excludes"]) for option in json_dict["options"]]
+
+        param = cls(json_dict["name"], json_dict["param_type"], json_dict["default"], json_dict["control"],
+                    json_dict["description"], json_dict["updates"], option_list, json_dict["min_value"],
+                    json_dict["max_value"], json_dict["step_size"])
+        param.value = json_dict["value"]
+        param.param_type_id = json_dict["param_type_id"]
+        return param
 
 
 class Camera:
