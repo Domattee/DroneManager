@@ -261,9 +261,12 @@ class MAVPassthrough:
                                                          param_id.encode("ascii"), encoded_param_value, param_type)
         self.send_as_gcs(msg)
 
-    def send_param_ext_request_read(self, target_component, param_id: str):
-        msg = self.con_drone_in.mav.param_ext_request_read_encode(self.drone_system, target_component,
-                                                                  param_id.encode("ascii"), -1)
+    def send_param_ext_request_read(self, target_component, param_id: str, param_index: int = None):
+        if param_index is None:
+            msg = self.con_drone_in.mav.param_ext_request_read_encode(self.drone_system, target_component,
+                                                                      param_id.encode("ascii"), -1)
+        else:
+            msg = self.con_drone_in.mav.param_ext_request_read_encode(self.drone_system, target_component, b"\x00", param_index)
         self.send_as_gcs(msg)
 
     def _process_message_for_return(self, msg):

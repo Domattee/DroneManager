@@ -10,6 +10,8 @@ import mavsdk.camera
 from dronecontrol.plugin import Plugin
 from dronecontrol.utils import CACHE_DIR, coroutine_awaiter
 
+import pymavlink.dialects.v20.ardupilotmega
+
 # TODO: Overlooked the mavsdk param plugin, check if that makes the camera plugin work properly
 # TODO: Parameterrange in the cam def xml parsing function
 
@@ -244,6 +246,8 @@ class Camera:
         self.cam_def_uri: str | None = None
         self.cam_def_version = None
         self.parameters: dict[str, CameraParameter] = {}
+        self._received_params = set()
+        self._param_count = None
 
     def _start_background_tasks(self):
         capture_info_task = asyncio.create_task(self._capture_info_updates())
@@ -394,11 +398,15 @@ class Camera:
             for param in params:
                 name = param.get("name")
                 param_type = param.get("type")
+                param_type_id = 1
                 if param_type == "float":
                     cast_type = float
+                    param_type_id = 9  # Assume 9 unless we get an update with different param type
                 elif param_type == "bool":
                     cast_type = bool
+                    param_type_id = 1
                 else:
+                    param_type_id = 1  # Assume 1 until we get an update with different param type
                     cast_type = int
                 default = cast_type(param.get("default"))
                 control = param.get("control") is None or param.get("control") == "1"
@@ -444,7 +452,17 @@ class Camera:
         self.logger.debug("Listening to camera parameters")
         self.drone.mav_conn.send_param_ext_request_list(self.camera_id)
         self.drone.mav_conn.add_drone_message_callback(322, self._listen_param_updates)
-        # TODO: Check that we have all the params loaded
+        checker_task = asyncio.create_task(self._param_receive_checker())
+        self._running_tasks.add(checker_task)
+        self._running_tasks.add(coroutine_awaiter(checker_task, self.logger))
+
+    async def _param_receive_checker(self):
+        while len(self._received_params) < self._param_count:
+            for param_index in range(self._param_count):
+                if param_index not in self._received_params:
+                    self.logger.debug(f"Missing parameter {param_index}, requesting again")
+                    self.drone.mav_conn.send_param_ext_request_read(self.camera_id, "", param_index)
+                    await asyncio.sleep(0.5)
 
     def _parse_param_update_values(self, msg):
         param_name = msg.param_id
@@ -480,10 +498,12 @@ class Camera:
                 self.parameters[param_name].value = param_value
             self.parameters[param_name].param_type_id = param_type_id
 
-    async def _listen_param_updates(self, msg):
+    async def _listen_param_updates(self, msg:pymavlink.dialects.v20.ardupilotmega.MAVLink_param_ext_value_message):
         if msg.get_srcComponent() == self.camera_id and msg.get_srcSystem() == self.drone.mav_conn.drone_system:
             param_name, param_value = self._parse_param_update_values(msg)
             self._update_param_value(param_name, param_value, msg.param_type)
+            self._param_count = msg.param_count
+            self._received_params.add(msg.param_index)
 
     async def print_parameters(self):
         if len(self.parameters) == 0:
@@ -555,7 +575,7 @@ class Camera:
 
         parameter = self.parameters[param_name]
 
-        self.logger.debug(f"Trying to set option {param_name} to {param_value}")
+        self.logger.debug(f"Trying to set option {param_name}, {parameter.param_type_id} to {param_value}")
 
         self.drone.mav_conn.send_param_ext_set(self.camera_id, param_name, param_value, parameter.param_type_id)
         ack_msg = await self.drone.mav_conn.listen_message(324, self.camera_id)

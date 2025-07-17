@@ -23,7 +23,7 @@ os.makedirs(CAPTURE_DIR, exist_ok=True)
 
 class EngelImageInfo:
 
-    def __init__(self, time_utc, lat, long, amsl, drone_att, gimbal_att, gimbal_absolute, cam_file):
+    def __init__(self, time_utc, lat, long, amsl, drone_att: np.ndarray, gimbal_att: np.ndarray, gimbal_absolute, cam_file):
         self.time = time_utc
         self.lat = lat
         self.long = long
@@ -34,11 +34,28 @@ class EngelImageInfo:
         self.file_on_camera = cam_file
 
     def to_json_dict(self):
-        return self.__dict__
+        return {
+            "time": self.time.isoformat(),
+            "lat": self.lat,
+            "long": self.long,
+            "amsl": self.amsl,
+            "drone_att": self.drone_att.tolist(),
+            "gimbal_att": self.gimbal_att.tolist(),
+            "gimbal_yaw_absolute": self.gimbal_yaw_absolute,
+            "file_on_camera": self.file_on_camera,
+        }
 
     @classmethod
     def from_json_dict(cls, json_dict):
-        return cls(**json_dict)
+        img_time = datetime.datetime.fromisoformat(json_dict["time"])
+        lat = json_dict["lat"]
+        long = json_dict["long"]
+        amsl = json_dict["amsl"]
+        drone_att = np.asarray(json_dict["drone_att"])
+        gimbal_att = np.asarray(json_dict["gimbal_att"])
+        gimbal_yaw = json_dict["gimbal_yaw_absolute"]
+        cam_file = json_dict["file_on_camera"]
+        return cls(img_time, lat, long, amsl, drone_att, gimbal_att, gimbal_yaw, cam_file)
 
 class ENGELCaptureInfo:
 
@@ -164,7 +181,7 @@ class ENGELDataMission(Mission):
             long = msg.lon / 1e7
             amsl = msg.alt / 1e3
             file_url = msg.file_url
-            drone = self.drones.items()[0]
+            drone = self.drones[self.drone_name]
             cur_drone_att = drone.attitude
             cur_gimbal_att = np.asarray([self.gimbal.roll, self.gimbal.pitch, self.gimbal.yaw])
 
@@ -193,21 +210,23 @@ class ENGELDataMission(Mission):
 
             # Send capture command
             self.capturing = True
+            capture = ENGELCaptureInfo([], weather_data, cam_params)
+            # If we got a reference capture this is a replay capture, and we add the old id to this one
+            if reference_capture is not None:
+                capture.reference_id = reference_capture.capture_id
+
+            self._current_capture = capture
             res = await self.camera.take_picture()
 
             # If command denied: log, return False
             if not res:
                 self.logger.warning("Engel capture failed as take photo command was denied")
                 self.capturing = False
+                self._current_capture = None
                 return False
             # If accepted: Collect metadata, listen for capture_info messages for CAMERA_IMAGE_CAPTURED using callback on mav_conn
             else:
                 # Add callback, wait capture duration, remove callback
-                capture = ENGELCaptureInfo([], weather_data, cam_params)
-                # If we got a reference capture this is a replay capture, and we add the old id to this one
-                capture.reference_id = reference_capture.capture_id
-
-                self._current_capture = capture
 
                 # TODO: We should know how many images the camera will take after the configure call, maybe just wait for all of those.
                 # Alternatively, use the known number to check if we missed a message or if some image didn't capture
@@ -236,26 +255,34 @@ class ENGELDataMission(Mission):
         # For each loaded capture: Set camera parameters, fly to position, optionally refine position, take new capture
         # Currently just prints loaded info for debug purposes
         for capture in self.loaded_captures:
-            reference_image = capture.images[0]  # TODO: Have to use correct image, don't know which one that is yet
-            # Set camera parameters
-            await self.set_camera_parameters(capture.camera_parameters)
-            # Fly to position and point gimbal
-            # TODO: but, don't do position flight while testing
-            # Point gimbal
-            gimbal_pitch = reference_image.gimbal_att[1] + reference_image.drone_att[1] - self.dm.drones[self.drone_name].attitude[1]
-            gimbal_yaw = reference_image.gimbal_yaw_absolute
-            await self.gimbal.set_gimbal_mode("lock")
-            await self.gimbal.set_gimbal_angles(gimbal_pitch, gimbal_yaw)
-            # Refine position and gimbal attitude based on previous image
-            # TODO: Integrate from other repo, more eval on simulation first
-            # New capture
-            await self.do_capture(capture)
+            try:
+                reference_image = capture.images[0]  # TODO: Have to use correct image, don't know which one that is yet
+                # Set camera parameters
+                cam_set_task = asyncio.create_task(self.set_camera_parameters(capture.camera_parameters))
+                self._running_tasks.add(cam_set_task)
+                # Fly to position and point gimbal
+                # TODO: but, don't do position flight while testing
+                # Point gimbal
+                gimbal_pitch = reference_image.gimbal_att[1] + reference_image.drone_att[1] - self.dm.drones[self.drone_name].attitude[1]
+                gimbal_yaw = reference_image.gimbal_yaw_absolute
+                await self.gimbal.set_gimbal_mode("lock")
+                await self.gimbal.set_gimbal_angles(gimbal_pitch, gimbal_yaw)  # TODO: Check that we have reached desired angle
+                # Refine position and gimbal attitude based on previous image
+                # TODO: Integrate from other repo, more eval on simulation first
+                # New capture
+                await cam_set_task
+                await self.do_capture(capture)
+                # TODO: Check for replays that didn't work
+            except Exception as e:
+                self.logger.warning(f"Exception with replay for capture {capture.capture_id}")
+                self.logger.debug(repr(e), exc_info=True)
 
     async def save_captures_to_file(self):
         """ Save all capture information to a file, images will have to be downloaded separately anyway. """
         timestamp = datetime.datetime.now(datetime.UTC)
         capture_info_file_name = f"engel_captures_{timestamp.hour}{timestamp.minute}{timestamp.second}-{timestamp.day}-{timestamp.month}-{timestamp.year}.json"
         capture_file_path = os.path.join(CAPTURE_DIR, capture_info_file_name)
+        self.logger.info(f"Saving info to file {capture_file_path}")
         with open(capture_file_path, "wt") as f:
             output = [capture.to_json_dict() for capture in self.captures]
             json.dump(output, f)
@@ -267,6 +294,7 @@ class ENGELDataMission(Mission):
             json_list = json.load(f)
             captures = [ENGELCaptureInfo.from_json_dict(capture_dict) for capture_dict in json_list]
             self.loaded_captures = captures
+            self.logger.info(f"Loaded past captures from file {file_path}")
 
     async def reset(self):
         """ Land back at launch points"""
@@ -278,7 +306,7 @@ class ENGELDataMission(Mission):
 
     async def status(self):
         """ Print information, such as how many captures we have taken"""
-        self.logger.info(f"Drones {self.drones}. {len(self.captures)} captures")
+        self.logger.info(f"Drones {self.drones}. {len(self.captures)} current, {len(self.loaded_captures)} old captures.")
 
     async def add_drones(self, names: list[str]):
         """ Adds camera and gimbal objects and stores current position for rtl"""
@@ -299,6 +327,8 @@ class ENGELDataMission(Mission):
                     self.camera = self.dm.camera.cameras[name]
                     rtl_pos[2] += self.rtl_height
                     self.launch_point = Waypoint(WayPointType.POS_GLOBAL, gps=rtl_pos, yaw=cur_yaw)
+                    await self.gimbal.take_control()
+                    await self.gimbal.set_gimbal_mode("lock")
                     self.logger.info(f"Added drone {name} to mission!")
                     return True
                 else:
