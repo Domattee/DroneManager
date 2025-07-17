@@ -60,13 +60,17 @@ class CameraPlugin(Plugin):
                 success = await new_cam.start()
                 if success:
                     self.cameras[drone] = new_cam
+                    return True
                 else:
                     await new_cam.close()
+                    return False
             else:
                 self.logger.warning(f"No drone named {drone}")
+                return False
         except Exception as e:
             self.logger.warning("Couldn't add the camera to the drone due to an exception!")
             self.logger.debug(repr(e), exc_info=True)
+            return False
 
     async def remove_camera(self, drone: str):
         """ Remove a camera from the plugin"""
