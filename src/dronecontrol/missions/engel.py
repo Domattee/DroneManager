@@ -3,12 +3,16 @@ Capture images and combine with weather and position info from drone, storing th
 Functions to retake the same position as in a previous image and take another image.
 """
 import asyncio
+import pathlib
+
 import numpy as np
 import json
 import datetime
 import time
 import os
+import shutil
 
+import dronecontrol.drone
 from dronecontrol.navigation.core import Waypoint, WayPointType
 from dronecontrol.plugins.mission import Mission
 from dronecontrol.sensors.ecowitt import WeatherData
@@ -23,39 +27,33 @@ os.makedirs(CAPTURE_DIR, exist_ok=True)
 
 class EngelImageInfo:
 
-    def __init__(self, time_utc, lat, long, amsl, drone_att: np.ndarray, gimbal_att: np.ndarray, gimbal_absolute, cam_file):
+    def __init__(self, time_utc, gps: np.ndarray, drone_att: np.ndarray, gimbal_att: np.ndarray, gimbal_absolute, cam_file: str):
         self.time = time_utc
-        self.lat = lat
-        self.long = long
-        self.amsl = amsl
+        self.gps = gps
         self.drone_att = drone_att
         self.gimbal_att = gimbal_att
         self.gimbal_yaw_absolute = gimbal_absolute
-        self.file_on_camera = cam_file
+        self.file_location = cam_file
 
     def to_json_dict(self):
         return {
             "time": self.time.isoformat(),
-            "lat": self.lat,
-            "long": self.long,
-            "amsl": self.amsl,
+            "gps": self.gps.tolist(),
             "drone_att": self.drone_att.tolist(),
             "gimbal_att": self.gimbal_att.tolist(),
             "gimbal_yaw_absolute": self.gimbal_yaw_absolute,
-            "file_on_camera": self.file_on_camera,
+            "file_location": self.file_location,
         }
 
     @classmethod
     def from_json_dict(cls, json_dict):
         img_time = datetime.datetime.fromisoformat(json_dict["time"])
-        lat = json_dict["lat"]
-        long = json_dict["long"]
-        amsl = json_dict["amsl"]
+        gps = np.asarray(json_dict["gps"])
         drone_att = np.asarray(json_dict["drone_att"])
         gimbal_att = np.asarray(json_dict["gimbal_att"])
         gimbal_yaw = json_dict["gimbal_yaw_absolute"]
         cam_file = json_dict["file_on_camera"]
-        return cls(img_time, lat, long, amsl, drone_att, gimbal_att, gimbal_yaw, cam_file)
+        return cls(img_time, gps, drone_att, gimbal_att, gimbal_yaw, cam_file)
 
 class ENGELCaptureInfo:
 
@@ -103,6 +101,7 @@ class ENGELDataMission(Mission):
             "load": self.load_captures_from_file,
             "configure": self.configure_cam,
             "replay": self.replay_captures,
+            "process": self.post_processing,
         }
         self.cli_commands.update(mission_cli_commands)
         self.weather_sensor = None
@@ -119,6 +118,7 @@ class ENGELDataMission(Mission):
         self.max_capture_duration = 3  # Time in seconds after capture command that we listen for capture info messages.
         self.captures: list[ENGELCaptureInfo] = []  # Images taken this session
         self.loaded_captures: list[ENGELCaptureInfo] = []  # Images taken during a previous session, intended to be replayed
+        self.loaded_file: str | None = None
         self._current_capture: ENGELCaptureInfo | None = None
 
         # TODO: Postprocessing to load all the camera images and store them with EngelCaptureInfo somehow
@@ -177,16 +177,14 @@ class ENGELDataMission(Mission):
                 time_stamp = datetime.datetime.now(datetime.UTC)  # TODO: Maybe add timesync or something to estimate message delay?
             else:
                 time_stamp = datetime.datetime.fromtimestamp(msg.time_utc / 1e3, datetime.UTC)
-            lat = msg.lat / 1e7
-            long = msg.lon / 1e7
-            amsl = msg.alt / 1e3
+            gps = np.asarray([msg.lat / 1e7, msg.lon / 1e7, msg.alt / 1e3])
             file_url = msg.file_url
             drone = self.drones[self.drone_name]
             cur_drone_att = drone.attitude
             cur_gimbal_att = np.asarray([self.gimbal.roll, self.gimbal.pitch, self.gimbal.yaw])
 
             self.logger.debug("Captured image, saving info...")
-            self._current_capture.images.append(EngelImageInfo(time_stamp, lat, long, amsl, cur_drone_att,
+            self._current_capture.images.append(EngelImageInfo(time_stamp, gps, cur_drone_att,
                                                                cur_gimbal_att, self.gimbal.yaw_absolute, file_url))
         else:
             self.logger.warning("Camera reports failure to capture image!")
@@ -261,12 +259,17 @@ class ENGELDataMission(Mission):
                 cam_set_task = asyncio.create_task(self.set_camera_parameters(capture.camera_parameters))
                 self._running_tasks.add(cam_set_task)
                 # Fly to position and point gimbal
-                # TODO: but, don't do position flight while testing
+                self.drones[self.drone_name]: dronecontrol.drone.DroneMAVSDK
+                if self.drones[self.drone_name].is_armed and self.drones[self.drone_name].in_air:
+                    # Fly to position
+                    self.dm.fly_to(self.drone_name, gps=reference_image.gps, yaw=reference_image.drone_att[2])
                 # Point gimbal
-                gimbal_pitch = reference_image.gimbal_att[1] + reference_image.drone_att[1] - self.dm.drones[self.drone_name].attitude[1]
-                gimbal_yaw = reference_image.gimbal_yaw_absolute
+                target_g_pitch = reference_image.gimbal_att[1] + reference_image.drone_att[1] - self.dm.drones[self.drone_name].attitude[1]
+                target_g_yaw = reference_image.gimbal_yaw_absolute
                 await self.gimbal.set_gimbal_mode("lock")
-                await self.gimbal.set_gimbal_angles(gimbal_pitch, gimbal_yaw)  # TODO: Check that we have reached desired angle
+                await self.gimbal.set_gimbal_angles(target_g_pitch, target_g_yaw)  # TODO: Check that we have reached desired angle
+                while abs(self.gimbal.pitch - target_g_pitch) < 0.25 and abs(self.gimbal.yaw_absolute - target_g_yaw) < 0.25:
+                    await asyncio.sleep(0.1)
                 # Refine position and gimbal attitude based on previous image
                 # TODO: Integrate from other repo, more eval on simulation first
                 # New capture
@@ -277,10 +280,43 @@ class ENGELDataMission(Mission):
                 self.logger.warning(f"Exception with replay for capture {capture.capture_id}")
                 self.logger.debug(repr(e), exc_info=True)
 
-    async def save_captures_to_file(self):
+    async def post_processing(self, drive_letter: str):
+        """ Load images from camera and do assorted metadata processing.
+
+        Loads images from camera and stores them in a folder named after their capture ID. The capture information file
+        is also rewritten to account for this. This is intended to be done after flights with the camera directly
+        attached to the computer.
+
+        :param drive_letter: Drive letter of the camera
+        :return:
+        """
+        for capture in self.loaded_captures:
+            # Create directory in capture folder
+            img_dir = os.path.join(CAPTURE_DIR, str(capture.capture_id))
+            os.makedirs(img_dir, exist_ok=True)
+            for image in capture.images:
+                cam_path = image.file_location
+                if cam_path.startswith("/mnt/ssd/"):
+                    cam_file_dir = pathlib.Path(cam_path[9:])
+                    image_file_name = cam_file_dir.name
+                    mounted_path = pathlib.Path(f"{drive_letter}:").resolve().joinpath(cam_file_dir)
+                    if mounted_path.exists():
+                        # Move images from camera to capture folder
+                        local_img_path = pathlib.Path(img_dir).joinpath(image_file_name)
+                        shutil.move(mounted_path, local_img_path)
+                        # Change directory in capture
+                        image.file_location = str(local_img_path)
+                    else:
+                        self.logger.warning(f"File {mounted_path} on camera doesn't exist!")
+        await self.save_captures_to_file(self.loaded_file)
+
+    async def save_captures_to_file(self, filename: str = None):
         """ Save all capture information to a file, images will have to be downloaded separately anyway. """
-        timestamp = datetime.datetime.now(datetime.UTC)
-        capture_info_file_name = f"engel_captures_{timestamp.hour}{timestamp.minute}{timestamp.second}-{timestamp.day}-{timestamp.month}-{timestamp.year}.json"
+        if filename is None:
+            timestamp = datetime.datetime.now(datetime.UTC)
+            capture_info_file_name = f"engel_captures_{timestamp.hour}{timestamp.minute}{timestamp.second}-{timestamp.day}-{timestamp.month}-{timestamp.year}.json"
+        else:
+            capture_info_file_name = filename
         capture_file_path = os.path.join(CAPTURE_DIR, capture_info_file_name)
         self.logger.info(f"Saving info to file {capture_file_path}")
         with open(capture_file_path, "wt") as f:
