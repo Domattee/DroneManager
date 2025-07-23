@@ -52,7 +52,7 @@ class EngelImageInfo:
         drone_att = np.asarray(json_dict["drone_att"])
         gimbal_att = np.asarray(json_dict["gimbal_att"])
         gimbal_yaw = json_dict["gimbal_yaw_absolute"]
-        cam_file = json_dict["file_on_camera"]
+        cam_file = json_dict["file_location"]
         return cls(img_time, gps, drone_att, gimbal_att, gimbal_yaw, cam_file)
 
 class ENGELCaptureInfo:
@@ -101,7 +101,7 @@ class ENGELDataMission(Mission):
             "load": self.load_captures_from_file,
             "configure": self.configure_cam,
             "replay": self.replay_captures,
-            "process": self.post_processing,
+            "transfer": self.transfer,
         }
         self.cli_commands.update(mission_cli_commands)
         self.weather_sensor = None
@@ -115,14 +115,12 @@ class ENGELDataMission(Mission):
 
         # Information on previous and current captures
         self.capturing = False  # Set to True while a capture is in process to only allow a single capture at a time
-        self.max_capture_duration = 3  # Time in seconds after capture command that we listen for capture info messages.
+        self.max_capture_duration = 5  # Time in seconds after capture command that we listen for capture info messages.
         self.captures: list[ENGELCaptureInfo] = []  # Images taken this session
         self.loaded_captures: list[ENGELCaptureInfo] = []  # Images taken during a previous session, intended to be replayed
         self.loaded_file: str | None = None
         self._current_capture: ENGELCaptureInfo | None = None
-
-        # TODO: Postprocessing to load all the camera images and store them with EngelCaptureInfo somehow
-        # TODO: Somehow associated replay captures with previous capture. Difficult as we have multiple images per capture
+        self._relevant_params = ["IMG_RAD_TIFF", "IMG_RAD_JPEG", "IMG_IR_SUPER"]
 
     async def connect(self):
         """ Connect to the Leitstand sensor"""
@@ -174,7 +172,7 @@ class ENGELDataMission(Mission):
         """
         if msg.capture_result == 1:
             if msg.time_utc < 1e12:  # Assume this is reporting time since boot if too small
-                time_stamp = datetime.datetime.now(datetime.UTC)  # TODO: Maybe add timesync or something to estimate message delay?
+                time_stamp = datetime.datetime.now(datetime.UTC)
             else:
                 time_stamp = datetime.datetime.fromtimestamp(msg.time_utc / 1e3, datetime.UTC)
             gps = np.asarray([msg.lat / 1e7, msg.lon / 1e7, msg.alt / 1e3])
@@ -182,10 +180,12 @@ class ENGELDataMission(Mission):
             drone = self.drones[self.drone_name]
             cur_drone_att = drone.attitude
             cur_gimbal_att = np.asarray([self.gimbal.roll, self.gimbal.pitch, self.gimbal.yaw])
-
-            self.logger.debug("Captured image, saving info...")
-            self._current_capture.images.append(EngelImageInfo(time_stamp, gps, cur_drone_att,
-                                                               cur_gimbal_att, self.gimbal.yaw_absolute, file_url))
+            if file_url in [self._current_capture.images[i].file_location for i in range(len(self._current_capture.images))]:
+                self.logger.debug("Camera saved over image it just took")
+            else:
+                self.logger.debug("Captured image, saving info...")
+                self._current_capture.images.append(EngelImageInfo(time_stamp, gps, cur_drone_att,
+                                                                   cur_gimbal_att, self.gimbal.yaw_absolute, file_url))
         else:
             self.logger.warning("Camera reports failure to capture image!")
             self.logger.debug(msg.to_dict())
@@ -228,13 +228,18 @@ class ENGELDataMission(Mission):
 
                 # TODO: We should know how many images the camera will take after the configure call, maybe just wait for all of those.
                 # Alternatively, use the known number to check if we missed a message or if some image didn't capture
+                # TODO: Request images that didn't arrive using image index
                 mav_conn = self.dm.drones[self.drone_name].mav_conn
                 mav_conn.add_drone_message_callback(263, self._imaged_captured_callback)
                 await asyncio.sleep(self.max_capture_duration)
                 mav_conn.remove_drone_message_callback(263, self._imaged_captured_callback)
                 self.capturing = False
                 self._current_capture = None
-                self.captures.append(capture)
+                if len(capture.images) > 0:
+                    self.logger.info(f"Captured {len(capture.images)} images!")
+                    self.captures.append(capture)
+                else:
+                    self.logger.warning(f"No images captured! (Maybe capture duration is too short?)")
                 return True
         except Exception as e:
             self.logger.warning("Exception in the capturing function!")
@@ -259,7 +264,6 @@ class ENGELDataMission(Mission):
                 cam_set_task = asyncio.create_task(self.set_camera_parameters(capture.camera_parameters))
                 self._running_tasks.add(cam_set_task)
                 # Fly to position and point gimbal
-                self.drones[self.drone_name]: dronecontrol.drone.DroneMAVSDK
                 if self.drones[self.drone_name].is_armed and self.drones[self.drone_name].in_air:
                     # Fly to position
                     self.dm.fly_to(self.drone_name, gps=reference_image.gps, yaw=reference_image.drone_att[2])
@@ -280,7 +284,7 @@ class ENGELDataMission(Mission):
                 self.logger.warning(f"Exception with replay for capture {capture.capture_id}")
                 self.logger.debug(repr(e), exc_info=True)
 
-    async def post_processing(self, drive_letter: str):
+    async def transfer(self, drive_letter: str):
         """ Load images from camera and do assorted metadata processing.
 
         Loads images from camera and stores them in a folder named after their capture ID. The capture information file
@@ -308,9 +312,9 @@ class ENGELDataMission(Mission):
                         image.file_location = str(local_img_path)
                     else:
                         self.logger.warning(f"File {mounted_path} on camera doesn't exist!")
-        await self.save_captures_to_file(self.loaded_file)
+        await self._save_captures_to_file(self.loaded_captures, filename=self.loaded_file)
 
-    async def save_captures_to_file(self, filename: str = None):
+    async def _save_captures_to_file(self, captures, filename: str = None):
         """ Save all capture information to a file, images will have to be downloaded separately anyway. """
         if filename is None:
             timestamp = datetime.datetime.now(datetime.UTC)
@@ -320,8 +324,11 @@ class ENGELDataMission(Mission):
         capture_file_path = os.path.join(CAPTURE_DIR, capture_info_file_name)
         self.logger.info(f"Saving info to file {capture_file_path}")
         with open(capture_file_path, "wt") as f:
-            output = [capture.to_json_dict() for capture in self.captures]
+            output = [capture.to_json_dict() for capture in captures]
             json.dump(output, f)
+
+    async def save_captures_to_file(self, filename: str = None):
+        return await self._save_captures_to_file(self.captures, filename)
 
     async def load_captures_from_file(self, filename: str):
         """ Load capture information from a file for the purpose of replaying it. """
@@ -330,6 +337,7 @@ class ENGELDataMission(Mission):
             json_list = json.load(f)
             captures = [ENGELCaptureInfo.from_json_dict(capture_dict) for capture_dict in json_list]
             self.loaded_captures = captures
+            self.loaded_file = filename
             self.logger.info(f"Loaded past captures from file {file_path}")
 
     async def reset(self):
@@ -339,6 +347,8 @@ class ENGELDataMission(Mission):
             await self.dm.land(drone)
             await asyncio.sleep(0.5)
             await self.dm.disarm(drone)
+        # TODO: Maybe don't do this, have launch and rtb separate, instead delete captures and reset all other
+        #  params as if mission was just loaded
 
     async def status(self):
         """ Print information, such as how many captures we have taken"""

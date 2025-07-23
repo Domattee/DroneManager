@@ -3,6 +3,7 @@ import asyncio
 import os
 import struct
 import requests
+import math
 from lxml import etree
 
 import mavsdk.camera
@@ -256,7 +257,10 @@ class Camera:
 
     @property
     def drone(self):
-        return self.dm.drones[self.drone_name]
+        try:
+            return self.dm.drones[self.drone_name]
+        except KeyError:
+            return None
 
     async def _capture_info_updates(self):
         async for capture_info in self.drone.system.camera.capture_info():
@@ -278,7 +282,7 @@ class Camera:
         return False
 
     async def close(self):
-        if self.drone in self.dm.drones.values():
+        if self.drone is not None and self.drone in self.dm.drones.values():
             self.drone.mav_conn.remove_drone_message_callback(322, self._listen_param_updates)
         for task in self._running_tasks:
             if isinstance(task, asyncio.Task):
@@ -293,7 +297,7 @@ class Camera:
         self.logger.info(f"Camera {camera_id}, parameters {'not ' if self.params_loaded else ''}loaded")
 
     async def take_picture(self,):
-        res = await self.drone.mav_conn.send_cmd_long(target_component=100, cmd=2000, param3=1.0)
+        res = await self.drone.mav_conn.send_cmd_long(target_component=100, cmd=2000, param3=1.0, param5=math.nan)
         if not res:
             self.logger.warning("Couldn't take picture!")
         return res
