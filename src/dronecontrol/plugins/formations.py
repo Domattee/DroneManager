@@ -5,7 +5,7 @@ from collections import OrderedDict
 
 from abc import ABC, abstractmethod
 
-from dronecontrol.drone import Waypoint, WayPointType, Drone, TrajectoryFollower
+from dronecontrol.drone import Waypoint, WayPointType, Drone, PathFollower
 from dronecontrol.plugin import Plugin
 
 # TODO: How to do extra CLI commands for each version?
@@ -50,8 +50,8 @@ class Follower(Formation):
         self.followers = []
         self.leader = leader
 
-    class FollowerDroneTrajectoryFollower(TrajectoryFollower):
-        """ Instead of following their own trajectory, drones with this follower in a LeaderFollower formation have
+    class FollowerDroneTrajectoryFollower(PathFollower):
+        """ Instead of following their own generator, drones with this follower in a LeaderFollower formation have
         setpoints based on the position of the leader and their position in the formation.
 
         """

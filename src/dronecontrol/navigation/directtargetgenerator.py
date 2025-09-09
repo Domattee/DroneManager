@@ -1,8 +1,8 @@
 import dronecontrol
-from dronecontrol.navigation.core import TrajectoryGenerator, WayPointType
+from dronecontrol.navigation.core import PathGenerator, WayPointType
 
 
-class DirectTargetGenerator(TrajectoryGenerator):
+class DirectTargetGenerator(PathGenerator):
     """ Simply sends the target waypoint as static setpoints.
     """
 

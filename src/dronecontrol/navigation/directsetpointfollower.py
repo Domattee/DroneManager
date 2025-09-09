@@ -1,8 +1,8 @@
-from dronecontrol.navigation.core import TrajectoryFollower, WayPointType
+from dronecontrol.navigation.core import PathFollower, WayPointType
 import dronecontrol
 
 
-class DirectSetpointFollower(TrajectoryFollower):
+class DirectSetpointFollower(PathFollower):
 
     CAN_DO_GPS = True
 

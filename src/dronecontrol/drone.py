@@ -24,7 +24,7 @@ from dronecontrol.utils import dist_ned, dist_gps, relative_gps
 from dronecontrol.utils import parse_address, common_formatter, get_free_port
 from dronecontrol.utils import LOG_DIR
 from dronecontrol.mavpassthrough import MAVPassthrough
-from dronecontrol.navigation.core import WayPointType, Waypoint, TrajectoryGenerator, TrajectoryFollower, Fence
+from dronecontrol.navigation.core import WayPointType, Waypoint, PathGenerator, PathFollower, Fence
 from dronecontrol.navigation.directsetpointfollower import DirectSetpointFollower
 from dronecontrol.navigation.directtargetgenerator import DirectTargetGenerator
 from dronecontrol.navigation.gmp3generator import GMP3Generator
@@ -88,8 +88,8 @@ class Drone(ABC, threading.Thread):
 
         self.position_update_rate: float = 10
         self.fence: Fence | None = None
-        self.trajectory_generator: TrajectoryGenerator | None = None
-        self.trajectory_follower: TrajectoryFollower | None = None
+        self.path_generator: PathGenerator | None = None
+        self.path_follower: PathFollower | None = None
 
         self.is_paused = False
         self.mav_conn: MAVPassthrough | None = None
@@ -442,13 +442,13 @@ class DroneMAVSDK(Drone):
 
         self.mav_conn: MAVPassthrough = MAVPassthrough(loggername=f"{name}_MAVLINK", log_messages=True)
         try:
-            #self.trajectory_generator = GMP3Generator(self, 1/self.position_update_rate, self.logger, use_gps=False)
-            self.trajectory_generator = DirectTargetGenerator(self, self.logger, WayPointType.POS_NED, use_gps=False)
+            #self.path_generator = GMP3Generator(self, 1/self.position_update_rate, self.logger, use_gps=False)
+            self.path_generator = DirectTargetGenerator(self, self.logger, WayPointType.POS_NED, use_gps=False)
         except Exception as e:
             self.logger.error("Couldn't initialize trajectory generator due to an exception!")
             self.logger.debug(repr(e), exc_info=True)
-        self.trajectory_follower = DirectSetpointFollower(self, self.logger, 1/self.position_update_rate,
-                                                          WayPointType.POS_VEL_NED)
+        self.path_follower = DirectSetpointFollower(self, self.logger, 1 / self.position_update_rate,
+                                                    WayPointType.POS_VEL_NED)
 
         attr_string = "\n   ".join(["{}: {}".format(key, value) for key, value in self.__dict__.items()])
         self.logger.debug(f"Initialized Drone {self.name}, {self.__class__.__name__}:\n   {attr_string}")
@@ -707,8 +707,8 @@ class DroneMAVSDK(Drone):
     async def disarm(self):
         timeout = 5
         self.logger.info("Disarming!")
-        if self.trajectory_follower.is_active:
-            await self.trajectory_follower.deactivate()
+        if self.path_follower.is_active:
+            await self.path_follower.deactivate()
         await super().disarm()
         result = await self._error_wrapper(self.system.action.disarm, ActionError)
         if result and not isinstance(result, Exception):
@@ -733,8 +733,8 @@ class DroneMAVSDK(Drone):
         :param altitude:
         :return:
         """
-        if self.trajectory_follower.is_active:
-            await self.trajectory_follower.deactivate()
+        if self.path_follower.is_active:
+            await self.path_follower.deactivate()
         return await self._takeoff_using_offboard(altitude=altitude)
 
     def _get_pos_ned_yaw(self) -> np.ndarray:
@@ -882,8 +882,8 @@ class DroneMAVSDK(Drone):
         :return:
         """
         # Add 180, take modulo 360 and subtract 180 to get proper range
-        if self.trajectory_follower.is_active:
-            await self.trajectory_follower.deactivate()
+        if self.path_follower.is_active:
+            await self.path_follower.deactivate()
         og_yaw = self.attitude[2]
         dif_yaw = (target_yaw - og_yaw + 180) % 360 - 180
         time_required = abs(dif_yaw / yaw_rate)
@@ -911,8 +911,8 @@ class DroneMAVSDK(Drone):
         :return:
         """
         await super().spin_at_rate(yaw_rate, duration, direction=direction)
-        if self.trajectory_follower.is_active:
-            await self.trajectory_follower.deactivate()
+        if self.path_follower.is_active:
+            await self.path_follower.deactivate()
         pos = self.position_ned
         og_yaw = self.attitude[2]
         freq = 10
@@ -949,10 +949,10 @@ class DroneMAVSDK(Drone):
             "Must provide a full set of either NED coordinates, GPS coordinates or a waypoint!"
 
         # Check that we have a trajectory generator and follower who are compatible with each other and the drone
-        assert (self.trajectory_follower is not None
-                and self.trajectory_follower.setpoint_type in self.VALID_SETPOINT_TYPES)
-        assert (self.trajectory_generator is not None
-                and self.trajectory_generator.waypoint_type in self.trajectory_follower.WAYPOINT_TYPES)
+        assert (self.path_follower is not None
+                and self.path_follower.setpoint_type in self.VALID_SETPOINT_TYPES)
+        assert (self.path_generator is not None
+                and self.path_generator.waypoint_type in self.path_follower.WAYPOINT_TYPES)
 
         # Determine target waypoint, prefering waypoint over GPS over local and using current yaw if none is provided
         if waypoint is not None:
@@ -993,23 +993,23 @@ class DroneMAVSDK(Drone):
 
         # Determine target waypoint and send it to trajectory generator
         if use_gps:
-            if not self.trajectory_generator.CAN_DO_GPS or not self.trajectory_follower.CAN_DO_GPS:
+            if not self.path_generator.CAN_DO_GPS or not self.path_follower.CAN_DO_GPS:
                 raise RuntimeError("Trajectory generator can't use GPS coordinates!")
-            self.trajectory_generator.use_gps = True
+            self.path_generator.use_gps = True
 
         else:
-            self.trajectory_generator.use_gps = False
-        self.trajectory_generator.set_target(target)
+            self.path_generator.use_gps = False
+        self.path_generator.set_target(target)
 
         # Create trajectory and activate follower algorithm if not already active
         self.logger.debug("Creating trajectory...")
-        have_trajectory = await self.trajectory_generator.create_trajectory()
+        have_trajectory = await self.path_generator.create_trajectory()
         if not have_trajectory:
             self.logger.warning("The trajectory generator couldn't generate a trajectory!")
             return False
-        if not self.trajectory_follower.is_active:
+        if not self.path_follower.is_active:
             self.logger.debug("Starting follower algorithm...")
-            self.trajectory_follower.activate()
+            self.path_follower.activate()
 
         while True:
             # Check if we have arrived at target waypoint
@@ -1049,8 +1049,8 @@ class DroneMAVSDK(Drone):
 
     async def orbit(self, radius, velocity, center_lat, center_long, amsl):
         await super().orbit(radius, velocity, center_lat, center_long, amsl)
-        if self.trajectory_follower.is_active:
-            await self.trajectory_follower.deactivate()
+        if self.path_follower.is_active:
+            await self.path_follower.deactivate()
         if not self.is_armed or not self.in_air:
             raise RuntimeError("Can't fly a landed or unarmed drone!")
         yaw_behaviour = OrbitYawBehavior.HOLD_FRONT_TO_CIRCLE_CENTER
@@ -1059,8 +1059,8 @@ class DroneMAVSDK(Drone):
 
     async def land(self):
         self.logger.info("Trying to land...")
-        if self.trajectory_follower.is_active:
-            await self.trajectory_follower.deactivate()
+        if self.path_follower.is_active:
+            await self.path_follower.deactivate()
         await super().land()
         return await self._land_using_offbord_mode()
 
@@ -1110,10 +1110,10 @@ class DroneMAVSDK(Drone):
 
         :return:
         """
-        if self.trajectory_follower:
-            if self.trajectory_follower.is_active:
-                await self.trajectory_follower.deactivate()
-            self.trajectory_follower.close()
+        if self.path_follower:
+            if self.path_follower.is_active:
+                await self.path_follower.deactivate()
+            self.path_follower.close()
         try:
             if self.mav_conn:
                 await self.mav_conn.stop()

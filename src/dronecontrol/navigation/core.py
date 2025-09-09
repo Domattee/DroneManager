@@ -124,7 +124,7 @@ class Fence(ABC):
         pass
 
 
-class TrajectoryGenerator(ABC):
+class PathGenerator(ABC):
     """ Abstract base class for trajectory generators."""
 
     CAN_DO_GPS = False
@@ -167,7 +167,7 @@ class TrajectoryGenerator(ABC):
         trajectory generator hasn't produced any waypoints or has run out."""
 
 
-class TrajectoryFollower(ABC):
+class PathFollower(ABC):
     """ Abstract Base class to "follow" a given trajectory and maintain position at waypoints.
 
     A trajectory follower can work with different types of waypoints, but must be able to process WayPoinType.POS_NED,
@@ -229,7 +229,7 @@ class TrajectoryFollower(ABC):
             try:
                 if self.get_next_waypoint():
                     #self.logger.debug("Getting new waypoint from trajectory generator...")
-                    waypoint = self.drone.trajectory_generator.next()
+                    waypoint = self.drone.path_generator.next()
                     if not waypoint:
                         if not using_current_position:
                             if have_waypoints:
