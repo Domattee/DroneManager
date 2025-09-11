@@ -45,7 +45,7 @@ class GMP3Generator(PathGenerator):
         attr_string = "\n   ".join(["{}: {}".format(key, value) for key, value in self.__dict__.items()])
         self.logger.debug(f"Initialized trajectory generator {self.__class__.__name__}:\n   {attr_string}")
 
-    async def create_trajectory(self):
+    async def create_path(self):
         try:
             self.logger.info("Calculating path...")
             cur_x, cur_y, _ = self.drone.position_ned

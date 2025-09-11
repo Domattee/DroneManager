@@ -1003,7 +1003,7 @@ class DroneMAVSDK(Drone):
 
         # Create trajectory and activate follower algorithm if not already active
         self.logger.debug("Creating trajectory...")
-        have_trajectory = await self.path_generator.create_trajectory()
+        have_trajectory = await self.path_generator.create_path()
         if not have_trajectory:
             self.logger.warning("The trajectory generator couldn't generate a trajectory!")
             return False
