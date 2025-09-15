@@ -12,7 +12,6 @@ import time
 import os
 import shutil
 
-import dronecontrol.drone
 from dronecontrol.navigation.core import Waypoint, WayPointType
 from dronecontrol.plugins.mission import Mission
 from dronecontrol.sensors.ecowitt import WeatherData
@@ -229,6 +228,7 @@ class ENGELDataMission(Mission):
                 # TODO: We should know how many images the camera will take after the configure call, maybe just wait for all of those.
                 # Alternatively, use the known number to check if we missed a message or if some image didn't capture
                 # TODO: Request images that didn't arrive using image index
+                # TODO: Directly associate images with the corresponding reference image somehow, instead of the larger "capture"
                 mav_conn = self.dm.drones[self.drone_name].mav_conn
                 mav_conn.add_drone_message_callback(263, self._imaged_captured_callback)
                 await asyncio.sleep(self.max_capture_duration)
