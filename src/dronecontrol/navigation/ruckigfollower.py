@@ -38,7 +38,7 @@ class RuckigFollower(TrajectoryFollower):
                 and self.drone.is_at_heading(self.current_waypoint.yaw))
 
     async def set_setpoint(self, waypoint):
-        # TODO: Yaw + limits
+        # TODO: Yaw + fence
         self.planner_input.current_position = self.drone.position_ned
         self.planner_input.current_velocity = self.drone.velocity
         self.planner_input.current_acceleration = self.planner_output.new_acceleration  # Don't get acceleration from drone so use last target acceleration as value
