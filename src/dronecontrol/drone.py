@@ -28,6 +28,7 @@ from dronecontrol.navigation.core import WayPointType, Waypoint, TrajectoryGener
 from dronecontrol.navigation.directsetpointfollower import DirectSetpointFollower
 from dronecontrol.navigation.directtargetgenerator import DirectTargetGenerator
 from dronecontrol.navigation.gmp3generator import GMP3Generator
+from dronecontrol.navigation.ruckigfollower import RuckigFollower
 
 import logging
 
@@ -36,7 +37,7 @@ _mav_server_file = os.path.join(_cur_dir, "mavsdk_server_bin.exe")
 
 
 # TODO: Separate activate/deactivate for follower algorithm, currently can only be activated by move/flyto and cannot
-#  be deactivated at all.
+#  be deactivated manually at all.
 # TODO: Have a look at the entire connection procedure, make some diagrams, plan everything out and refactor any
 #  issues nicely
 # TODO: Follower/generator manager system, similar to plugin system. Should program some abstract base class for
@@ -445,10 +446,18 @@ class DroneMAVSDK(Drone):
             #self.trajectory_generator = GMP3Generator(self, 1/self.position_update_rate, self.logger, use_gps=False)
             self.trajectory_generator = DirectTargetGenerator(self, self.logger, WayPointType.POS_NED, use_gps=False)
         except Exception as e:
-            self.logger.error("Couldn't initialize trajectory generator due to an exception!")
+            self.logger.error("Couldn't initialize path generator due to an exception!")
             self.logger.debug(repr(e), exc_info=True)
-        self.trajectory_follower = DirectSetpointFollower(self, self.logger, 1/self.position_update_rate,
-                                                          WayPointType.POS_VEL_NED)
+        try:
+            self.trajectory_follower = RuckigFollower(self, self.logger, 1 / self.position_update_rate,
+                                                      WayPointType.POS_VEL_ACC_NED,
+                                                      max_vel=10.0, max_v_vel=1, max_acc=1.0, max_v_acc=0.5,
+                                                      max_jerk=0.5, max_v_jerk=0.5)
+            # self.trajectory_follower = DirectSetpointFollower(self, self.logger, 1/self.position_update_rate,
+            #                                                  WayPointType.POS_VEL_NED)
+        except Exception as e:
+            self.logger.error("Couldn't initialize path follower due to an exception!")
+            self.logger.debug(repr(e), exc_info=True)
 
         attr_string = "\n   ".join(["{}: {}".format(key, value) for key, value in self.__dict__.items()])
         self.logger.debug(f"Initialized Drone {self.name}, {self.__class__.__name__}:\n   {attr_string}")
