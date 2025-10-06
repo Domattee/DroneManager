@@ -2,11 +2,11 @@ import math
 import numpy as np
 
 import dronecontrol
-from dronecontrol.navigation.core import TrajectoryFollower, WayPointType, Waypoint
+from dronecontrol.navigation.core import PathFollower, WayPointType, Waypoint
 from dronecontrol.utils import dist_ned, heading_ned
 
 
-class VelocityFollower(TrajectoryFollower):
+class VelocityFollower(PathFollower):
     """ Flies directly toward the waypoint facing towards it along the way. Turning towards the target yaw happens
     after we reach the waypoint. Control happens only through velocity setpoints.
 

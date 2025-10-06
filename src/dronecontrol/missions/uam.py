@@ -494,7 +494,7 @@ class UAMMission(Mission):
         try:
             start_time = time.time()
             start_theta = self._calculate_circle_angle(drone)
-            await self.dm.drones[drone].trajectory_follower.deactivate()
+            await self.dm.drones[drone].path_follower.deactivate()
             target_pos = np.zeros((3,))
             target_pos[2] = -self.flight_altitude
             while True:

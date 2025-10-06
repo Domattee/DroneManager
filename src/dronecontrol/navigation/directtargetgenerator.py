@@ -1,8 +1,8 @@
 import dronecontrol
-from dronecontrol.navigation.core import TrajectoryGenerator, WayPointType
+from dronecontrol.navigation.core import PathGenerator, WayPointType
 
 
-class DirectTargetGenerator(TrajectoryGenerator):
+class DirectTargetGenerator(PathGenerator):
     """ Simply sends the target waypoint as static setpoints.
     """
 
@@ -14,7 +14,7 @@ class DirectTargetGenerator(TrajectoryGenerator):
         attr_string = "\n   ".join(["{}: {}".format(key, value) for key, value in self.__dict__.items()])
         self.logger.debug(f"Initialized trajectory generator {self.__class__.__name__}:\n   {attr_string}")
 
-    async def create_trajectory(self):
+    async def create_path(self):
         return True
 
     def next(self):

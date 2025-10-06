@@ -4,11 +4,11 @@ import time
 import pickle
 from concurrent.futures import ProcessPoolExecutor
 
-from dronecontrol.navigation.core import TrajectoryGenerator, Waypoint, WayPointType
+from dronecontrol.navigation.core import PathGenerator, Waypoint, WayPointType
 from dronecontrol.navigation.GMP3 import GMP3, GMP3Config
 
 
-class GMP3Generator(TrajectoryGenerator):
+class GMP3Generator(PathGenerator):
 
     # TODO: GMP3 currently doesn't run with less than 2 obstacles
     # TODO: Altitude and yaw. Both are currently just set immediately when we get a new target
@@ -45,7 +45,7 @@ class GMP3Generator(TrajectoryGenerator):
         attr_string = "\n   ".join(["{}: {}".format(key, value) for key, value in self.__dict__.items()])
         self.logger.debug(f"Initialized trajectory generator {self.__class__.__name__}:\n   {attr_string}")
 
-    async def create_trajectory(self):
+    async def create_path(self):
         try:
             self.logger.info("Calculating path...")
             cur_x, cur_y, _ = self.drone.position_ned

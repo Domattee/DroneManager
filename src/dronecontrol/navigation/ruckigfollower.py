@@ -1,4 +1,4 @@
-from dronecontrol.navigation.core import TrajectoryFollower, WayPointType, Waypoint
+from dronecontrol.navigation.core import PathFollower, WayPointType, Waypoint
 import dronecontrol
 
 import ruckig
@@ -6,7 +6,7 @@ import ruckig
 # TODO: Yaw
 # TODO: Live updates struggle with position latency
 
-class RuckigFollower(TrajectoryFollower):
+class RuckigFollower(PathFollower):
 
     CAN_DO_GPS = False
 

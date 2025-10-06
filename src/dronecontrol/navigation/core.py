@@ -124,7 +124,7 @@ class Fence(ABC):
         pass
 
 
-class TrajectoryGenerator(ABC):
+class PathGenerator(ABC):
     """ Abstract base class for trajectory generators."""
 
     CAN_DO_GPS = False
@@ -154,7 +154,7 @@ class TrajectoryGenerator(ABC):
         self.target_position = waypoint
 
     @abstractmethod
-    async def create_trajectory(self) -> bool:
+    async def create_path(self) -> bool:
         """ Function that performs whatever calculations are initially necessary to be able to produce waypoints.
         This function may be quite slow. """
 
@@ -162,15 +162,15 @@ class TrajectoryGenerator(ABC):
     def next(self) -> Waypoint:
         """ The next waypoint, once the follower algorithm asks for another one.
 
-        This function must execute quickly, as it might be called with a high frequency during flight. Trajectory
+        This function must execute quickly, as it might be called with a high frequency during flight. Path
         followers should call it when they think they have reached the current waypoint. Should return None if the
-        trajectory generator hasn't produced any waypoints or has run out."""
+        path generator hasn't produced any waypoints or has run out."""
 
 
-class TrajectoryFollower(ABC):
-    """ Abstract Base class to "follow" a given trajectory and maintain position at waypoints.
+class PathFollower(ABC):
+    """ Abstract Base class to "follow" a given path and maintain position at waypoints.
 
-    A trajectory follower can work with different types of waypoints, but must be able to process WayPoinType.POS_NED,
+    A path follower can work with different types of waypoints, but must be able to process WayPoinType.POS_NED,
     as that is the default case when a generator isn't providing waypoints.
     """
 
@@ -212,13 +212,13 @@ class TrajectoryFollower(ABC):
         return self._active
 
     async def follow(self):
-        """ Follows waypoints produced from a trajectory generator by sending setpoints to the drone FC.
+        """ Follows waypoints produced from a path generator by sending setpoints to the drone FC.
 
-        Requests a new waypoint from the TG when get_next_waypoint returns True. If the TG does not produce a waypoint,
+        Requests a new waypoint from the TG when get_next_waypoint returns True. If the PG does not produce a waypoint,
         holds position instead.
         :return:
         """
-        # Use current position as dummy waypoint in case trajectory generator can't produce any yet.
+        # Use current position as dummy waypoint in case path generator can't produce any yet.
         # TODO: A timer or something so we don't spam the log with "still using current position"
         dummy_waypoint = Waypoint(WayPointType.POS_NED, pos=self.drone.position_ned,
                                   vel=np.zeros((3,)), yaw=self.drone.attitude[2])
@@ -229,7 +229,7 @@ class TrajectoryFollower(ABC):
             try:
                 if self.get_next_waypoint():
                     #self.logger.debug("Getting new waypoint from trajectory generator...")
-                    waypoint = self.drone.trajectory_generator.next()
+                    waypoint = self.drone.path_generator.next()
                     if not waypoint:
                         if not using_current_position:
                             if have_waypoints:
@@ -258,15 +258,15 @@ class TrajectoryFollower(ABC):
 
     @abstractmethod
     def get_next_waypoint(self) -> bool:
-        """ Function that determines when to get the next waypoint from the trajectory generator.
+        """ Function that determines when to get the next waypoint from the path generator.
 
-        TrajectoryGenerator.next() is called during the follow loop when this function returns True. It should always
+        PathGenerator.next() is called during the follow loop when this function returns True. It should always
         return True if we don't have a waypoint already."""
 
     @abstractmethod
     async def set_setpoint(self, waypoint):
         """ Function that determines the next setpoint required to get to the target waypoint. This function is called
-        once every dt seconds using either the next waypoint from the trajectory generator or the drones current
+        once every dt seconds using either the next waypoint from the path generator or the drones current
         position.
 
         :return:
