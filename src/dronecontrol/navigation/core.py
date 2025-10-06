@@ -190,6 +190,7 @@ class PathFollower(ABC):
         self.current_waypoint: Waypoint | None = None
         self._active = False
         self._following_task: asyncio.Coroutine | None = None
+        self._is_waypoint_new = False
 
     def activate(self):
         if not self._active:
@@ -237,20 +238,23 @@ class PathFollower(ABC):
                                 # If we had waypoints, but lost them, use the current position as a dummy waypoint
                             else:  # Never had a waypoint
                                 self.logger.debug("Don't have any waypoints from the generator yet, using current position")
-                                using_current_position = True
+                            using_current_position = True
                             self.logger.debug(f"No waypoints, current position: {self.drone.position_ned}")
                             dummy_waypoint = Waypoint(WayPointType.POS_NED, pos=self.drone.position_ned,
                                                       yaw=self.drone.attitude[2])
                             waypoint = dummy_waypoint
+                            self._is_waypoint_new = True
                         else:
                             #self.logger.debug("Still using current position...")
                             waypoint = dummy_waypoint
                         have_waypoints = False
                     else:
+                        self._is_waypoint_new = True
                         have_waypoints = True
                         using_current_position = False
                     self.current_waypoint = waypoint
                 await self.set_setpoint(waypoint)
+                self._is_waypoint_new = False
                 await asyncio.sleep(self.dt)
             except Exception as e:
                 self.logger.error("Encountered an exception during following algorithm:", repr(e))

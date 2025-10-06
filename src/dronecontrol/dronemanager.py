@@ -87,7 +87,8 @@ class DroneManager:
                                mavsdk_server_address: str | None,
                                mavsdk_server_port: int | None,
                                drone_address: str,
-                               timeout: float):
+                               timeout: float,
+                               log_messages = True):
         try:
             scheme, parsed_addr, parsed_port = parse_address(string=drone_address)
         except Exception as e:
@@ -118,7 +119,8 @@ class DroneManager:
                 connected = None
                 try:
                     connected = await asyncio.wait_for(drone.connect(drone_address, system_id=self.system_id,
-                                                                     component_id=self.component_id), timeout)
+                                                                     component_id=self.component_id, log_messages=log_messages),
+                                                       timeout)
                 except (CancelledError, TimeoutError, OSError, socket.gaierror, AssertionError) as e:
                     if isinstance(e, CancelledError):
                         self.logger.info(f"Aborting connection attempt to {name}")
@@ -364,6 +366,21 @@ class DroneManager:
             self.logger.warning(f"No drone named {name}!")
         except Exception as e:
             self.logger.error(repr(e))
+
+    async def go_to(self, names: str | Collection[str], local: Collection[float] | None = None,
+                     gps: Collection[float] | None = None, waypoint: list[Waypoint] | None = None,
+                     yaw: Collection[float] | float | None = None, tol: float | Collection[float] = 0.25, schedule=True):
+        """ Note that this uses the GO TO Mavlink command instead of offboard mode."""
+        assert local is not None or gps is not None or waypoint is not None, ("Must provide either waypoints, gps or "
+                                                                              "local coordinates!")
+        # Maybe allow for single args and then duplicate those for all drones?
+        n_drones = 1 if isinstance(names, str) else len(names)
+        if isinstance(tol, float) and n_drones > 1:
+            tol = [tol for _ in range(n_drones)]
+        return await self._multiple_drone_multiple_params_action(self.drone_class.go_to, names,
+                                                                 f"Moving drones {names}", schedule=schedule,
+                                                                 tolerance=tol, local=local, gps=gps, waypoint=waypoint,
+                                                                 yaw=yaw)
 
     async def action_stop(self, names):
         if not names:
