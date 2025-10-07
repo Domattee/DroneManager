@@ -16,8 +16,8 @@ class GMP3Generator(PathGenerator):
     WAYPOINT_TYPES = {WayPointType.POS_VEL_NED}
     CAN_DO_GPS = False
 
-    def __init__(self, drone, dt, logger, use_gps=False, ):
-        super().__init__(drone, logger, waypoint_type=WayPointType.POS_VEL_NED, use_gps=use_gps)
+    def __init__(self, drone, dt, logger):
+        super().__init__(drone, logger, waypoint_type=WayPointType.POS_VEL_NED)
         self.GMP3_PARAMS = {
             "maxit": 100,
             "alpha": 0.8,

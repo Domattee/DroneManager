@@ -16,6 +16,8 @@ CACHE_DIR = Path(__file__).parent.parent.parent.joinpath(".cache")
 
 LOG_DIR = Path(__file__).parent.parent.parent.joinpath("logs")
 
+EARTH_RADIUS = 6371000
+
 
 def dist_ned(pos1, pos2):
     return np.sqrt(np.sum((pos1 - pos2) ** 2, axis=0))
@@ -65,6 +67,28 @@ def offset_from_gps(origin, gps1, gps2):
     lat, long = inverse_haversine(origin[:2], dist_horiz, heading, unit=Unit.METERS)
     return [lat, long, origin[2] + dist_alt]
 
+def ned_from_gps(gps1, gps2):
+    """Given two GPS points, compute the NED difference between the two positions, same as PX4 http://mathworld.wolfram.com/AzimuthalEquidistantProjection.html"""
+    lat1_rad = gps1[0]*math.pi / 180
+    lat2_rad = gps2[0]*math.pi / 180
+    long1_rad = gps1[1]*math.pi / 180
+    long2_rad = gps2[1]*math.pi / 180
+    cos_long_diff = math.cos(long2_rad-long1_rad)
+
+    arg = math.sin(lat1_rad)*math.sin(lat2_rad) + math.cos(lat1_rad)*math.cos(lat2_rad)*cos_long_diff
+    if arg > 1.0:
+        arg = 1.0
+    if arg < -1.0:
+        arg = -1.0
+    c = math.acos(arg)
+    k = 1.0
+    if abs(c) > 0:
+        k = c / math.sin(c)
+
+    north = k * (math.cos(lat1_rad)*math.sin(lat2_rad)-math.sin(lat1_rad)*math.cos(lat2_rad)*cos_long_diff) * EARTH_RADIUS
+    east = k * (math.cos(lat2_rad) * math.sin(long2_rad-long1_rad)) * EARTH_RADIUS
+    down = gps1[2] - gps2[2]
+    return north, east, down
 
 def get_free_port():
     """ Get a free network port.

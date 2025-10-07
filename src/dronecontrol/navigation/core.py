@@ -131,21 +131,19 @@ class PathGenerator(ABC):
     WAYPOINT_TYPES = set()
     """ These determine the type of intermediate waypoints a trajectory generator may produce"""
 
-    def __init__(self, drone: "dronecontrol.drone.Drone", logger, waypoint_type, use_gps=False):
+    def __init__(self, drone: "dronecontrol.drone.Drone", logger, waypoint_type):
         """
 
         Should be called at the end of subclass constructors.
 
         :param drone:
         :param logger:
-        :param use_gps:
         """
         assert waypoint_type in self.WAYPOINT_TYPES, (f"Invalid waypoint type {waypoint_type} "
                                                       f"for trajectory generator {self.__class__.__name__}")
         self.drone = drone
         self.logger = logger
         self.waypoint_type = waypoint_type
-        self.use_gps = use_gps
         self.target_position: Waypoint | None = None
 
     def set_target(self, waypoint: Waypoint):

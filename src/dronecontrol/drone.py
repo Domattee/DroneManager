@@ -443,8 +443,8 @@ class DroneMAVSDK(Drone):
 
         self.mav_conn: MAVPassthrough = MAVPassthrough(loggername=f"{name}_MAVLINK", log_messages=True)
         try:
-            #self.path_generator = GMP3Generator(self, 1/self.position_update_rate, self.logger, use_gps=False)
-            self.path_generator = DirectTargetGenerator(self, self.logger, WayPointType.POS_NED, use_gps=False)
+            #self.path_generator = GMP3Generator(self, 1/self.position_update_rate, self.logger)
+            self.path_generator = DirectTargetGenerator(self, self.logger, WayPointType.POS_NED)
         except Exception as e:
             self.logger.error("Couldn't initialize path generator due to an exception!")
             self.logger.debug(repr(e), exc_info=True)
@@ -874,6 +874,7 @@ class DroneMAVSDK(Drone):
 
     def _can_do_in_air_commands(self):
         # TODO: Figure out how to do this with ardupilot. Currently the in_air detection seems very poor
+        # Currently not used as the in-air detection is unreliable with many of our drones.
         if self.autopilot == "ardupilot":
             return True
         if not self.is_armed or not self.in_air:
@@ -979,6 +980,9 @@ class DroneMAVSDK(Drone):
                 yaw = self.attitude[2]
             target = Waypoint(WayPointType.POS_NED, pos=local, yaw=yaw)
 
+        # Check that the target is valid
+        assert self.check_waypoint(target), f"Invalid target position {target}, probably due to fence."
+
         use_gps = target.type == WayPointType.POS_GLOBAL
 
         if log:
@@ -1001,14 +1005,12 @@ class DroneMAVSDK(Drone):
                 await self.set_setpoint(Waypoint(WayPointType.POS_NED, pos=cur_pos, yaw=cur_yaw))
             await self.change_flight_mode("offboard")
 
-        # Determine target waypoint and send it to path generator
+        # Check that both path generator and follower can handle GPS coordinates
         if use_gps:
-            if not self.path_generator.CAN_DO_GPS or not self.path_follower.CAN_DO_GPS:
-                raise RuntimeError("Trajectory generator can't use GPS coordinates!")
-            self.path_generator.use_gps = True
-
-        else:
-            self.path_generator.use_gps = False
+            if not self.path_generator.CAN_DO_GPS:
+                raise RuntimeError("Path generator can't use GPS coordinates!")
+            if not self.path_follower.CAN_DO_GPS:
+                raise RuntimeError("Path follower can't use GPS coordinates!")
         self.path_generator.set_target(target)
 
         # Create path and activate follower algorithm if not already active
