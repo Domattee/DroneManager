@@ -125,11 +125,11 @@ class Fence(ABC):
 
 
 class PathGenerator(ABC):
-    """ Abstract base class for trajectory generators."""
+    """ Abstract base class for path generators."""
 
     CAN_DO_GPS = False
     WAYPOINT_TYPES = set()
-    """ These determine the type of intermediate waypoints a trajectory generator may produce"""
+    """ These determine the type of intermediate waypoints a path generator may produce"""
 
     def __init__(self, drone: "dronecontrol.drone.Drone", logger, waypoint_type):
         """
@@ -140,7 +140,7 @@ class PathGenerator(ABC):
         :param logger:
         """
         assert waypoint_type in self.WAYPOINT_TYPES, (f"Invalid waypoint type {waypoint_type} "
-                                                      f"for trajectory generator {self.__class__.__name__}")
+                                                      f"for path generator {self.__class__.__name__}")
         self.drone = drone
         self.logger = logger
         self.waypoint_type = waypoint_type
@@ -178,7 +178,7 @@ class PathFollower(ABC):
 
     def __init__(self, drone: "dronecontrol.drone.Drone", logger, dt, setpoint_type: WayPointType):
         assert setpoint_type in self.SETPOINT_TYPES, (f"Invalid setpoint type {setpoint_type} "
-                                                      f"for trajectory follower {self.__class__.__name__}")
+                                                      f"for path follower {self.__class__.__name__}")
         assert setpoint_type in drone.VALID_SETPOINT_TYPES, (f"Invalid setpoint type {setpoint_type} "
                                                              f"for drone {drone.__class__.__name__}")
         self.logger = logger
@@ -195,16 +195,16 @@ class PathFollower(ABC):
             self._active = True
             self._following_task = asyncio.create_task(self.follow())
         else:
-            self.logger.debug("Can't activate trajectory follower, it is already active.")
+            self.logger.debug("Can't activate path follower, it is already active.")
 
     async def deactivate(self):
         if self._active:
-            self.logger.debug("Trajectory follower deactivating...")
+            self.logger.debug("Path follower deactivating...")
             self._active = False
             await self._following_task
             self._following_task = None
         else:
-            self.logger.debug("Can't deactivate trajectory follower, because it isn't active.")
+            self.logger.debug("Can't deactivate path follower, because it isn't active.")
 
     @property
     def is_active(self):
@@ -227,7 +227,7 @@ class PathFollower(ABC):
         while self.is_active:
             try:
                 if self.get_next_waypoint():
-                    #self.logger.debug("Getting new waypoint from trajectory generator...")
+                    #self.logger.debug("Getting new waypoint from path generator...")
                     waypoint = self.drone.path_generator.next()
                     if not waypoint:
                         if not using_current_position:

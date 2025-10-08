@@ -119,7 +119,6 @@ class ENGELDataMission(Mission):
         self.loaded_captures: list[ENGELCaptureInfo] = []  # Images taken during a previous session, intended to be replayed
         self.loaded_file: str | None = None
         self._current_capture: ENGELCaptureInfo | None = None
-        self._relevant_params = ["IMG_RAD_TIFF", "IMG_RAD_JPEG", "IMG_IR_SUPER"]
 
     async def connect(self):
         """ Connect to the Leitstand sensor"""
@@ -224,9 +223,7 @@ class ENGELDataMission(Mission):
             # If accepted: Collect metadata, listen for capture_info messages for CAMERA_IMAGE_CAPTURED using callback on mav_conn
             else:
                 # Add callback, wait capture duration, remove callback
-
                 # TODO: We should know how many images the camera will take after the configure call, maybe just wait for all of those.
-                # Alternatively, use the known number to check if we missed a message or if some image didn't capture
                 # TODO: Request images that didn't arrive using image index
                 # TODO: Directly associate images with the corresponding reference image somehow, instead of the larger "capture"
                 mav_conn = self.dm.drones[self.drone_name].mav_conn
@@ -249,31 +246,38 @@ class ENGELDataMission(Mission):
             return False
 
     async def set_camera_parameters(self, params: list[CameraParameter]):
+        # Go through a list of camera parameters and adjust the connected camera parameters to match
         for parameter in params:
-            await self.camera.set_parameter(parameter.name, parameter.value)
+            if self.camera.parameters[parameter.name].value != parameter.value:
+                await self.camera.set_parameter(parameter.name, parameter.value)
 
     async def replay_captures(self):
         """ Function to take the position from previous captures saved to file and capture them all again."""
-        # TODO: Flying, position and angle refinement
         # For each loaded capture: Set camera parameters, fly to position, optionally refine position, take new capture
         # Currently just prints loaded info for debug purposes
         for capture in self.loaded_captures:
             try:
-                reference_image = capture.images[0]  # TODO: Have to use correct image, don't know which one that is yet
+                reference_image = capture.images[0]
+                # Use "visible" as reference image for now. TODO: Figure out if this is best, might have to do screenshots instead if comparison happens against live feed
+                for image in capture.images:
+                    if "visible" in image.file_location:
+                        reference_image = image
+
                 # Set camera parameters
                 cam_set_task = asyncio.create_task(self.set_camera_parameters(capture.camera_parameters))
                 self._running_tasks.add(cam_set_task)
                 # Fly to position and point gimbal
                 if self.drones[self.drone_name].is_armed and self.drones[self.drone_name].in_air:
                     # Fly to position
-                    self.dm.fly_to(self.drone_name, gps=reference_image.gps, yaw=reference_image.drone_att[2])
+                    await self.dm.fly_to(self.drone_name, gps=reference_image.gps, yaw=reference_image.drone_att[2])
                 # Point gimbal
                 target_g_pitch = reference_image.gimbal_att[1] + reference_image.drone_att[1] - self.dm.drones[self.drone_name].attitude[1]
                 target_g_yaw = reference_image.gimbal_yaw_absolute
                 await self.gimbal.set_gimbal_mode("lock")
-                await self.gimbal.set_gimbal_angles(target_g_pitch, target_g_yaw)  # TODO: Check that we have reached desired angle
+                await self.gimbal.set_gimbal_angles(target_g_pitch, target_g_yaw)
                 while abs(self.gimbal.pitch - target_g_pitch) < 0.25 and abs(self.gimbal.yaw_absolute - target_g_yaw) < 0.25:
                     await asyncio.sleep(0.1)
+                    target_g_pitch = reference_image.gimbal_att[1] + reference_image.drone_att[1] - self.dm.drones[self.drone_name].attitude[1]  # Recompute pitch target for possible drone change in pitch
                 # Refine position and gimbal attitude based on previous image
                 # TODO: Integrate from other repo, more eval on simulation first
                 # New capture
@@ -341,14 +345,11 @@ class ENGELDataMission(Mission):
             self.logger.info(f"Loaded past captures from file {file_path}")
 
     async def reset(self):
-        """ Land back at launch points"""
-        for drone in self.drones:
-            await self.dm.fly_to(drone, waypoint=self.launch_point)
-            await self.dm.land(drone)
-            await asyncio.sleep(0.5)
-            await self.dm.disarm(drone)
-        # TODO: Maybe don't do this, have launch and rtb separate, instead delete captures and reset all other
-        #  params as if mission was just loaded
+        """ Clear capture info """
+        # Resets variables as if the mission was just loaded. Useful for replay testing.
+        self.captures = []
+        self.loaded_captures = []
+        self.loaded_file = None
 
     async def status(self):
         """ Print information, such as how many captures we have taken"""

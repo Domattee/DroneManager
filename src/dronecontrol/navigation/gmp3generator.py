@@ -43,7 +43,7 @@ class GMP3Generator(PathGenerator):
         self.valid_path = False
         self.start_time = None
         attr_string = "\n   ".join(["{}: {}".format(key, value) for key, value in self.__dict__.items()])
-        self.logger.debug(f"Initialized trajectory generator {self.__class__.__name__}:\n   {attr_string}")
+        self.logger.debug(f"Initialized path generator {self.__class__.__name__}:\n   {attr_string}")
 
     async def create_path(self):
         try:

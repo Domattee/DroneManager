@@ -32,7 +32,7 @@ class VelocityFollower(PathFollower):
         self.fudge_z = 1
 
         attr_string = "\n   ".join(["{}: {}".format(key, value) for key, value in self.__dict__.items()])
-        self.logger.debug(f"Initialized trajectory follower {self.__class__.__name__}:\n   {attr_string}")
+        self.logger.debug(f"Initialized path follower {self.__class__.__name__}:\n   {attr_string}")
 
     def get_next_waypoint(self) -> bool:
         return (self.current_waypoint is None or

@@ -12,7 +12,7 @@ class DirectTargetGenerator(PathGenerator):
     def __init__(self, drone: "dronecontrol.drone.Drone", logger, waypoint_type):
         super().__init__(drone, logger=logger, waypoint_type=waypoint_type)
         attr_string = "\n   ".join(["{}: {}".format(key, value) for key, value in self.__dict__.items()])
-        self.logger.debug(f"Initialized trajectory generator {self.__class__.__name__}:\n   {attr_string}")
+        self.logger.debug(f"Initialized path generator {self.__class__.__name__}:\n   {attr_string}")
 
     async def create_path(self):
         return True

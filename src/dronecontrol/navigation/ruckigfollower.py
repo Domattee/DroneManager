@@ -26,7 +26,7 @@ class RuckigOfflineFollower(PathFollower):
                  max_yaw_vel = 60, max_yaw_acc = 30, max_yaw_jerk = 30):
         super().__init__(drone, logger, dt, setpoint_type)
         attr_string = "\n   ".join(["{}: {}".format(key, value) for key, value in self.__dict__.items()])
-        self.logger.debug(f"Initialized trajectory follower {self.__class__.__name__}:\n   {attr_string}")
+        self.logger.debug(f"Initialized path follower {self.__class__.__name__}:\n   {attr_string}")
         self.planner = None
         self.planner_input = None
         self.planner_output = None
@@ -144,7 +144,7 @@ class RuckigOnlineFollower(PathFollower):
                  max_v_vel = 1.0, max_v_acc = 0.5, max_v_jerk = 1.0):
         super().__init__(drone, logger, dt, setpoint_type)
         attr_string = "\n   ".join(["{}: {}".format(key, value) for key, value in self.__dict__.items()])
-        self.logger.debug(f"Initialized trajectory follower {self.__class__.__name__}:\n   {attr_string}")
+        self.logger.debug(f"Initialized path follower {self.__class__.__name__}:\n   {attr_string}")
         self.planner = None
         self.planner_input = None
         self.planner_output = None
