@@ -95,9 +95,10 @@ have a unique name, so this allows multiple missions of the same "type".
 This is a showcase demo where three drones look for a POI and start continuously observing it.
 To run it, you will need three drones, preferably running PX4, a dummy object of interest and a 7 x 3 x 3 meter area 
 where you can fly multiple drones with high precision.
-In the event we are flying with three drones, "luke", "derek" and "corran".
-We ran this in an indoor environment with an OptiTrack system for positioning. In our set up we had the positioning 
-system completely independent of DM.
+In the event we are flying with three drones, "luke", "derek" and "corran". No object recognition takes place, the 
+POI location is pre-determined.
+We ran this demo in an indoor environment with an OptiTrack system for positioning. Note that the positioning system
+is independent of DM.
 The setup instructions below assume a similar setup.
 
 If you don't have an indoor flying set up ready to go, we suggest going outside and using GPS instead. The setup will 
