@@ -11,8 +11,6 @@ class RuckigOfflineFollower(PathFollower):
 
     CAN_DO_GPS = True
 
-    # TODO: GPS, maybe determine an NED offset and work in local that way?
-
     SETPOINT_TYPES = {WayPointType.POS_VEL_ACC_NED}
 
     WAYPOINT_TYPES = {WayPointType.POS_NED,
@@ -22,7 +20,7 @@ class RuckigOfflineFollower(PathFollower):
 
     def __init__(self, drone: "dronecontrol.drone.Drone", logger, dt: float, setpoint_type,
                  max_vel = 10.0, max_acc = 2.0, max_jerk = 1.0,
-                 max_v_vel = 1.0, max_v_acc = 0.5, max_v_jerk = 1.0,
+                 max_down_vel = 1.0, max_up_vel = 3.0, max_v_acc = 0.5, max_v_jerk = 1.0,
                  max_yaw_vel = 60, max_yaw_acc = 30, max_yaw_jerk = 30):
         super().__init__(drone, logger, dt, setpoint_type)
         attr_string = "\n   ".join(["{}: {}".format(key, value) for key, value in self.__dict__.items()])
@@ -33,7 +31,8 @@ class RuckigOfflineFollower(PathFollower):
         self.yaw_planner = None
         self.yaw_input = None
         self.yaw_output = None
-        self.max_velocity = [max_vel, max_vel, max_v_vel]
+        self.max_velocity = [max_vel, max_vel, max_down_vel]
+        self.min_velocity = [-max_vel, -max_vel, -max_up_vel]
         self.max_acceleration = [max_acc, max_acc, max_v_acc]
         self.max_jerk = [max_jerk, max_jerk, max_v_jerk]
         self.max_yaw_vel = max_yaw_vel
@@ -48,6 +47,7 @@ class RuckigOfflineFollower(PathFollower):
         self.planner_input = ruckig.InputParameter(3)
         self.planner_output = ruckig.Trajectory(3)
         self.planner_input.max_velocity = self.max_velocity
+        self.planner_input.min_velocity = self.min_velocity
         self.planner_input.max_acceleration = self.max_acceleration
         self.planner_input.max_jerk = self.max_jerk
         self.yaw_planner = ruckig.Ruckig(1)
@@ -81,7 +81,6 @@ class RuckigOfflineFollower(PathFollower):
         try:
             if self._is_waypoint_new:
                 # Position
-
                 # If we have a GPS waypoint, determine NED offset between current GPS pos and target GPS pos
                 # Save result in waypoint
                 if waypoint.type is WayPointType.POS_GLOBAL:

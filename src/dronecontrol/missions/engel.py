@@ -267,6 +267,7 @@ class ENGELDataMission(Mission):
                 cam_set_task = asyncio.create_task(self.set_camera_parameters(capture.camera_parameters))
                 self._running_tasks.add(cam_set_task)
                 # Fly to position and point gimbal
+                # TODO: Have to correct gimbal attitude not just for drone pitch but also roll, depending on relative angle between gimbal yaw and drone yaw
                 if self.drones[self.drone_name].is_armed and self.drones[self.drone_name].in_air:
                     # Fly to position
                     await self.dm.fly_to(self.drone_name, gps=reference_image.gps, yaw=reference_image.drone_att[2])
@@ -278,10 +279,13 @@ class ENGELDataMission(Mission):
                 while abs(self.gimbal.pitch - target_g_pitch) < 0.25 and abs(self.gimbal.yaw_absolute - target_g_yaw) < 0.25:
                     await asyncio.sleep(0.1)
                     target_g_pitch = reference_image.gimbal_att[1] + reference_image.drone_att[1] - self.dm.drones[self.drone_name].attitude[1]  # Recompute pitch target for possible drone change in pitch
+                    # This doesn't reliably work for some reason. TODO: Figure out why
                 # Refine position and gimbal attitude based on previous image
                 # TODO: Integrate from other repo, more eval on simulation first
                 # New capture
                 await cam_set_task
+                # Wait at least 3 seconds to make sure that gimbal is in position
+                await asyncio.sleep(3)
                 await self.do_capture(capture)
                 # TODO: Check for replays that didn't work
             except Exception as e:

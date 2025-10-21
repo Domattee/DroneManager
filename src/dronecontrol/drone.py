@@ -451,8 +451,8 @@ class DroneMAVSDK(Drone):
         try:
             self.path_follower = RuckigOfflineFollower(self, self.logger, 1 / self.position_update_rate,
                                                       WayPointType.POS_VEL_ACC_NED,
-                                                      max_vel=10.0, max_v_vel=1, max_acc=1.0, max_v_acc=0.5,
-                                                      max_jerk=0.5, max_v_jerk=0.5)
+                                                      max_vel=10.0, max_down_vel=1.0, max_up_vel=3.0, max_acc=1.5,
+                                                      max_v_acc=0.5, max_jerk=0.5, max_v_jerk=0.5)
             # self.path_follower = DirectSetpointFollower(self, self.logger, 1/self.position_update_rate,
             #                                                  WayPointType.POS_VEL_NED)
         except Exception as e:

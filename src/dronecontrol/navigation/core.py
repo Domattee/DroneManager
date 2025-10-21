@@ -199,10 +199,14 @@ class PathFollower(ABC):
 
     async def deactivate(self):
         if self._active:
-            self.logger.debug("Path follower deactivating...")
-            self._active = False
-            await self._following_task
-            self._following_task = None
+            try:
+                self.logger.debug("Path follower deactivating...")
+                self._active = False
+                await self._following_task
+                self._following_task = None
+                self.current_waypoint = None
+            except Exception as e:
+                self.logger.error(repr(e), exc_info=True)
         else:
             self.logger.debug("Can't deactivate path follower, because it isn't active.")
 
@@ -217,12 +221,11 @@ class PathFollower(ABC):
         holds position instead.
         :return:
         """
-        # Use current position as dummy waypoint in case path generator can't produce any yet.
-        # TODO: A timer or something so we don't spam the log with "still using current position"
+        # Use current position as dummy waypoint in case og bugs in get_next_waypoint function or similar
         dummy_waypoint = Waypoint(WayPointType.POS_NED, pos=self.drone.position_ned,
                                   vel=np.zeros((3,)), yaw=self.drone.attitude[2])
         have_waypoints = False
-        using_current_position = False
+        using_dummy_waypoint = False
         waypoint = dummy_waypoint
         while self.is_active:
             try:
@@ -230,18 +233,17 @@ class PathFollower(ABC):
                     #self.logger.debug("Getting new waypoint from path generator...")
                     waypoint = self.drone.path_generator.next()
                     if not waypoint:
-                        if not using_current_position:
-                            if have_waypoints:
-                                self.logger.debug("Generator no longer producing waypoints, using current position")
-                                # If we had waypoints, but lost them, use the current position as a dummy waypoint
+                        if not using_dummy_waypoint:
+                            if have_waypoints: # Had waypoints, but the generator isn't producing any new ones.
+                                self.logger.debug("Generator no longer producing waypoints, using old waypoint")
+                                dummy_waypoint = self.current_waypoint
                             else:  # Never had a waypoint
-                                self.logger.debug("Don't have any waypoints from the generator yet, using current position")
-                            using_current_position = True
-                            self.logger.debug(f"No waypoints, current position: {self.drone.position_ned}")
-                            dummy_waypoint = Waypoint(WayPointType.POS_NED, pos=self.drone.position_ned,
-                                                      yaw=self.drone.attitude[2])
+                                self.logger.debug(f"Don't have any waypoints from the generator yet, using current position: {self.drone.position_ned}")
+                                dummy_waypoint = Waypoint(WayPointType.POS_NED, pos=self.drone.position_ned,
+                                                          yaw=self.drone.attitude[2])
+                                self._is_waypoint_new = True
                             waypoint = dummy_waypoint
-                            self._is_waypoint_new = True
+                            using_dummy_waypoint = True
                         else:
                             #self.logger.debug("Still using current position...")
                             waypoint = dummy_waypoint
@@ -249,7 +251,7 @@ class PathFollower(ABC):
                     else:
                         self._is_waypoint_new = True
                         have_waypoints = True
-                        using_current_position = False
+                        using_dummy_waypoint = False
                     self.current_waypoint = waypoint
                 await self.set_setpoint(waypoint)
                 self._is_waypoint_new = False
