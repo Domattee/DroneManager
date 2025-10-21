@@ -205,6 +205,7 @@ class PathFollower(ABC):
                 await self._following_task
                 self._following_task = None
                 self.current_waypoint = None
+                self._is_waypoint_new = False
             except Exception as e:
                 self.logger.error(repr(e), exc_info=True)
         else:
