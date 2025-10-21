@@ -101,6 +101,7 @@ class ENGELDataMission(Mission):
             "configure": self.configure_cam,
             "replay": self.replay_captures,
             "transfer": self.transfer,
+            "done": self.done,
         }
         self.cli_commands.update(mission_cli_commands)
         self.weather_sensor = None
@@ -354,6 +355,14 @@ class ENGELDataMission(Mission):
         self.captures = []
         self.loaded_captures = []
         self.loaded_file = None
+
+    async def done(self):
+        """ Save any captures, reset and fly back to base and land"""
+        await self.save_captures_to_file()
+        await self.reset()
+        await self.dm.fly_to(self.drone_name, waypoint=self.dm.drones[self.drone_name].return_position)
+        await self.dm.land(self.drone_name)
+        await self.dm.disarm(self.drone_name)
 
     async def status(self):
         """ Print information, such as how many captures we have taken"""

@@ -163,7 +163,9 @@ class DroneManager:
                     await self._remove_drone_object(name, drone)
                 return False
 
-    async def disconnect(self, names, force=False):
+    async def disconnect(self, names: str | Collection[str], force=False):
+        if isinstance(names, str):
+            names = [names]
         self.logger.info(f"Disconnecting {names} ...")
         async with self.drone_lock:
             for name in list(names):
@@ -184,7 +186,7 @@ class DroneManager:
     async def _single_drone_action(self, action, name, start_string, *args, schedule=False, **kwargs):
         return await self._multiple_drone_action(action, [name], start_string, *args, schedule=schedule, **kwargs)
 
-    async def _multiple_drone_action(self, action, names, start_string, *args, schedule=False, **kwargs):
+    async def _multiple_drone_action(self, action, names: str | Collection[str], start_string, *args, schedule=False, **kwargs):
         # Convenience check to avoid isues when using multiple drone functions with only a single drone.
         if isinstance(names, str):
             names = [names]
@@ -253,29 +255,29 @@ class DroneManager:
             self.logger.error("Encountered an exception! See the log for details.")
             self.logger.debug(repr(e), exc_info=True)
 
-    async def arm(self, names, schedule=False):
+    async def arm(self, names: str | Collection[str], schedule=False):
         return await self._multiple_drone_action(self.drone_class.arm, names,
                                                  "Arming drone(s) {}.", schedule=schedule)
 
-    async def disarm(self, names, schedule=False):
+    async def disarm(self, names: str | Collection[str], schedule=False):
         return await self._multiple_drone_action(self.drone_class.disarm, names,
                                                  "Disarming drone(s) {}.", schedule=schedule)
 
-    async def takeoff(self, names, altitude=2.0, schedule=False):
+    async def takeoff(self, names: str | Collection[str], altitude=2.0, schedule=False):
         return await self._multiple_drone_action(self.drone_class.takeoff, names,
                                                  "Takeoff for Drone(s) {}.", altitude, schedule=schedule)
 
-    async def change_flightmode(self, names, flightmode, schedule=False):
+    async def change_flightmode(self, names: str | Collection[str], flightmode, schedule=False):
         await self._multiple_drone_action(self.drone_class.change_flight_mode,
                                           names,
                                           "Changing flightmode for drone(s) {} to " + flightmode + ".",
                                           flightmode, schedule=schedule)
 
-    async def land(self, names, schedule=False):
+    async def land(self, names: str | Collection[str], schedule=False):
         await self._multiple_drone_action(self.drone_class.land, names,
                                           "Landing drone(s) {}.", schedule=schedule)
 
-    def set_fence(self, names, n_lower, n_upper, e_lower, e_upper, height):
+    def set_fence(self, names: str | Collection[str], n_lower, n_upper, e_lower, e_upper, height):
         """ Set a fence on drones"""
         if isinstance(names, str):
             names = [names]
@@ -290,12 +292,16 @@ class DroneManager:
             self.logger.error("Couldn't set fence due to an exception")
             self.logger.debug(repr(e), exc_info=True)
 
-    def pause(self, names):
+    def pause(self, names: str | Collection[str]):
+        if isinstance(names, str):
+            names = [names]
         self.logger.info(f"Pausing drone(s) {names}")
         for name in names:
             self.drones[name].pause()
 
-    def resume(self, names):
+    def resume(self, names: str | Collection[str]):
+        if isinstance(names, str):
+            names = [names]
         self.logger.info(f"Resuming task execution for drone(s) {names}")
         for name in names:
             self.drones[name].resume()
