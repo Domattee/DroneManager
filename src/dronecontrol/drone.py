@@ -92,6 +92,8 @@ class Drone(ABC, threading.Thread):
         self.path_generator: PathGenerator | None = None
         self.path_follower: PathFollower | None = None
 
+        self.return_position: Waypoint | None = None  # Position of the drone immediately after takeoff
+
         self.is_paused = False
         self.mav_conn: MAVPassthrough | None = None
         self.start()
@@ -745,7 +747,9 @@ class DroneMAVSDK(Drone):
         """
         if self.path_follower.is_active:
             await self.path_follower.deactivate()
-        return await self._takeoff_using_offboard(altitude=altitude)
+        res =  await self._takeoff_using_offboard(altitude=altitude)
+        self.return_position = Waypoint(WayPointType.POS_NED, pos=self.position_ned, yaw=self.attitude[2])
+        return res
 
     def _get_pos_ned_yaw(self) -> np.ndarray:
         pos_yaw = np.zeros((4,), dtype=float)
