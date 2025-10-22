@@ -76,7 +76,7 @@ def get_overlap(img1, img2, ratio=0.75):
     matched_p1 = np.float32([p1_array[m.queryIdx] for m in filtered_matches])
     matched_p2 = np.float32([p2_array[m.trainIdx] for m in filtered_matches])
 
-    H_matrix, status = cv2.findHomography(matched_p2, matched_p1, cv2.RANSAC, 4)
+    H_matrix, status = cv2.findHomography(matched_p2, matched_p1, cv2.RANSAC, 2)
 
     # Determine the corner points of the second image, to prevent them from lying outside
     corners_before = np.array([[0,0], [w2, 0], [w2, h2], [0, h2]], dtype=np.float32).reshape(-1, 1, 2)
@@ -160,6 +160,20 @@ def get_overlap(img1, img2, ratio=0.75):
     print(f"Warped and cropped images - \t PSNR: {psnr:.2f}, SSIM: {ssim:.2f}")
     print(f"Warped and cropped size: W {cropped_img1.shape[1]}, H {cropped_img1.shape[0]}")
 
+def homography_pipe(pair):
+    clear_window_id = "Single Image"
+    diff_window_id = "Difference Image"
+    cv2.imshow(clear_window_id, pair[0])
+    diff = get_difference_image(*pair)
+    cv2.imshow(diff_window_id, diff)
+    ssim = structural_similarity(*pair, channel_axis=2) * 100
+    psnr = cv2.PSNR(*pair)
+    cv2.imwrite(f"diff_img_psnr_{psnr:.2f}_ssim_{ssim:.2f}.png", diff)
+    cv2.setWindowTitle(diff_window_id, f"PSNR: {psnr:.2f}, SSIM: {ssim:.2f}")
+    print(f"Base images - \t\t\t PSNR: {psnr:.2f}, SSIM: {ssim:.2f}")
+    get_overlap(*pair)
+    cv2.waitKey(0)
+
 CHESS_SIZE = (10,7)
 
 CHARUCO_SIZE = (7, 11)  # Square horizontally and vertically. Should be different since orientation matters
@@ -174,6 +188,11 @@ def main():
     # Homography tests
     homography_parser = command_parsers.add_parser("hom", help="Do a homogrophy over a capture series")
     homography_parser.add_argument("path", type=str)
+
+    # Homography tests on raw images if capture meta info messed up or just for tests
+    homography_test_parser = command_parsers.add_parser("homtest")
+    homography_test_parser.add_argument("img1", type=str)
+    homography_test_parser.add_argument("img2", type=str)
 
     # Do calibration with series of images of charuco
     calib_parser = command_parsers.add_parser("calib", help="Determine camera calibration")
@@ -191,19 +210,12 @@ def main():
     if args.command == "hom":
         # Do the image correction
         imgs = load_images(args.path)
-        clear_window_id = "Single Image"
-        diff_window_id = "Difference Image"
         for pair in imgs:
-            cv2.imshow(clear_window_id, pair[0])
-            diff = get_difference_image(*pair)
-            cv2.imshow(diff_window_id, diff)
-            ssim = structural_similarity(*pair, channel_axis=2) * 100
-            psnr = cv2.PSNR(*pair)
-            cv2.imwrite(f"diff_img_psnr_{psnr:.2f}_ssim_{ssim:.2f}.png", diff)
-            cv2.setWindowTitle(diff_window_id, f"PSNR: {psnr:.2f}, SSIM: {ssim:.2f}")
-            print(f"Base images - \t\t\t PSNR: {psnr:.2f}, SSIM: {ssim:.2f}")
-            get_overlap(*pair)
-            cv2.waitKey(0)
+            homography_pipe(pair)
+    elif args.command == "homtest":
+        img1 = cv2.imread(args.img1)
+        img2 = cv2.imread(args.img2)
+        homography_pipe((img1, img2))
     elif args.command == "calib":
         # TODO: Chess calibration
         pass
