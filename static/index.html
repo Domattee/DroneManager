@@ -1,0 +1,366 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Drone Data Monitor</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 20px;
+            background-color: #f0f2f5;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+        .drone-card {
+            background: white;
+            border-radius: 8px;
+            padding: 20px;
+            margin-bottom: 20px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            display: flex;
+            gap: 20px;
+        }
+        .drone-visualization {
+            flex: 1;
+            min-width: 300px;
+            height: 300px;
+            background: #f8f9fa;
+            border-radius: 8px;
+            position: relative;
+            overflow: hidden;
+        }
+        .drone-position {
+            position: absolute;
+            width: 20px;
+            height: 20px;
+            background: #1a73e8;
+            border-radius: 50%;
+            transform: translate(-50%, -50%);
+            transition: all 0.2s ease;
+        }
+        .drone-heading {
+            position: absolute;
+            width: 30px;
+            height: 2px;
+            background: #c5221f;
+            transform-origin: left center;
+            transition: all 0.2s ease;
+        }
+        .drone-info {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+        }
+        .drone-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 15px;
+        }
+        .drone-name {
+            font-size: 1.5em;
+            font-weight: bold;
+            color: #1a73e8;
+        }
+        .status {
+            padding: 5px 10px;
+            border-radius: 15px;
+            font-size: 0.9em;
+        }
+        .status.connected {
+            background-color: #e6f4ea;
+            color: #137333;
+        }
+        .status.disconnected {
+            background-color: #fce8e6;
+            color: #c5221f;
+        }
+        .data-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+        }
+        .data-item {
+            background: #f8f9fa;
+            padding: 15px;
+            border-radius: 8px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+        }
+        .data-label {
+            font-size: 0.9em;
+            color: #5f6368;
+            margin-bottom: 5px;
+        }
+        .data-value {
+            font-size: 1.2em;
+            font-weight: bold;
+            color: #202124;
+        }
+        #connection-status {
+            position: fixed;
+            top: 10px;
+            right: 10px;
+            padding: 5px 10px;
+            border-radius: 15px;
+            font-size: 0.9em;
+        }
+        .connected {
+            background-color: #e6f4ea;
+            color: #137333;
+        }
+        .disconnected {
+            background-color: #fce8e6;
+            color: #c5221f;
+        }
+        #data-log {
+            margin-top: 20px;
+            padding: 10px;
+            background: #f8f9fa;
+            border-radius: 4px;
+            font-family: monospace;
+            max-height: 300px;
+            overflow-y: auto;
+        }
+        .log-entry {
+            margin: 5px 0;
+            padding: 5px;
+            border-bottom: 1px solid #e0e0e0;
+        }
+        .log-time {
+            color: #666;
+            margin-right: 10px;
+        }
+        .log-data {
+            color: #1a73e8;
+        }
+        .log-error {
+            color: #c5221f;
+        }
+        .log-success {
+            color: #137333;
+        }
+        #raw-data {
+            margin-top: 20px;
+            padding: 10px;
+            background: #f8f9fa;
+            border-radius: 4px;
+            font-family: monospace;
+            white-space: pre-wrap;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Drone Data Monitor</h1>
+        <div id="connection-status" class="disconnected">WebSocket: Disconnected</div>
+        <div id="drone-container"></div>
+        <div id="data-log">
+            <div class="log-entry">Waiting for data...</div>
+        </div>
+        <div id="raw-data">Waiting for raw data...</div>
+    </div>
+
+    <script>
+        const droneContainer = document.getElementById('drone-container');
+        const connectionStatus = document.getElementById('connection-status');
+        const dataLog = document.getElementById('data-log');
+        const rawData = document.getElementById('raw-data');
+        let ws = null;
+        let reconnectAttempts = 0;
+        const MAX_RECONNECT_ATTEMPTS = 5;
+        const MAX_LOG_ENTRIES = 50;
+
+        function addLogEntry(message, type = 'info') {
+            const entry = document.createElement('div');
+            entry.className = `log-entry log-${type}`;
+            const time = new Date().toLocaleTimeString();
+            entry.innerHTML = `<span class="log-time">[${time}]</span> <span class="log-data">${message}</span>`;
+            dataLog.insertBefore(entry, dataLog.firstChild);
+            
+            while (dataLog.children.length > MAX_LOG_ENTRIES) {
+                dataLog.removeChild(dataLog.lastChild);
+            }
+        }
+
+        function connectWebSocket() {
+            if (ws) {
+                ws.close();
+            }
+
+            addLogEntry('Attempting to connect to WebSocket...');
+            ws = new WebSocket('ws://localhost:8080/ws');
+
+            ws.onopen = function() {
+                console.log('WebSocket Connected');
+                connectionStatus.textContent = 'WebSocket: Connected';
+                connectionStatus.className = 'connected';
+                addLogEntry('WebSocket Connected', 'success');
+                reconnectAttempts = 0;
+            };
+
+            ws.onclose = function(event) {
+                console.log('WebSocket Disconnected:', event.code, event.reason);
+                connectionStatus.textContent = 'WebSocket: Disconnected';
+                connectionStatus.className = 'disconnected';
+                addLogEntry(`WebSocket Disconnected (Code: ${event.code}, Reason: ${event.reason})`, 'error');
+                
+                if (reconnectAttempts < MAX_RECONNECT_ATTEMPTS) {
+                    reconnectAttempts++;
+                    addLogEntry(`Attempting to reconnect (${reconnectAttempts}/${MAX_RECONNECT_ATTEMPTS})...`);
+                    setTimeout(connectWebSocket, 2000);
+                } else {
+                    addLogEntry('Max reconnection attempts reached. Please refresh the page.', 'error');
+                }
+            };
+
+            ws.onerror = function(error) {
+                console.error('WebSocket Error:', error);
+                connectionStatus.textContent = 'WebSocket: Error';
+                connectionStatus.className = 'disconnected';
+                addLogEntry('WebSocket Error: ' + (error.message || 'Unknown error'), 'error');
+            };
+
+            ws.onmessage = function(event) {
+                console.log('Received data:', event.data);
+                addLogEntry('Received data');
+                rawData.textContent = event.data;
+                
+                try {
+                    const data = JSON.parse(event.data);
+                    updateDisplay(data);
+                    addLogEntry('Data parsed and displayed successfully', 'success');
+                } catch (e) {
+                    console.error('Error parsing data:', e);
+                    addLogEntry('Error parsing data: ' + e.message, 'error');
+                }
+            };
+        }
+
+        function updateDisplay(data) {
+            console.log('Updating display with data:', data);
+            droneContainer.innerHTML = '';
+            
+            if (!data.drones) {
+                console.error('No drones data in received message');
+                addLogEntry('Error: No drones data in received message', 'error');
+                return;
+            }
+            
+            for (const [droneName, droneData] of Object.entries(data.drones)) {
+                const card = document.createElement('div');
+                card.className = 'drone-card';
+                
+                // Create visualization section
+                const visualization = document.createElement('div');
+                visualization.className = 'drone-visualization';
+                
+                const position = document.createElement('div');
+                position.className = 'drone-position';
+                
+                const heading = document.createElement('div');
+                heading.className = 'drone-heading';
+                
+                visualization.appendChild(position);
+                visualization.appendChild(heading);
+                
+                // Create info section
+                const info = document.createElement('div');
+                info.className = 'drone-info';
+                
+                const header = document.createElement('div');
+                header.className = 'drone-header';
+                
+                const name = document.createElement('div');
+                name.className = 'drone-name';
+                name.textContent = droneName;
+                
+                const status = document.createElement('div');
+                status.className = `status ${droneData.conn ? 'connected' : 'disconnected'}`;
+                status.textContent = droneData.conn ? 'Connected' : 'Disconnected';
+                
+                header.appendChild(name);
+                header.appendChild(status);
+                
+                const grid = document.createElement('div');
+                grid.className = 'data-grid';
+                
+                // Position
+                const positionItem = document.createElement('div');
+                positionItem.className = 'data-item';
+                positionItem.innerHTML = `
+                    <div class="data-label">Position</div>
+                    <div class="data-value">X: ${droneData.position[0].toFixed(2)}<br>
+                                          Y: ${droneData.position[1].toFixed(2)}<br>
+                                          Z: ${isNaN(droneData.position[2]) ? 'N/A' : droneData.position[2].toFixed(2)}</div>
+                `;
+                
+                // Heading
+                const headingItem = document.createElement('div');
+                headingItem.className = 'data-item';
+                headingItem.innerHTML = `
+                    <div class="data-label">Heading</div>
+                    <div class="data-value">${droneData.heading.toFixed(1)}°</div>
+                `;
+                
+                // Status
+                const statusItem = document.createElement('div');
+                statusItem.className = 'data-item';
+                statusItem.innerHTML = `
+                    <div class="data-label">Status</div>
+                    <div class="data-value">
+                        Armed: ${droneData.armed ? 'Yes' : 'No'}<br>
+                        In Air: ${droneData.in_air ? 'Yes' : 'No'}
+                    </div>
+                `;
+                
+                // Battery (if available in mission data)
+                if (data.missions && data.missions.dummy_mission && data.missions.dummy_mission.bat) {
+                    const battery = document.createElement('div');
+                    battery.className = 'data-item';
+                    const batteryLevel = data.missions.dummy_mission.bat[droneName] * 100;
+                    battery.innerHTML = `
+                        <div class="data-label">Battery</div>
+                        <div class="data-value">${batteryLevel.toFixed(1)}%</div>
+                    `;
+                    grid.appendChild(battery);
+                }
+                
+                grid.appendChild(positionItem);
+                grid.appendChild(headingItem);
+                grid.appendChild(statusItem);
+                
+                info.appendChild(header);
+                info.appendChild(grid);
+                
+                card.appendChild(visualization);
+                card.appendChild(info);
+                droneContainer.appendChild(card);
+                
+                // Update visualization
+                const updateVisualization = () => {
+                    // Convert position to visualization coordinates
+                    const x = (droneData.position[0] + 1) * 150; // Scale -1 to 1 to 0 to 300
+                    const y = (1 - droneData.position[1]) * 150; // Invert Y and scale
+                    
+                    position.style.left = `${x}px`;
+                    position.style.top = `${y}px`;
+                    
+                    // Update heading line
+                    heading.style.left = `${x}px`;
+                    heading.style.top = `${y}px`;
+                    heading.style.transform = `rotate(${droneData.heading}deg)`;
+                };
+                
+                updateVisualization();
+            }
+        }
+
+        // Connect to WebSocket when page loads
+        connectWebSocket();
+    </script>
+</body>
+</html> 
