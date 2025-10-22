@@ -3,12 +3,15 @@ import asyncio
 import os
 import struct
 import requests
+import math
 from lxml import etree
 
 import mavsdk.camera
 
 from dronecontrol.plugin import Plugin
 from dronecontrol.utils import CACHE_DIR, coroutine_awaiter
+
+import pymavlink.dialects.v20.ardupilotmega
 
 # TODO: Overlooked the mavsdk param plugin, check if that makes the camera plugin work properly
 # TODO: Parameterrange in the cam def xml parsing function
@@ -60,13 +63,17 @@ class CameraPlugin(Plugin):
                 success = await new_cam.start()
                 if success:
                     self.cameras[drone] = new_cam
+                    return True
                 else:
                     await new_cam.close()
+                    return False
             else:
                 self.logger.warning(f"No drone named {drone}")
+                return False
         except Exception as e:
             self.logger.warning("Couldn't add the camera to the drone due to an exception!")
             self.logger.debug(repr(e), exc_info=True)
+            return False
 
     async def remove_camera(self, drone: str):
         """ Remove a camera from the plugin"""
@@ -87,6 +94,9 @@ class CameraPlugin(Plugin):
 
     async def set_parameter(self, drone: str, param_name: str, param_value: str):
         if self.check_has_camera(drone):
+            if param_name not in self.cameras[drone].parameters:
+                self.logger.warning(f"Camera {self.cameras[drone].camera_id} on {drone} has no parameter {param_name}")
+                return False
             parsed_value = self.cameras[drone].parse_param_value(param_name, param_value)
             if parsed_value is None:
                 self.logger.warning("Couldn't set parameter due to invalid input!")
@@ -237,6 +247,8 @@ class Camera:
         self.cam_def_uri: str | None = None
         self.cam_def_version = None
         self.parameters: dict[str, CameraParameter] = {}
+        self._received_params = set()
+        self._param_count = None
 
     def _start_background_tasks(self):
         capture_info_task = asyncio.create_task(self._capture_info_updates())
@@ -245,7 +257,10 @@ class Camera:
 
     @property
     def drone(self):
-        return self.dm.drones[self.drone_name]
+        try:
+            return self.dm.drones[self.drone_name]
+        except KeyError:
+            return None
 
     async def _capture_info_updates(self):
         async for capture_info in self.drone.system.camera.capture_info():
@@ -267,7 +282,7 @@ class Camera:
         return False
 
     async def close(self):
-        if self.drone in self.dm.drones.values():
+        if self.drone is not None and self.drone in self.dm.drones.values():
             self.drone.mav_conn.remove_drone_message_callback(322, self._listen_param_updates)
         for task in self._running_tasks:
             if isinstance(task, asyncio.Task):
@@ -282,24 +297,28 @@ class Camera:
         self.logger.info(f"Camera {camera_id}, parameters {'not ' if self.params_loaded else ''}loaded")
 
     async def take_picture(self,):
-        res = await self.drone.mav_conn.send_cmd_long(target_component=100, cmd=2000, param3=1.0)
+        res = await self.drone.mav_conn.send_cmd_long(target_component=100, cmd=2000, param3=1.0, param5=math.nan)
         if not res:
             self.logger.warning("Couldn't take picture!")
+        return res
 
     async def start_video(self):
         res = await self.drone.mav_conn.send_cmd_long(target_component=self.camera_id, cmd=2500, param2=1)
         if not res:
             self.logger.warning("Couldn't start video!")
+        return res
 
     async def stop_video(self):
         res = await self.drone.mav_conn.send_cmd_long(target_component=self.camera_id, cmd=2501)
         if not res:
             self.logger.warning("Couldn't stop video!")
+        return res
 
     async def set_zoom(self, zoom):
         res = await self.drone.mav_conn.send_cmd_long(target_component=self.camera_id, cmd=203, param2=zoom, param5=0)
         if not res:
             self.logger.warning("Couldn't set the zoom!")
+        return res
 
     async def _error_wrapper(self, func, *args, **kwargs):
         try:
@@ -310,7 +329,7 @@ class Camera:
         return res
 
     async def init_cam_info(self):
-        cam_info = await self.drone.mav_conn.get_message(target_component=self.camera_id, message_id=259)
+        cam_info = await self.drone.mav_conn.request_message(target_component=self.camera_id, message_id=259)
         if not cam_info:
             self.logger.warning("No camera found!")
         else:
@@ -383,11 +402,15 @@ class Camera:
             for param in params:
                 name = param.get("name")
                 param_type = param.get("type")
+                param_type_id = 1
                 if param_type == "float":
                     cast_type = float
+                    param_type_id = 9  # Assume 9 unless we get an update with different param type
                 elif param_type == "bool":
                     cast_type = bool
+                    param_type_id = 1
                 else:
+                    param_type_id = 1  # Assume 1 until we get an update with different param type
                     cast_type = int
                 default = cast_type(param.get("default"))
                 control = param.get("control") is None or param.get("control") == "1"
@@ -433,7 +456,17 @@ class Camera:
         self.logger.debug("Listening to camera parameters")
         self.drone.mav_conn.send_param_ext_request_list(self.camera_id)
         self.drone.mav_conn.add_drone_message_callback(322, self._listen_param_updates)
-        # TODO: Check that we have all the params loaded
+        checker_task = asyncio.create_task(self._param_receive_checker())
+        self._running_tasks.add(checker_task)
+        self._running_tasks.add(coroutine_awaiter(checker_task, self.logger))
+
+    async def _param_receive_checker(self):
+        while len(self._received_params) < self._param_count:
+            for param_index in range(self._param_count):
+                if param_index not in self._received_params:
+                    self.logger.debug(f"Missing parameter {param_index}, requesting again")
+                    self.drone.mav_conn.send_param_ext_request_read(self.camera_id, "", param_index)
+                    await asyncio.sleep(0.5)
 
     def _parse_param_update_values(self, msg):
         param_name = msg.param_id
@@ -469,10 +502,12 @@ class Camera:
                 self.parameters[param_name].value = param_value
             self.parameters[param_name].param_type_id = param_type_id
 
-    async def _listen_param_updates(self, msg):
+    async def _listen_param_updates(self, msg:pymavlink.dialects.v20.ardupilotmega.MAVLink_param_ext_value_message):
         if msg.get_srcComponent() == self.camera_id and msg.get_srcSystem() == self.drone.mav_conn.drone_system:
             param_name, param_value = self._parse_param_update_values(msg)
             self._update_param_value(param_name, param_value, msg.param_type)
+            self._param_count = msg.param_count
+            self._received_params.add(msg.param_index)
 
     async def print_parameters(self):
         if len(self.parameters) == 0:
@@ -544,14 +579,19 @@ class Camera:
 
         parameter = self.parameters[param_name]
 
-        self.logger.debug(f"Trying to set option {param_name} to {param_value}")
+        self.logger.debug(f"Trying to set option {param_name}, {parameter.param_type_id} to {param_value}")
 
         self.drone.mav_conn.send_param_ext_set(self.camera_id, param_name, param_value, parameter.param_type_id)
         ack_msg = await self.drone.mav_conn.listen_message(324, self.camera_id)
-        if ack_msg.param_result != 0:
-            self.logger.warning("Camera denied parameter change!")
+        if ack_msg.param_result == 1:
+            self.logger.warning("Camera denied parameter change, unsupported value!")
             return False
-        else:
+        elif ack_msg.param_result == 2:
+            self.logger.warning("Camera denied parameter change, failed to set!")
+            return False
+        elif ack_msg.param_result in [0,3]:
+            if ack_msg.param_result == 3:
+                self.logger.info("Parameter change in progress...")
             param_name, param_value = self._parse_param_update_values(ack_msg)
             self._update_param_value(param_name, param_value, ack_msg.param_type)
             parameter = self.parameters[param_name]

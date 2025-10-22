@@ -200,6 +200,10 @@ class CommandScreen(Screen):
                                     help="Port for the mavsdk server. Default 50051.")
         connect_parser.add_argument("-t", "--timeout", type=float, default=30, required=False,
                                     help="Timeout in seconds for connection attempts. Default 120s.")
+        connect_parser.add_argument("-l", "--log", action="store_true",
+                                    help="If this flag is set, log MAVLink messages. Our log format is currently bad "
+                                         "so this can lead to performance issues with many drones due to disk write "
+                                         "limits.")
 
         disconnect_parser = command_parsers.add_parser("disconnect", help="Disconnect one or more drones.")
         disconnect_parser.add_argument("drones", type=str, nargs="+", help="Which drones to disconnect.")
@@ -261,6 +265,18 @@ class CommandScreen(Screen):
         fly_to_gps_parser.add_argument("-t", "--tolerance", type=float, required=False, default=0.25,
                                        help="Position tolerance")
         fly_to_gps_parser.add_argument("-s", "--schedule", action="store_true",
+                                       help="Queue this action instead of executing immediately.")
+
+        go_to_parser = command_parsers.add_parser("goto", help="Send the drone to a GPS coordinate without offboard")
+        go_to_parser.add_argument("drone", type=str, help="Name of the drone")
+        go_to_parser.add_argument("lat", type=float, help="Target latitude")
+        go_to_parser.add_argument("long", type=float, help="Target longitude")
+        go_to_parser.add_argument("alt", type=float, help="Target altitude (relative to takeoff)")
+        go_to_parser.add_argument("yaw", type=float, nargs="?", default=None,
+                                       help="Target yaw in degrees. Default maintains current facing.")
+        go_to_parser.add_argument("-t", "--tolerance", type=float, required=False, default=0.25,
+                                       help="Position tolerance")
+        go_to_parser.add_argument("-s", "--schedule", action="store_true",
                                        help="Queue this action instead of executing immediately.")
 
         move_parser = command_parsers.add_parser("move", help="Send the drones x, y, z meters north, east or down.")
@@ -420,7 +436,8 @@ class CommandScreen(Screen):
                 elif not address:
                     address = "udp://:14540"
                 tmp = asyncio.create_task(self.dm.connect_to_drone(args.drone, args.server_address,
-                                                                   args.server_port, address, args.timeout))
+                                                                   args.server_port, address, args.timeout,
+                                                                   log_messages=args.log))
             elif command == "disconnect":
                 tmp = asyncio.create_task(self.dm.disconnect(args.drones, force=args.force))
             elif command == "arm":
@@ -438,6 +455,9 @@ class CommandScreen(Screen):
                                                          tol=args.tolerance, schedule=args.schedule))
             elif command == "flytogps":
                 tmp = asyncio.create_task(self.dm.fly_to(args.drone, gps=[args.lat, args.long, args.alt], yaw=args.yaw,
+                                                         tol=args.tolerance, schedule=args.schedule))
+            elif command =="goto":
+                tmp = asyncio.create_task(self.dm.go_to(args.drone, gps=[args.lat, args.long, args.alt], yaw=args.yaw,
                                                          tol=args.tolerance, schedule=args.schedule))
             elif command == "move":
                 tmp = asyncio.create_task(self.dm.move(args.drone, [args.x, args.y, args.z], yaw=args.yaw,
