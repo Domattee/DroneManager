@@ -35,8 +35,7 @@ ECOWITT_ID_MAP_RAIN = {
 
 
 class WeatherDataEntry:
-    def __init__(self, entry_id: str, name: str, value: float = math.nan, unit: str = ""):
-        self.entry_id = entry_id
+    def __init__(self, name: str, value: float = math.nan, unit: str = ""):
         self.name = name
         self.value = value
         self.unit = unit
@@ -45,24 +44,24 @@ class WeatherDataEntry:
 class WeatherData:
 
     def __init__(self, timestamp = None):
-        self.temperature = WeatherDataEntry("0x02", "Temperature")
-        self.dew_point = WeatherDataEntry("0x03", "Dew point")
-        self.humidity = WeatherDataEntry("0x07", "Humidity")
-        self.light = WeatherDataEntry("0x15", "Light")
-        self.uvi = WeatherDataEntry("0x17", "UVI")
-        self.wind_speed = WeatherDataEntry("0x0B", "Wind Speed")
-        self.wind_direction = WeatherDataEntry("0x0A", "Wind Direction")
-        self.gust_speed = WeatherDataEntry("0x0C", "Gust Speed")
-        self.wind_speed_max_day = WeatherDataEntry("0x19", "Day max wind")
+        self.temperature = WeatherDataEntry("Temperature")
+        self.dew_point = WeatherDataEntry("Dew point")
+        self.humidity = WeatherDataEntry("Humidity")
+        self.light = WeatherDataEntry("Light")
+        self.uvi = WeatherDataEntry("UVI")
+        self.wind_speed = WeatherDataEntry("Wind Speed")
+        self.wind_direction = WeatherDataEntry("Wind Direction")
+        self.gust_speed = WeatherDataEntry("Gust Speed")
+        self.wind_speed_max_day = WeatherDataEntry("Day max wind")
 
-        self.rain_event = WeatherDataEntry("0x0D", "Rain Event")
-        self.rain_rate = WeatherDataEntry("0x0E", "Current Rain Rate")
-        self.cum_rain_today = WeatherDataEntry("0x10", "Rain this Day")
-        self.cum_rain_week = WeatherDataEntry("0x11", "Rain this Week")
-        self.cum_rain_month = WeatherDataEntry("0x12", "Rain this Month")
-        self.cum_rain_year = WeatherDataEntry("0x13", "Rain Year")
+        self.rain_event = WeatherDataEntry("Rain Event")
+        self.rain_rate = WeatherDataEntry("Current Rain Rate")
+        self.cum_rain_today = WeatherDataEntry("Rain this Day")
+        self.cum_rain_week = WeatherDataEntry("Rain this Week")
+        self.cum_rain_month = WeatherDataEntry("Rain this Month")
+        self.cum_rain_year = WeatherDataEntry("Rain Year")
 
-        self.pressure = WeatherDataEntry("", "Pressure")
+        self.pressure = WeatherDataEntry("Pressure")
         self.time = timestamp
         self.data_entries = [self.temperature, self.dew_point, self.humidity, self.light, self.uvi, self.wind_speed,
                      self.wind_direction, self.gust_speed, self.wind_speed_max_day, self.rain_event, self.rain_rate,
@@ -77,7 +76,7 @@ class WeatherData:
         # Parse common list entry
         if "common_list" in input_dict:
             for entry in input_dict["common_list"]:
-                entry_id, entry_value, entry_unit = output.parse_entry(entry)
+                entry_id, entry_value, entry_unit = output.parse_xml_entry(entry)
                 if entry_id in ECOWITT_ID_MAP_COMMON:
                     attr_name = ECOWITT_ID_MAP_COMMON[entry_id]
                     data_entry = output.__getattribute__(attr_name)
@@ -85,7 +84,7 @@ class WeatherData:
                     data_entry.unit = entry_unit
         if "rain" in input_dict:
             for entry in input_dict["rain"]:
-                entry_id, entry_value, entry_unit = output.parse_entry(entry)
+                entry_id, entry_value, entry_unit = output.parse_xml_entry(entry)
                 if entry_id in ECOWITT_ID_MAP_RAIN:
                     attr_name = ECOWITT_ID_MAP_RAIN[entry_id]
                     data_entry = output.__getattribute__(attr_name)
@@ -99,7 +98,7 @@ class WeatherData:
             output.pressure.unit = unit
         return output
 
-    def parse_entry(self, entry):
+    def parse_xml_entry(self, entry):
         entry_id = entry.get("id")
         entry_value = entry.get("val", math.nan)
         entry_unit = entry.get("unit", None)
@@ -159,9 +158,13 @@ class EcoWittSensor(Sensor):
             self.logger.warning(f"No response from Ecowitt sensor at {ip}")
             self.logger.debug(repr(e), exc_info = True)
             return False
-        self.ip = ip
-        self.logger.info(f"Connected to sensor at {self.ip}")
-        return True
+        if response.status_code == 200:
+            self.ip = ip
+            self.logger.info(f"Connected to sensor at {self.ip}")
+            return True
+        else:
+            self.logger.warning(f"Received a response code {response.status_code}")
+            return False
 
     async def get_data(self) -> WeatherData | None:
         try:

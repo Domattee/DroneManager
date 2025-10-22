@@ -125,27 +125,25 @@ class Fence(ABC):
 
 
 class PathGenerator(ABC):
-    """ Abstract base class for trajectory generators."""
+    """ Abstract base class for path generators."""
 
     CAN_DO_GPS = False
     WAYPOINT_TYPES = set()
-    """ These determine the type of intermediate waypoints a trajectory generator may produce"""
+    """ These determine the type of intermediate waypoints a path generator may produce"""
 
-    def __init__(self, drone: "dronecontrol.drone.Drone", logger, waypoint_type, use_gps=False):
+    def __init__(self, drone: "dronecontrol.drone.Drone", logger, waypoint_type):
         """
 
         Should be called at the end of subclass constructors.
 
         :param drone:
         :param logger:
-        :param use_gps:
         """
         assert waypoint_type in self.WAYPOINT_TYPES, (f"Invalid waypoint type {waypoint_type} "
-                                                      f"for trajectory generator {self.__class__.__name__}")
+                                                      f"for path generator {self.__class__.__name__}")
         self.drone = drone
         self.logger = logger
         self.waypoint_type = waypoint_type
-        self.use_gps = use_gps
         self.target_position: Waypoint | None = None
 
     def set_target(self, waypoint: Waypoint):
@@ -180,7 +178,7 @@ class PathFollower(ABC):
 
     def __init__(self, drone: "dronecontrol.drone.Drone", logger, dt, setpoint_type: WayPointType):
         assert setpoint_type in self.SETPOINT_TYPES, (f"Invalid setpoint type {setpoint_type} "
-                                                      f"for trajectory follower {self.__class__.__name__}")
+                                                      f"for path follower {self.__class__.__name__}")
         assert setpoint_type in drone.VALID_SETPOINT_TYPES, (f"Invalid setpoint type {setpoint_type} "
                                                              f"for drone {drone.__class__.__name__}")
         self.logger = logger
@@ -190,22 +188,28 @@ class PathFollower(ABC):
         self.current_waypoint: Waypoint | None = None
         self._active = False
         self._following_task: asyncio.Coroutine | None = None
+        self._is_waypoint_new = False
 
     def activate(self):
         if not self._active:
             self._active = True
             self._following_task = asyncio.create_task(self.follow())
         else:
-            self.logger.debug("Can't activate trajectory follower, it is already active.")
+            self.logger.debug("Can't activate path follower, it is already active.")
 
     async def deactivate(self):
         if self._active:
-            self.logger.debug("Trajectory follower deactivating...")
-            self._active = False
-            await self._following_task
-            self._following_task = None
+            try:
+                self.logger.debug("Path follower deactivating...")
+                self._active = False
+                await self._following_task
+                self._following_task = None
+                self.current_waypoint = None
+                self._is_waypoint_new = False
+            except Exception as e:
+                self.logger.error(repr(e), exc_info=True)
         else:
-            self.logger.debug("Can't deactivate trajectory follower, because it isn't active.")
+            self.logger.debug("Can't deactivate path follower, because it isn't active.")
 
     @property
     def is_active(self):
@@ -218,39 +222,40 @@ class PathFollower(ABC):
         holds position instead.
         :return:
         """
-        # Use current position as dummy waypoint in case path generator can't produce any yet.
-        # TODO: A timer or something so we don't spam the log with "still using current position"
+        # Use current position as dummy waypoint in case og bugs in get_next_waypoint function or similar
         dummy_waypoint = Waypoint(WayPointType.POS_NED, pos=self.drone.position_ned,
                                   vel=np.zeros((3,)), yaw=self.drone.attitude[2])
         have_waypoints = False
-        using_current_position = False
+        using_dummy_waypoint = False
         waypoint = dummy_waypoint
         while self.is_active:
             try:
                 if self.get_next_waypoint():
-                    #self.logger.debug("Getting new waypoint from trajectory generator...")
+                    #self.logger.debug("Getting new waypoint from path generator...")
                     waypoint = self.drone.path_generator.next()
                     if not waypoint:
-                        if not using_current_position:
-                            if have_waypoints:
-                                self.logger.debug("Generator no longer producing waypoints, using current position")
-                                # If we had waypoints, but lost them, use the current position as a dummy waypoint
+                        if not using_dummy_waypoint:
+                            if have_waypoints: # Had waypoints, but the generator isn't producing any new ones.
+                                self.logger.debug("Generator no longer producing waypoints, using old waypoint")
+                                dummy_waypoint = self.current_waypoint
                             else:  # Never had a waypoint
-                                self.logger.debug("Don't have any waypoints from the generator yet, using current position")
-                                using_current_position = True
-                            self.logger.debug(f"No waypoints, current position: {self.drone.position_ned}")
-                            dummy_waypoint = Waypoint(WayPointType.POS_NED, pos=self.drone.position_ned,
-                                                      yaw=self.drone.attitude[2])
+                                self.logger.debug(f"Don't have any waypoints from the generator yet, using current position: {self.drone.position_ned}")
+                                dummy_waypoint = Waypoint(WayPointType.POS_NED, pos=self.drone.position_ned,
+                                                          yaw=self.drone.attitude[2])
+                                self._is_waypoint_new = True
                             waypoint = dummy_waypoint
+                            using_dummy_waypoint = True
                         else:
                             #self.logger.debug("Still using current position...")
                             waypoint = dummy_waypoint
                         have_waypoints = False
                     else:
+                        self._is_waypoint_new = True
                         have_waypoints = True
-                        using_current_position = False
+                        using_dummy_waypoint = False
                     self.current_waypoint = waypoint
                 await self.set_setpoint(waypoint)
+                self._is_waypoint_new = False
                 await asyncio.sleep(self.dt)
             except Exception as e:
                 self.logger.error("Encountered an exception during following algorithm:", repr(e))

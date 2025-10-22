@@ -16,8 +16,8 @@ class GMP3Generator(PathGenerator):
     WAYPOINT_TYPES = {WayPointType.POS_VEL_NED}
     CAN_DO_GPS = False
 
-    def __init__(self, drone, dt, logger, use_gps=False, ):
-        super().__init__(drone, logger, waypoint_type=WayPointType.POS_VEL_NED, use_gps=use_gps)
+    def __init__(self, drone, dt, logger):
+        super().__init__(drone, logger, waypoint_type=WayPointType.POS_VEL_NED)
         self.GMP3_PARAMS = {
             "maxit": 100,
             "alpha": 0.8,
@@ -43,7 +43,7 @@ class GMP3Generator(PathGenerator):
         self.valid_path = False
         self.start_time = None
         attr_string = "\n   ".join(["{}: {}".format(key, value) for key, value in self.__dict__.items()])
-        self.logger.debug(f"Initialized trajectory generator {self.__class__.__name__}:\n   {attr_string}")
+        self.logger.debug(f"Initialized path generator {self.__class__.__name__}:\n   {attr_string}")
 
     async def create_path(self):
         try:
