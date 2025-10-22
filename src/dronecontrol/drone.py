@@ -445,8 +445,8 @@ class DroneMAVSDK(Drone):
 
         self.mav_conn: MAVPassthrough = MAVPassthrough(loggername=f"{name}_MAVLINK", log_messages=True)
         try:
-            #self.path_generator = GMP3Generator(self, 1/self.position_update_rate, self.logger)
-            self.path_generator = DirectTargetGenerator(self, self.logger, WayPointType.POS_NED)
+            self.path_generator = GMP3Generator(self, 5, self.logger)
+            #self.path_generator = DirectTargetGenerator(self, self.logger, WayPointType.POS_NED)
         except Exception as e:
             self.logger.error("Couldn't initialize path generator due to an exception!")
             self.logger.debug(repr(e), exc_info=True)
