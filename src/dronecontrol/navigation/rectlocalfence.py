@@ -1,3 +1,5 @@
+import numpy as np
+
 from dronecontrol.navigation.core import Fence, Waypoint, WayPointType
 
 
@@ -27,6 +29,10 @@ class RectLocalFence(Fence):
                     and -coord_down < self.height):
                 return True
         return False
+
+    @property
+    def bounding_box(self) -> np.ndarray:
+        return np.asarray([self.north_lower, self.north_upper, self.east_lower, self.east_upper, 0, self.height])
 
     def __str__(self):
         return (f"{self.__class__.__name__}, with limits {self.north_lower, self.north_upper}, "

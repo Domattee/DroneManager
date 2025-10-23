@@ -71,7 +71,7 @@ class DroneConfig:
     """
 
     def __init__(self, drone_name: str, address: str | None,
-                 position_rate: float = 5.0, log_telemetry: bool = False,
+                 position_rate: float = 20.0, log_telemetry: bool = False,
                  max_h_vel: float = 10.0, max_down_vel: float = 1.0, max_up_vel: float = 3.0, max_h_acc: float = 1.5,
                  max_v_acc: float = 0.5, max_h_jerk: float = 0.5, max_v_jerk: float = 0.5, max_yaw_vel: float = 60,
                  max_yaw_acc: float = 30, max_yaw_jerk: float = 30):
@@ -532,7 +532,7 @@ class DroneMAVSDK(Drone):
 
         # Init path generator
         try:
-            self.path_generator = GMP3Generator(self, 5, self.logger)
+            self.path_generator = GMP3Generator(self, 1, self.logger)
             #self.path_generator = DirectTargetGenerator(self, self.logger, WayPointType.POS_NED)
         except Exception as e:
             self.logger.error("Couldn't initialize path generator due to an exception!")
@@ -720,7 +720,7 @@ class DroneMAVSDK(Drone):
         while True:
             if self.is_connected:
                 await self._configure_message_rates()
-                await asyncio.sleep(5)
+            await asyncio.sleep(5)
 
     async def _connect_check(self):
         if self.mav_conn:
