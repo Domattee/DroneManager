@@ -334,7 +334,7 @@ class ENGELDataMission(Mission):
         self.logger.info(f"Saving info to file {capture_file_path}")
         with open(capture_file_path, "wt") as f:
             output = [capture.to_json_dict() for capture in captures]
-            json.dump(output, f)
+            json.dump(output, f, indent=2)
 
     async def save_captures_to_file(self, filename: str = None):
         return await self._save_captures_to_file(self.captures, filename)
