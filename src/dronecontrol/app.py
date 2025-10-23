@@ -18,23 +18,10 @@ from dronecontrol.widgets import InputWithHistory, TextualLogHandler, DroneOverv
 
 import logging
 
-# TODO: Need some kind of "awaiter" process, that awaits each of the CLI tasks. Can't do that in the CLI function, as it
-# will block the UI. Create an extra tasks that awaits the CLI tasks? Who awaits the awaiter tasks?
 # TODO: Fence, trajectory generator and trajectory follower managing somehow
 
 pane_formatter = logging.Formatter('%(asctime)s %(levelname)s %(name)s - %(message)s', datefmt="%H:%M:%S")
 
-DRONE_DICT = {
-    "luke":   "udp://192.168.1.31:14561",
-    "wedge":  "udp://192.168.1.32:14562",
-    "derek":  "udp://192.168.1.33:14563",
-    "tycho":  "udp://192.168.1.34:14564",
-    "gavin":  "udp://192.168.1.35:14565",
-    "corran": "udp://192.168.1.36:14566",
-    "jaina":  "udp://192.168.1.37:14567",
-    "kira":   "serial://COM5:460800",
-    "riker":  "udp://192.168.0.3:14550",
-}
 
 UPDATE_RATE = 20  # How often the various screens update in Hz. TODO: Currently time delay after function, refactor to
 # ensure actual 20hz refresh rate
@@ -200,10 +187,10 @@ class CommandScreen(Screen):
                                     help="Port for the mavsdk server. Default 50051.")
         connect_parser.add_argument("-t", "--timeout", type=float, default=30, required=False,
                                     help="Timeout in seconds for connection attempts. Default 120s.")
-        connect_parser.add_argument("-l", "--log", action="store_true",
-                                    help="If this flag is set, log MAVLink messages. Our log format is currently bad "
+        connect_parser.add_argument("-l", "--log", type=str, choices=["True", "False"], required=False, default=None,
+                                    help="If set to True, log telemetry messages. Our log format is currently bad "
                                          "so this can lead to performance issues with many drones due to disk write "
-                                         "limits.")
+                                         "limits. Overwrites the equivalent entry in a configuration entry.")
 
         disconnect_parser = command_parsers.add_parser("disconnect", help="Disconnect one or more drones.")
         disconnect_parser.add_argument("drones", type=str, nargs="+", help="Which drones to disconnect.")
@@ -431,13 +418,20 @@ class CommandScreen(Screen):
 
             if command == "connect":
                 address = args.drone_address
-                if args.drone in DRONE_DICT and not address:
-                    address = DRONE_DICT[args.drone]
+                if args.drone in self.dm.drone_configs and not address:
+                    address = self.dm.drone_configs[args.drone].address
                 elif not address:
                     address = "udp://:14540"
+
+                log_messages = None
+                if args.log is not None:
+                    if args.log == "True":
+                        log_messages = True
+                    else:
+                        log_messages = False
                 tmp = asyncio.create_task(self.dm.connect_to_drone(args.drone, args.server_address,
                                                                    args.server_port, address, args.timeout,
-                                                                   log_messages=args.log))
+                                                                   log_messages=log_messages))
             elif command == "disconnect":
                 tmp = asyncio.create_task(self.dm.disconnect(args.drones, force=args.force))
             elif command == "arm":

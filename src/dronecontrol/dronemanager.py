@@ -9,7 +9,7 @@ import importlib
 from collections.abc import Collection
 from asyncio.exceptions import TimeoutError, CancelledError
 
-from dronecontrol.drone import Drone, parse_address
+from dronecontrol.drone import Drone, parse_address, DroneConfigs, DroneConfig
 from dronecontrol.navigation.rectlocalfence import RectLocalFence
 from dronecontrol.utils import common_formatter, get_free_port, LOG_DIR
 from dronecontrol.navigation.core import Waypoint
@@ -17,6 +17,8 @@ from dronecontrol.plugin import Plugin
 
 import logging
 
+
+CONFIG_FILE = Path(__file__).parent.parent.parent.joinpath("drone_configs.json")
 
 # TODO: Fence class discovery
 FENCES = {
@@ -26,18 +28,6 @@ FENCES = {
 # TODO: Trajectory generator/follower discovery and setting/unsetting functions, trajectory follower deactivation
 
 pane_formatter = logging.Formatter('%(asctime)s %(levelname)s %(name)s - %(message)s', datefmt="%H:%M:%S")
-
-# TODO: Config file with stull like this dictionary or the cache and log locations
-
-DRONE_DICT = {
-    "luke":   "udp://192.168.1.31:14561",
-    "wedge":  "udp://192.168.1.32:14562",
-    "derek":  "udp://192.168.1.33:14563",
-    "tycho":  "udp://192.168.1.34:14564",
-    "gavin":  "udp://192.168.1.35:14565",
-    "corran": "udp://192.168.1.36:14566",
-    "jaina":  "udp://192.168.1.37:14567"
-}
 
 
 class DroneManager:
@@ -62,6 +52,8 @@ class DroneManager:
 
         self.system_id = 246
         self.component_id = 190
+
+        self.drone_configs = DroneConfigs.from_file(CONFIG_FILE.as_posix())
 
         if logger is None:
             self.logger = logging.getLogger("Manager")
@@ -115,7 +107,12 @@ class DroneManager:
                     if parsed_addr == other_addr and parsed_port == other_port:
                         self.logger.warning(f"{other_name} is already connected to drone with address {drone_address}.")
                         return False
-                drone = self.drone_class(name, mavsdk_server_address, mavsdk_server_port)
+                config = self.drone_configs[name]
+                if config:
+                    self.logger.debug("Found drone config, using parameters...")
+                else:
+                    config = DroneConfig(name, drone_address)
+                drone = self.drone_class(name, mavsdk_server_address, mavsdk_server_port, config=config)
                 connected = None
                 try:
                     connected = await asyncio.wait_for(drone.connect(drone_address, system_id=self.system_id,

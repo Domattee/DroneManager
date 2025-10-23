@@ -6,6 +6,7 @@ import os.path
 import threading
 import platform
 import time
+import json
 from subprocess import Popen, DEVNULL
 from abc import ABC, abstractmethod
 from typing import Coroutine
@@ -61,16 +62,99 @@ class Battery:
         return f"Remain: {self.remaining}   Consumed: {self.consumed}   V: {self.voltage}   T: {self.temperature}"
 
 
+class DroneConfig:
+    """ Convenience class for drone configurations.
+
+    These exist for convenience purposes, to allow people to define drone objects with fixed parameters for easy reuse.
+    They can be saved to and loaded from files. A given configuration is used when dm.connect_to_drone is called with
+    the drone name matching the configuration.
+    """
+
+    def __init__(self, drone_name: str, address: str | None,
+                 position_rate: float = 5.0, log_telemetry: bool = False,
+                 max_h_vel: float = 10.0, max_down_vel: float = 1.0, max_up_vel: float = 3.0, max_h_acc: float = 1.5,
+                 max_v_acc: float = 0.5, max_h_jerk: float = 0.5, max_v_jerk: float = 0.5, max_yaw_vel: float = 60,
+                 max_yaw_acc: float = 30, max_yaw_jerk: float = 30):
+        self.drone_name = drone_name
+        self.address = address
+        self.position_rate = position_rate
+        self.max_h_vel = max_h_vel
+        self.max_down_vel = max_down_vel
+        self.max_up_vel = max_up_vel
+        self.max_h_acc = max_h_acc
+        self.max_v_acc = max_v_acc
+        self.max_h_jerk = max_h_jerk
+        self.max_v_jerk = max_v_jerk
+        self.max_yaw_vel = max_yaw_vel
+        self.max_yaw_acc = max_yaw_acc
+        self.max_yaw_jerk = max_yaw_jerk
+        self.log_telemetry = log_telemetry
+
+    def __str__(self):
+        return str(self.__dict__)
+
+
+class DroneConfigs:
+
+    def __init__(self, configs: list[DroneConfig]):
+        self.configs = configs
+
+    @classmethod
+    def from_file(cls, filepath: str):
+        configs = []
+        with open(filepath, "rt") as f:
+            json_obj = json.load(f)
+            for obj_dict in json_obj:
+                configs.append(DroneConfig(**obj_dict))
+        return cls(configs)
+
+    def to_file(self, filepath: str):
+        with open(filepath, "wt") as f:
+            json.dump([config.__dict__ for config in self.configs], f, indent=2)
+
+    def __getitem__(self, item):
+        for config in self.configs:
+            if config.drone_name == item:
+                return config
+        return None
+
+    def __setitem__(self, key: str, value: DroneConfig):
+        exists = False
+        for i, config in enumerate(self.configs):
+            if config.drone_name == key:
+                self.configs[i] = value
+                exists = True
+                break
+        if not exists:
+            self.configs.append(value)
+
+    def __contains__(self, item):
+        for config in self.configs:
+            if config.drone_name == item:
+                return True
+        return False
+
+    def __iter__(self):
+        return [config.drone_name for config in self.configs].__iter__()
+
+    def __len__(self):
+        return len(self.configs)
+
+
 class Drone(ABC, threading.Thread):
 
     VALID_FLIGHTMODES = set()
     VALID_SETPOINT_TYPES = set()
 
-    def __init__(self, name, *args, log_to_file=True, **kwargs):
+    def __init__(self, name, *args, log_to_file=True, config: DroneConfig | None = None, **kwargs):
         threading.Thread.__init__(self)
         self.name = name
         self.drone_addr = None
         self.drone_ip = None
+        if config:
+            self.config = config
+        else:
+            self.config = DroneConfig(name, self.drone_addr)
         self.action_queue: deque[tuple[Coroutine, asyncio.Future]] = deque()
         self.current_action: asyncio.Task | None = None
         self.should_stop = threading.Event()
@@ -414,10 +498,11 @@ class DroneMAVSDK(Drone):
     # What type of path setpoints this classes fly_<> commands can follow. This limits what Trajectory generators
     # can be used.
 
-    def __init__(self, name, mavsdk_server_address: str | None = None, mavsdk_server_port: int = 50051):
+    def __init__(self, name, mavsdk_server_address: str | None = None, mavsdk_server_port: int = 50051,
+                 config: DroneConfig | None = None):
         # TODO: Currently exceptions in this block are not logged to drone manager, as the handler is added only after
         #  connecting.
-        super().__init__(name)
+        super().__init__(name, config=config)
         self.system: System | None = None
         self.server_addr = mavsdk_server_address
         self.server_port = mavsdk_server_port
@@ -441,20 +526,30 @@ class DroneMAVSDK(Drone):
 
         # How often (per second) we request position information from the drone. The same interval is used by path
         # planning algorithms for their time resolution.
-        self.position_update_rate = 20
+        self.position_update_rate = config.position_rate
 
-        self.mav_conn: MAVPassthrough = MAVPassthrough(loggername=f"{name}_MAVLINK", log_messages=True)
+        self.mav_conn: MAVPassthrough = MAVPassthrough(loggername=f"{name}_MAVLINK", log_messages=self.config.position_rate)
+
+        # Init path generator
         try:
             self.path_generator = GMP3Generator(self, 5, self.logger)
             #self.path_generator = DirectTargetGenerator(self, self.logger, WayPointType.POS_NED)
         except Exception as e:
             self.logger.error("Couldn't initialize path generator due to an exception!")
             self.logger.debug(repr(e), exc_info=True)
+
+        # Init path follower
         try:
             self.path_follower = RuckigOfflineFollower(self, self.logger, 1 / self.position_update_rate,
                                                       WayPointType.POS_VEL_ACC_NED,
-                                                      max_vel=10.0, max_down_vel=1.0, max_up_vel=3.0, max_acc=1.5,
-                                                      max_v_acc=0.5, max_jerk=0.5, max_v_jerk=0.5)
+                                                      max_vel=self.config.max_h_vel,
+                                                      max_down_vel=self.config.max_down_vel,
+                                                      max_up_vel=self.config.max_up_vel, max_acc=self.config.max_h_acc,
+                                                      max_v_acc=self.config.max_v_acc, max_jerk=self.config.max_h_jerk,
+                                                      max_v_jerk=self.config.max_v_jerk,
+                                                      max_yaw_vel=self.config.max_yaw_vel,
+                                                      max_yaw_acc=self.config.max_yaw_acc,
+                                                      max_yaw_jerk=self.config.max_yaw_jerk)
             # self.path_follower = DirectSetpointFollower(self, self.logger, 1/self.position_update_rate,
             #                                                  WayPointType.POS_VEL_NED)
         except Exception as e:
@@ -516,7 +611,7 @@ class DroneMAVSDK(Drone):
     def batteries(self) -> dict[int, Battery]:
         return self._batteries
 
-    async def connect(self, drone_address, system_id=0, component_id=0, log_messages=True) -> bool:
+    async def connect(self, drone_address, system_id=0, component_id=0, log_messages=None) -> bool:
         # If we are on windows, we can't rely on the MAVSDK to have the binary installed.
         # If we use serial, loc is the path and appendix the baudrate, if we use udp it is IP and port
         self.gcs_system_id = system_id
@@ -533,6 +628,9 @@ class DroneMAVSDK(Drone):
                 mavsdk_passthrough_string = f"serial://{loc}"
             else:
                 mavsdk_passthrough_string = f"{scheme}://:{appendix}"
+
+        if log_messages is None:
+            log_messages = self.config.log_telemetry
 
         try:
             if self.server_addr is None:
@@ -573,6 +671,7 @@ class DroneMAVSDK(Drone):
                     await self._schedule_update_tasks()
                     self.logger.debug("Connected!")
                     self.mav_conn.log_messages = log_messages
+                    self.config.address = self.drone_addr
                     return True
         except Exception as e:
             self.logger.debug(f"Exception during connection: {repr(e)}", exc_info=True)
