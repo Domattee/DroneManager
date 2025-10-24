@@ -54,9 +54,9 @@ class GMP3Generator(PathGenerator):
             "z_max": z_max,
             "z_min": z_min,
             "obstacles": [
-                (6, 3, -2, 3),
-                (2, 2, -2, 1),
-                (7, 7, -2, 2)
+                (-10, 10, -5, 5),
+                (-20, 25, -5, 5),
+                (-35, 35, -5, 5)
             ],
         }
         self.config = GMP3Config(**self.GMP3_PARAMS)
