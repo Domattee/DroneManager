@@ -176,8 +176,7 @@ class ENGELDataMission(Mission):
                 time_stamp = datetime.datetime.fromtimestamp(msg.time_utc / 1e3, datetime.UTC)
             gps = np.asarray([msg.lat / 1e7, msg.lon / 1e7, msg.alt / 1e3])
             file_url = msg.file_url
-            drone = self.drones[self.drone_name]
-            cur_drone_att = drone.attitude
+            cur_drone_att = self.dm.drones[self.drone_name].attitude
             cur_gimbal_att = np.asarray([self.gimbal.roll, self.gimbal.pitch, self.gimbal.yaw])
             if file_url in [self._current_capture.images[i].file_location for i in range(len(self._current_capture.images))]:
                 self.logger.debug("Camera saved over image it just took")
@@ -268,8 +267,11 @@ class ENGELDataMission(Mission):
                 cam_set_task = asyncio.create_task(self.set_camera_parameters(capture.camera_parameters))
                 self._running_tasks.add(cam_set_task)
                 # Fly to position and point gimbal
+                # Have to reset gimbal position to drone-relative 0 to prevent running into gimbal limit
+                await self.gimbal.set_gimbal_mode("follow")
+                await self.gimbal.set_gimbal_angles(0.0, 0.0)
                 # TODO: Have to correct gimbal attitude not just for drone pitch but also roll, depending on relative angle between gimbal yaw and drone yaw
-                if self.drones[self.drone_name].is_armed and self.drones[self.drone_name].in_air:
+                if self.dm.drones[self.drone_name].is_armed and self.dm.drones[self.drone_name].in_air:
                     # Fly to position
                     await self.dm.fly_to(self.drone_name, gps=reference_image.gps, yaw=reference_image.drone_att[2])
                 # Point gimbal
