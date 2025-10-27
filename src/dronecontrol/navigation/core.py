@@ -263,7 +263,7 @@ class PathFollower(ABC):
                         self._is_waypoint_new = True
                         have_waypoints = True
                         using_dummy_waypoint = False
-                    self.logger.debug(f"Got waypoint: {waypoint}")
+                        self.logger.debug(f"Follower got waypoint: {waypoint}")
                     self.current_waypoint = waypoint
                 await self.set_setpoint(waypoint)
                 self._is_waypoint_new = False
