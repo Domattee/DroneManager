@@ -34,6 +34,7 @@ class UDPSender:
             drone_data[drone_name] = {
                 "position": [math.sin(t) - 1.5 + i*1.5, math.cos(t), 2],
                 "speed": math.sin(t)+math.cos(2*t),
+                "attitude": [math.sin(t) * 30, math.sin(t) * 10, ((t+i*10)*10) % 360 - 180],
                 "heading": ((t+i*10)*10) % 360 - 180,
                 "mode": "offboard" if (t+2*i) % 10 < 5 else "averyandunreasonablylongmodename",
                 "conn": (t+2*i) % 20 < 15,
