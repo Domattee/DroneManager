@@ -267,6 +267,9 @@ class ENGELDataMission(Mission):
                 cam_set_task = asyncio.create_task(self.set_camera_parameters(capture.camera_parameters))
                 self._running_tasks.add(cam_set_task)
                 # Fly to position and point gimbal
+                # Have to reset gimbal position to drone-relative 0 to prevent running into gimbal limit
+                await self.gimbal.set_gimbal_mode("follow")
+                await self.gimbal.set_gimbal_angles(0.0, 0.0)
                 # TODO: Have to correct gimbal attitude not just for drone pitch but also roll, depending on relative angle between gimbal yaw and drone yaw
                 if self.dm.drones[self.drone_name].is_armed and self.dm.drones[self.drone_name].in_air:
                     # Fly to position
