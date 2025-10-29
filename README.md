@@ -38,8 +38,8 @@ The syntax below is as follows:
 - `-p <parameter: defaultValue>` are optional parameters with a flag to indicate that they are being supplied. Usually, 
 these have a default value.
 
-In theory, typing `-h` or `--help` should print the help string, either for the whole interface or a specific command, 
-but this doesn't currently work.
+You can also add `-h` or `--help` to print a help string, either for the whole interface or a specific command. The 
+help string for plugin commands is sparser than core commands.
 
 #### Commanding drones
 
