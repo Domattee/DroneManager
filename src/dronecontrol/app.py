@@ -117,9 +117,6 @@ Bar {
 
 class CommandScreen(Screen):
     # TODO: Make the CSS better, change widths and whatever dynamically
-    # TODO: Print a pretty usage/command overview thing somewhere.
-    # TODO: Currently you can enter commands after going "exit", need to prevent that
-
     # How often the drone overview screen is updated.
     STATUS_REFRESH_RATE = 20
 
@@ -129,7 +126,7 @@ class CommandScreen(Screen):
 }
 
 #status {
-    height: 5fr;
+    height: 10fr;
 }
 
 #usage {
@@ -553,7 +550,7 @@ class CommandScreen(Screen):
                     VerticalScroll(
                         Static(id="status_header", content=status_string),
                         id="status", classes="text evenvert"),
-                    Static(id="usage", classes="text evenvert", content=self.parser.format_help(), markup=False),
+                    Static(id="usage", classes="text evenvert", content="Type -h or --help for commands or check documentation.", markup=False),
                     id="sidebar",
                 )
             ),
