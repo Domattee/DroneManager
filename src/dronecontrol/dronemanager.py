@@ -4,6 +4,7 @@ import inspect
 import os
 import socket
 import sys
+import json
 from pathlib import Path
 import importlib
 from collections.abc import Collection
@@ -18,7 +19,7 @@ from dronecontrol.plugin import Plugin
 import logging
 
 
-CONFIG_FILE = Path(__file__).parent.parent.parent.joinpath("drone_configs.json")
+CONFIG_FILE = Path(__file__).parent.parent.parent.joinpath("config.json")
 
 # TODO: Fence class discovery
 FENCES = {
@@ -28,6 +29,34 @@ FENCES = {
 # TODO: Trajectory generator/follower discovery and setting/unsetting functions, trajectory follower deactivation
 
 pane_formatter = logging.Formatter('%(asctime)s %(levelname)s %(name)s - %(message)s', datefmt="%H:%M:%S")
+
+
+class DMConfig:
+
+    def __init__(self, drone_configs: DroneConfigs, mav_system_id: int = 246, mav_component_id: int = 190):
+        self.drone_configs: DroneConfigs = drone_configs
+        self.mav_system_id: int = mav_system_id
+        self.mav_component_id: int = mav_component_id
+
+    @classmethod
+    def from_file(cls, filepath: str):
+        with open(filepath, "rt") as f:
+            configs = []
+            json_obj = json.load(f)
+            for obj_dict in json_obj["drones"]:
+                configs.append(DroneConfig(**obj_dict))
+            configs = DroneConfigs(configs)
+            mav_sys_id = json_obj["mav_system_id"]
+            mav_comp_id = json_obj["mav_component_id"]
+        return cls(configs, mav_system_id=mav_sys_id, mav_component_id=mav_comp_id)
+
+    def to_file(self, filepath: str):
+        with open(filepath, "wt") as f:
+            outdict = {}
+            outdict["drones"] = [self.drone_configs[drone].__dict__ for drone in self.drone_configs]
+            outdict["mav_system_id"] = self.mav_system_id
+            outdict["mav_component_id"] = self.mav_component_id
+            json.dump(outdict, f, indent=2)
 
 
 class DroneManager:
@@ -50,10 +79,11 @@ class DroneManager:
         self._on_plugin_unload_coros = set()
         self.plugins: set[str] = set()
 
-        self.system_id = 246
-        self.component_id = 190
+        self.config = DMConfig.from_file(CONFIG_FILE.as_posix())
+        self.drone_configs = self.config.drone_configs
 
-        self.drone_configs = DroneConfigs.from_file(CONFIG_FILE.as_posix())
+        self.system_id = self.config.mav_system_id
+        self.component_id = self.config.mav_component_id
 
         if logger is None:
             self.logger = logging.getLogger("Manager")

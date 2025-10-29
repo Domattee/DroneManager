@@ -99,19 +99,6 @@ class DroneConfigs:
     def __init__(self, configs: list[DroneConfig]):
         self.configs = configs
 
-    @classmethod
-    def from_file(cls, filepath: str):
-        configs = []
-        with open(filepath, "rt") as f:
-            json_obj = json.load(f)
-            for obj_dict in json_obj:
-                configs.append(DroneConfig(**obj_dict))
-        return cls(configs)
-
-    def to_file(self, filepath: str):
-        with open(filepath, "wt") as f:
-            json.dump([config.__dict__ for config in self.configs], f, indent=2)
-
     def __getitem__(self, item):
         for config in self.configs:
             if config.drone_name == item:
