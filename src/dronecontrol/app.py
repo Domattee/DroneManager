@@ -421,7 +421,7 @@ class CommandScreen(Screen):
                 if args.drone in self.dm.drone_configs and not address:
                     address = self.dm.drone_configs[args.drone].address
                 elif not address:
-                    address = "udp://:14540"
+                    address = self.dm.drone_configs["default"].address
 
                 log_messages = None
                 if args.log is not None:

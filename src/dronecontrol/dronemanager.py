@@ -111,7 +111,7 @@ class DroneManager:
                 if config:
                     self.logger.debug("Found drone config, using parameters...")
                 else:
-                    config = DroneConfig(name, drone_address)
+                    config = self.drone_configs["default"]
                 drone = self.drone_class(name, mavsdk_server_address, mavsdk_server_port, config=config)
                 connected = None
                 try:
