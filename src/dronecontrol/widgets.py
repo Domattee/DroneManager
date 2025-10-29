@@ -15,6 +15,11 @@ class ArgumentParserError(Exception):
 
 
 class ArgParser(argparse.ArgumentParser):
+
+    def __init__(self, *args, logger = None, **kwargs):
+        self.logger = logger
+        super().__init__(*args, **kwargs)
+
     def error(self, message):
         if "invalid choice" in message:
             raise ValueError(message)
@@ -27,8 +32,27 @@ class ArgParser(argparse.ArgumentParser):
         else:
             raise ArgumentParserError(message)
 
+    def print_help(self, file=None):
+        if file is None:
+            file = (self.logger, logging.INFO)
+        self._print_message(self.format_help(), file)
+
+    def _print_message(self, message, file=None):
+        if message:
+            file = file or (self.logger, logging.ERROR)
+            try:
+                if isinstance(file, tuple):
+                    file[0].log(file[1], message)
+                else:
+                    file.write(message)
+            except (AttributeError, OSError):
+                pass
+
     def exit(self, status=0, message=None):
-        raise ArgumentParserError(message)
+        if status != 0:
+            raise ArgumentParserError(message)
+        else:
+            pass
 
 
 class InputWithHistory(Input):
