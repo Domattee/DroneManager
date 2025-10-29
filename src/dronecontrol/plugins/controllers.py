@@ -3,7 +3,7 @@
 """
 import asyncio
 
-import hid
+import pygame
 
 from dronecontrol.plugin import Plugin
 from dronecontrol.utils import coroutine_awaiter
@@ -13,7 +13,6 @@ from dronecontrol.utils import coroutine_awaiter
 # TODO: Different controllers?
 # TODO: Control mapping?
 # TODO: Hotplugging?
-# TODO: Try pygame again
 
 class ControllerPlugin(Plugin):
     """
@@ -24,54 +23,50 @@ class ControllerPlugin(Plugin):
     def __init__(self, dm, logger, name):
         super().__init__(dm, logger, name)
         self.background_functions = [
-            self._process_state_changes(),
+            self._event_processor(),
         ]
-        self.controller: hid.device | None = None
-        self._possible_controllers = []
-        self._reading_task = None
+        pygame.init()
+        pygame.joystick.init()
+        self.controller: pygame.joystick.JoystickType | None = None
         self.cli_commands = {
             "check": self._check_controllers,
-            "set": self._add_controller,
+            "connect": self._add_controller,
+            "disconnect": self._remove_controller,
         }
+        self._frequency = 100
 
     async def _add_controller(self, dev_id: int):
-        if dev_id >= len(self._possible_controllers):
+        if dev_id >= pygame.joystick.get_count():
             self.logger.warning(f"No controller option {dev_id}, see control-check")
             return False
-        if self.controller is not None:
-            if self._reading_task is not None:
-                self._reading_task.cancel()
-            self.controller.close()
-        self.controller = hid.device()
-        vendor_id, product_id, product_string, manufacturer_string = self._possible_controllers[dev_id]
-        self.controller.open(vendor_id, product_id)
-        self.controller.set_nonblocking(True)
-        self._reading_task = asyncio.create_task(self._read_controller())
-        self._running_tasks.add(self._reading_task)
-        self.logger.info(f"Connected to controller {product_string, manufacturer_string}")
+        await self._remove_controller()
+        self.controller = pygame.joystick.Joystick(dev_id)
+        self.controller.init()
+        self.logger.info(f"Connected to controller {self.controller.get_name()}")
+        self.controller.rumble(0.5, 0.5, 1)
         return True
 
-    async def _check_controllers(self):
-        controllers = [device for device in hid.enumerate() if device["usage"] in [4, 5] and device["product_string"] != "HIDI2C Device"]
-        self._possible_controllers = [(controller["vendor_id"], controller["product_id"], controller["product_string"], controller["manufacturer_string"]) for controller in controllers]
-        self.logger.info(f"HID Joysticks or contollers: {[f"{i}: {(item[2], item[3])}\n" for i, item in enumerate(self._possible_controllers)]}")
+    async def _remove_controller(self):
+        if self.controller is not None:
+            self.logger.debug("Disconnecting from controller")
+            controller = self.controller
+            self.controller = None
+            controller.quit()
 
-    async def _read_controller(self):
+    async def _check_controllers(self):
+        self.logger.info(f"Detected controllers: {[f"{i}: {pygame.joystick.Joystick(i).get_name()}\n" for i in range(pygame.joystick.get_count())]}")
+
+    async def _event_processor(self):
         while True:
             try:
-                report = self.controller.read(64)
-                await self._process_state(report)
+                for event in pygame.event.get():
+                    self.logger.info(f"{event.type}, {event.dict}")
             except Exception as e:
-                self.logger.warning("Couldn't read controller state!")
+                self.logger.warning("Exception processing controller event!")
                 self.logger.debug(repr(e), exc_info=True)
-
-    async def _process_state(self, report):
-        self.logger.info(report)
-
-    async def _process_state_changes(self):
-        pass
 
     async def close(self):
         if self.controller is not None:
-            self.controller.close()
+            self.controller.quit()
+        pygame.quit()
         await super().close()
