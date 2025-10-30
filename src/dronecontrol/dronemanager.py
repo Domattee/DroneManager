@@ -274,14 +274,14 @@ class DroneManager:
         await self._multiple_drone_action(self.drone_class.land, names,
                                           "Landing drone(s) {}.", schedule=schedule)
 
-    def set_fence(self, names: str | Collection[str], n_lower, n_upper, e_lower, e_upper, height):
+    def set_fence(self, names: str | Collection[str], n_lower, n_upper, e_lower, e_upper, down_lower, down_upper):
         """ Set a fence on drones"""
         if isinstance(names, str):
             names = [names]
         try:
             for name in names:
                 try:
-                    self.drones[name].set_fence(RectLocalFence, n_lower, n_upper, e_lower, e_upper, height)
+                    self.drones[name].set_fence(RectLocalFence, n_lower, n_upper, e_lower, e_upper, down_lower, down_upper)
                     self.logger.info(f"Set fence {self.drones[name].fence} on {name}")
                 except KeyError:
                     self.logger.warning(f"No drone named {name}!")
