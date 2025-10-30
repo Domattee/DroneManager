@@ -609,7 +609,7 @@ class DroneApp(App):
 
 def main():
     drone_type = DroneMAVSDK
-    drone_manager = DroneManager(drone_type)
+    drone_manager = DroneManager(drone_type, log_to_console=False)
     app = DroneApp(drone_manager, logger=drone_manager.logger)
     app.run()
 

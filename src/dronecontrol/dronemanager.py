@@ -65,7 +65,7 @@ class DroneManager:
     # TODO: Refactor the drone functions to be built dynamically from the droneclass, i.e. fly_to, move, yaw_to
     # TODO: Also rebuild app to then dynamically build its CLI functions from the dronemanager functions.
 
-    def __init__(self, drone_class, logger=None, log_to_console=False, console_log_level=logging.DEBUG):
+    def __init__(self, drone_class, logger=None, log_to_console=True, console_log_level=logging.DEBUG):
         self.drone_class = drone_class
         self.drones: dict[str, Drone] = {}
         # self.drones acts as the list/manager of connected drones, any function that writes or deletes items should
