@@ -88,9 +88,9 @@ class GMP3Generator(PathGenerator):
                     self.logger.debug(f"Generated waypoint {waypoint} is invalid")
                     valid = False
                     break
+            self.logger.debug(f"Generated {len(self.waypoints)} waypoints: {self.waypoints}")
             if valid:
                 self.logger.info("Found path!")
-                self.logger.debug(f"Generated {len(self.waypoints)} waypoints: {self.waypoints}")
                 self.start_time = time.time_ns()/1e9
                 self.valid_path = True
                 self.cur_wp = 0
