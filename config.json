@@ -14,7 +14,8 @@
       "max_yaw_vel": 60,
       "max_yaw_acc": 30,
       "max_yaw_jerk": 30,
-      "log_telemetry": true
+      "log_telemetry": true,
+      "size": 1.0
     },
     {
       "drone_name": "luke",
@@ -30,7 +31,8 @@
       "max_yaw_vel": 60,
       "max_yaw_acc": 30,
       "max_yaw_jerk": 30,
-      "log_telemetry": false
+      "log_telemetry": false,
+      "size": 1.0
     },
     {
       "drone_name": "wedge",
@@ -46,7 +48,8 @@
       "max_yaw_vel": 60,
       "max_yaw_acc": 30,
       "max_yaw_jerk": 30,
-      "log_telemetry": false
+      "log_telemetry": false,
+      "size": 1.0
     },
     {
       "drone_name": "derek",
@@ -62,7 +65,8 @@
       "max_yaw_vel": 60,
       "max_yaw_acc": 30,
       "max_yaw_jerk": 30,
-      "log_telemetry": false
+      "log_telemetry": false,
+      "size": 1.0
     },
     {
       "drone_name": "tycho",
@@ -78,7 +82,8 @@
       "max_yaw_vel": 60,
       "max_yaw_acc": 30,
       "max_yaw_jerk": 30,
-      "log_telemetry": false
+      "log_telemetry": false,
+      "size": 1.0
     },
     {
       "drone_name": "gavin",
@@ -94,7 +99,8 @@
       "max_yaw_vel": 60,
       "max_yaw_acc": 30,
       "max_yaw_jerk": 30,
-      "log_telemetry": false
+      "log_telemetry": false,
+      "size": 1.0
     },
     {
       "drone_name": "corran",
@@ -110,7 +116,8 @@
       "max_yaw_vel": 60,
       "max_yaw_acc": 30,
       "max_yaw_jerk": 30,
-      "log_telemetry": false
+      "log_telemetry": false,
+      "size": 1.0
     },
     {
       "drone_name": "jaina",
@@ -126,7 +133,8 @@
       "max_yaw_vel": 60,
       "max_yaw_acc": 30,
       "max_yaw_jerk": 30,
-      "log_telemetry": false
+      "log_telemetry": false,
+      "size": 1.0
     },
     {
       "drone_name": "riker",
@@ -142,7 +150,8 @@
       "max_yaw_vel": 60,
       "max_yaw_acc": 30,
       "max_yaw_jerk": 30,
-      "log_telemetry": true
+      "log_telemetry": true,
+      "size": 3.0
     }
   ],
   "mav_system_id": 246,
