@@ -56,7 +56,7 @@ class EngelImageInfo:
 
 class ENGELCaptureInfo:
 
-    def __init__(self, images: list[EngelImageInfo], weather_data: WeatherData, camera_parameters: list[CameraParameter]):
+    def __init__(self, images: list[EngelImageInfo], weather_data: WeatherData, camera_parameters: list[tuple]):
         self.images = images
         self.weather_data = weather_data
         self.camera_parameters = camera_parameters
@@ -67,7 +67,7 @@ class ENGELCaptureInfo:
         out_dict = {
             "images": [image.to_json_dict() for image in self.images],
             "weather_data": self.weather_data.to_json_dict(),
-            "camera_parameters": [param.to_json_dict() for param in self.camera_parameters],
+            "camera_parameters": self.camera_parameters,
             "capture_id": self.capture_id,
             "reference_id": self.reference_id,
         }
@@ -77,7 +77,18 @@ class ENGELCaptureInfo:
     def from_json_dict(cls, json_dict):
         images = [EngelImageInfo.from_json_dict(image_dict) for image_dict in json_dict["images"]]
         weather_data = WeatherData.from_json_dict(json_dict["weather_data"])
-        cam_params = [CameraParameter.from_json_dict(entry) for entry in json_dict["camera_parameters"]]
+        cam_params = [(entry[0], entry[1]) for entry in json_dict["camera_parameters"]]
+        out = cls(images, weather_data=weather_data, camera_parameters=cam_params)
+        out.capture_id = json_dict["capture_id"]
+        out.reference_id = json_dict["reference_id"]
+        return out
+
+    @classmethod
+    def from_json_dict_legacy(cls, json_dict):
+        images = [EngelImageInfo.from_json_dict(image_dict) for image_dict in json_dict["images"]]
+        weather_data = WeatherData.from_json_dict(json_dict["weather_data"])
+        cam_params = [(CameraParameter.from_json_dict(entry).name, CameraParameter.from_json_dict(entry).value) for
+                      entry in json_dict["camera_parameters"]]
         out = cls(images, weather_data=weather_data, camera_parameters=cam_params)
         out.capture_id = json_dict["capture_id"]
         out.reference_id = json_dict["reference_id"]
@@ -98,6 +109,7 @@ class ENGELDataMission(Mission):
             "capture": self.do_capture,
             "save": self.save_captures_to_file,
             "load": self.load_captures_from_file,
+            "merge": self.merge,
             "configure": self.configure_cam,
             "replay": self.replay_captures,
             "transfer": self.transfer,
@@ -202,7 +214,7 @@ class ENGELDataMission(Mission):
                 self.logger.warning(f"No Weather sensor, using dummy data!")
                 weather_data = WeatherData()
 
-            cam_params = list(self.camera.parameters.values())
+            cam_params = [(param.name, param.value) for param in list(self.camera.parameters.values())]
 
             # Send capture command
             self.capturing = True
@@ -245,11 +257,12 @@ class ENGELDataMission(Mission):
             self._current_capture = None
             return False
 
-    async def set_camera_parameters(self, params: list[CameraParameter]):
+    async def set_camera_parameters(self, params: list[tuple]):
         # Go through a list of camera parameters and adjust the connected camera parameters to match
         for parameter in params:
-            if self.camera.parameters[parameter.name].value != parameter.value:
-                await self.camera.set_parameter(parameter.name, parameter.value)
+            name, value = parameter
+            if self.camera.parameters[name].value != value:
+                await self.camera.set_parameter(name, value)
 
     async def replay_captures(self):
         """ Function to take the position from previous captures saved to file and capture them all again."""
@@ -323,33 +336,57 @@ class ENGELDataMission(Mission):
                         image.file_location = str(local_img_path)
                     else:
                         self.logger.warning(f"File {mounted_path} on camera doesn't exist!")
-        await self._save_captures_to_file(self.loaded_captures, filename=self.loaded_file)
+        self._save_captures_to_file(self.loaded_captures, filename=self.loaded_file)
 
-    async def _save_captures_to_file(self, captures, filename: str = None):
+    async def merge(self, other_files: list[str], output_file: str):
+        captures = []
+        for other_file in other_files:
+            in_file = self._normal_dir_or_other_path(other_file)
+            captures.extend(self._load_captures_from_file(in_file))
+        out_file = self._normal_dir_or_other_path(output_file)
+        self._save_captures_to_file(captures, out_file)
+
+    # TODO: Move/copy image functions
+
+    def _save_captures_to_file(self, captures, filename: str | pathlib.Path = None, merge_existing = False):
         """ Save all capture information to a file, images will have to be downloaded separately anyway. """
         if filename is None:
             timestamp = datetime.datetime.now(datetime.UTC)
-            capture_info_file_name = f"engel_captures_{timestamp.hour}{timestamp.minute}{timestamp.second}-{timestamp.day}-{timestamp.month}-{timestamp.year}.json"
-        else:
-            capture_info_file_name = filename
-        capture_file_path = os.path.join(CAPTURE_DIR, capture_info_file_name)
-        self.logger.info(f"Saving info to file {capture_file_path}")
-        with open(capture_file_path, "wt") as f:
+            filename = f"engel_captures_{timestamp.hour}{timestamp.minute}{timestamp.second}-{timestamp.day}-{timestamp.month}-{timestamp.year}.json"
+        file_path = self._normal_dir_or_other_path(filename)
+        # If the file already exists, append new captures to old
+        if merge_existing and file_path.exists():
+            old_captures = self._load_captures_from_file(file_path)
+            captures.extend(old_captures)
+        self.logger.info(f"Saving info to file {file_path}")
+        with open(file_path, "wt") as f:
             output = [capture.to_json_dict() for capture in captures]
             json.dump(output, f, indent=2)
 
     async def save_captures_to_file(self, filename: str = None):
-        return await self._save_captures_to_file(self.captures, filename)
+        return self._save_captures_to_file(self.captures, filename, merge_existing=True)
 
-    async def load_captures_from_file(self, filename: str):
-        """ Load capture information from a file for the purpose of replaying it. """
-        file_path = os.path.join(CAPTURE_DIR, filename)
+    def _load_captures_from_file(self, file_path: pathlib.Path):
         with open(file_path, "rt") as f:
             json_list = json.load(f)
             captures = [ENGELCaptureInfo.from_json_dict(capture_dict) for capture_dict in json_list]
-            self.loaded_captures = captures
-            self.loaded_file = filename
-            self.logger.info(f"Loaded past captures from file {file_path}")
+        return captures
+
+    def _normal_dir_or_other_path(self, filestr):
+        if str(pathlib.Path(filestr).parent) == ".":
+            file_path = pathlib.Path(CAPTURE_DIR).joinpath(filestr)
+        else:
+            file_path = pathlib.Path(filestr)
+        return file_path
+
+    async def load_captures_from_file(self, filename: str):
+        """ Load capture information from a file for the purpose of replaying it. """
+
+        file_path = self._normal_dir_or_other_path(filename)
+        captures = self._load_captures_from_file(file_path)
+        self.loaded_captures = captures
+        self.loaded_file = filename
+        self.logger.info(f"Loaded past captures from file {file_path}")
 
     async def reset(self):
         """ Clear capture info """
