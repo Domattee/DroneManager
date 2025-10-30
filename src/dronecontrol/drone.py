@@ -74,7 +74,7 @@ class DroneConfig:
                  position_rate: float = 5.0, log_telemetry: bool = False,
                  max_h_vel: float = 10.0, max_down_vel: float = 1.0, max_up_vel: float = 3.0, max_h_acc: float = 1.5,
                  max_v_acc: float = 0.5, max_h_jerk: float = 0.5, max_v_jerk: float = 0.5, max_yaw_vel: float = 60,
-                 max_yaw_acc: float = 30, max_yaw_jerk: float = 30):
+                 max_yaw_acc: float = 30, max_yaw_jerk: float = 30, size: float = 1.0):
         self.drone_name = drone_name
         self.address = address
         self.position_rate = position_rate
@@ -89,6 +89,7 @@ class DroneConfig:
         self.max_yaw_acc = max_yaw_acc
         self.max_yaw_jerk = max_yaw_jerk
         self.log_telemetry = log_telemetry
+        self.size = size
 
     def __str__(self):
         return str(self.__dict__)
@@ -98,19 +99,6 @@ class DroneConfigs:
 
     def __init__(self, configs: list[DroneConfig]):
         self.configs = configs
-
-    @classmethod
-    def from_file(cls, filepath: str):
-        configs = []
-        with open(filepath, "rt") as f:
-            json_obj = json.load(f)
-            for obj_dict in json_obj:
-                configs.append(DroneConfig(**obj_dict))
-        return cls(configs)
-
-    def to_file(self, filepath: str):
-        with open(filepath, "wt") as f:
-            json.dump([config.__dict__ for config in self.configs], f, indent=2)
 
     def __getitem__(self, item):
         for config in self.configs:
