@@ -1,0 +1,39 @@
+{
+  "version": "1.0.0",
+  "source": "./index.html",
+  "type": "module",
+  "name": "poc",
+  "description": "",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build"
+  },
+  "dependencies": {
+    "@radix-ui/react-dialog": "^1.1.6",
+    "@radix-ui/react-scroll-area": "^1.2.3",
+    "@radix-ui/react-slot": "^1.1.0",
+    "@tanstack/react-query": "^5.70.0",
+    "axios": "^1.8.4",
+    "class-variance-authority": "^0.7.0",
+    "clsx": "2.1.1",
+    "lucide-react": "^0.453.0",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "react-router-dom": "^6.8.1",
+    "swr": "^2.3.3",
+    "tailwind-merge": "2.5.4",
+    "zustand": "^5.0.3"
+  },
+  "devDependencies": {
+    "@types/react": "18.2.0",
+    "@types/react-dom": "18.2.0",
+    "@vitejs/plugin-react": "4.3.4",
+    "esbuild": "^0.25.1",
+    "globals": "15.12.0",
+    "tailwindcss": "3.4.16",
+    "vite": "^6.2.3"
+  },
+  "alias": {
+    "@/*": "./src/components/ui/$1"
+  }
+}
