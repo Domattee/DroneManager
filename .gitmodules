@@ -1,0 +1,4 @@
+[submodule "src/web-visualizations/STREAMMANAGER"]
+	path = src/web-visualizations/STREAMMANAGER
+	url = https://github.com/Domattee/DroneManager.git
+	branch = web-visualization
