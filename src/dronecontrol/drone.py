@@ -637,9 +637,14 @@ class DroneMAVSDK(Drone):
                 self.logger.debug(f"Starting up own MAVSDK Server instance with app port {self.server_port} and remote "
                                   f"connection {mavsdk_passthrough_string}")
             if self.server_addr is None and platform.system() == "Windows":
-                self._server_process = Popen(f"{_mav_server_file} -p {self.server_port} {mavsdk_passthrough_string}",
-                                             stdout=DEVNULL, stderr=DEVNULL)
-                self.server_addr = "127.0.0.1"
+                try:
+                    self._server_process = Popen(f"{_mav_server_file} -p {self.server_port} {mavsdk_passthrough_string}",
+                                                 stdout=DEVNULL, stderr=DEVNULL)
+                    self.server_addr = "127.0.0.1"
+                except FileNotFoundError:
+                    self.logger.error("Missing the MAVSDK server binary! This must be downloaded manually on Windows, "
+                                      "see the documentation.")
+                    return False
             self.system = System(mavsdk_server_address=self.server_addr, port=self.server_port,
                                  sysid=system_id, compid=component_id)
 
@@ -1271,7 +1276,8 @@ class DroneMAVSDK(Drone):
                 del self.mav_conn
         except AttributeError:
             pass
-        self.system.__del__()
+        if self.system is not None:
+            self.system.__del__()
         if self._server_process:
             self._server_process.terminate()
         for handler in self.logging_handlers:

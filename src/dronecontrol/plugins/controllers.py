@@ -5,6 +5,8 @@ import asyncio
 
 import pygame
 
+from dronecontrol.drone import FlightMode
+from dronecontrol.navigation.core import Waypoint, WayPointType
 from dronecontrol.plugin import Plugin
 from dronecontrol.utils import coroutine_awaiter
 
@@ -13,6 +15,37 @@ from dronecontrol.utils import coroutine_awaiter
 # TODO: Different controllers?
 # TODO: Control mapping?
 # TODO: Hotplugging?
+
+DEFAULT_FREQUENCY = 50
+
+
+class InputMapping:
+    """ Map actions to controller axis"""
+    # TODO: UI for keybinds
+
+    thrust_axis: int = None
+    yaw_axis: int = None
+    forward_axis: int = None
+    right_axis: int = None
+    arm_button: int = None
+    disarm_button: int = None
+    land_button: int = None
+    takeoff_button: int = None
+    control_button: int = None
+
+
+class PS4Mapping(InputMapping):
+
+    thrust_axis = 1
+    yaw_axis = 0
+    forward_axis = 3
+    right_axis = 2
+    arm_button = 0
+    disarm_button = 1
+    land_button = 12
+    takeoff_button = 11
+    control_button = 5
+
 
 class ControllerPlugin(Plugin):
     """
@@ -24,6 +57,7 @@ class ControllerPlugin(Plugin):
         super().__init__(dm, logger, name)
         self.background_functions = [
             self._event_processor(),
+            self._control_loop(),
         ]
         pygame.init()
         pygame.joystick.init()
@@ -32,18 +66,37 @@ class ControllerPlugin(Plugin):
             "check": self._check_controllers,
             "connect": self._add_controller,
             "disconnect": self._remove_controller,
+            "set": self._set_drone,
+            "status": self.status,
         }
-        self._frequency = 100
+        self._relevant_events = [pygame.JOYAXISMOTION,
+                                 pygame.JOYBUTTONUP,
+                                 pygame.JOYBUTTONDOWN,
+                                 pygame.JOYHATMOTION,
+                                 pygame.JOYBALLMOTION]
+        self._frequency = DEFAULT_FREQUENCY
+        self._control_frequency = DEFAULT_FREQUENCY
+        self._drone_name: str | None = None
+        self._in_control = False
+        self._mapping: InputMapping | None = None
 
     async def _add_controller(self, dev_id: int):
         if dev_id >= pygame.joystick.get_count():
             self.logger.warning(f"No controller option {dev_id}, see control-check")
             return False
         await self._remove_controller()
+        control_good = False
         self.controller = pygame.joystick.Joystick(dev_id)
-        self.controller.init()
-        self.logger.info(f"Connected to controller {self.controller.get_name()}")
-        self.controller.rumble(0.5, 0.5, 1)
+        if self.controller.get_name() == "PS4 Controller":
+            self._mapping = PS4Mapping
+            control_good = True
+        else:
+            self.logger.warning(f"No mapping for {self.controller.get_name()}")
+        if control_good:
+            self.controller.init()
+            self.logger.info(f"Connected to controller {self.controller.get_name()}, using {self._mapping.__name__}")
+            await asyncio.sleep(0.1)
+            self.controller.rumble(0.5, 0.5, 1)
         return True
 
     async def _remove_controller(self):
@@ -53,17 +106,137 @@ class ControllerPlugin(Plugin):
             self.controller = None
             controller.quit()
 
+    async def status(self):
+        self.logger.info(f"Drone: {self._drone_name}. Control {self._in_control}. Controller: {self.controller}")
+
+    async def _set_drone(self, drone: str):
+        """ Set which drone is controlled by the controller. """
+        if drone not in self.dm.drones:
+            self.logger.warning(f"No drone named {drone}")
+            return False
+        if self._in_control:
+            self.logger.warning("Can't swap drones while in control of another drone!")
+            return False
+        self._drone_name = drone
+        self._control_frequency = self.dm.drones[drone].position_update_rate
+        return True
+
     async def _check_controllers(self):
-        self.logger.info(f"Detected controllers: {[f"{i}: {pygame.joystick.Joystick(i).get_name()}\n" for i in range(pygame.joystick.get_count())]}")
+        new_line = "\n"
+        self.logger.info(f"Detected controllers: {[f'{i}: {pygame.joystick.Joystick(i).get_name()}{new_line}' for i in range(pygame.joystick.get_count())]}")
 
     async def _event_processor(self):
         while True:
             try:
                 for event in pygame.event.get():
-                    self.logger.info(f"{event.type}, {event.dict}")
+                    if event.type in self._relevant_events:
+                        event_dict = event.dict
+                        if event_dict["instance_id"] == self.controller.get_instance_id():
+                            if event.type == pygame.JOYBUTTONDOWN:
+                                self._process_button_press(event_dict["button"])
+                            elif event.type == pygame.JOYBUTTONUP:
+                                pass
+                                # Could maybe do long-press type stuff
+                                #self.logger.info(f"Released button {event_dict["button"]}")
+                            elif event.type == pygame.JOYAXISMOTION:
+                                pass  # Axis motion is handled in the control loop
+                            else:
+                                self.logger.info(f"{event.type}, {event_dict}")
             except Exception as e:
                 self.logger.warning("Exception processing controller event!")
                 self.logger.debug(repr(e), exc_info=True)
+            await asyncio.sleep(1/self._frequency)
+
+    def _process_button_press(self, button):
+        action = None
+        can_do_actions = self._in_control and self._drone_name is not None and self.dm.drones[self._drone_name].is_connected
+        toggle_control = False
+        if button == self._mapping.control_button:
+            self.logger.info("Trying to toggling drone control...")
+            if self._in_control:
+                action = self._release_control()
+            else:
+                action = self._take_control()
+            toggle_control = True
+        elif button == self._mapping.arm_button:
+            self.logger.info("Arm button pressed")
+            action = self.dm.arm(self._drone_name)
+        elif button == self._mapping.disarm_button:
+            self.logger.info("Disarm button pressed")
+            action = self.dm.disarm(self._drone_name)
+        elif button == self._mapping.land_button:
+            self.logger.info("Land button pressed")
+            action = self.dm.land(self._drone_name)
+        elif button == self._mapping.takeoff_button:
+            self.logger.info("Takeoff button pressed")
+            action = self.dm.takeoff(self._drone_name)
+        else:
+            self.logger.info(f"Pressed unbound button {button}")
+
+        # Log information for user about current control state
+        if action is not None and not can_do_actions and not toggle_control:
+            if not self._in_control:
+                self.logger.info("Received control inputs, but not in control of drone!")
+                return False
+            if self._drone_name is None:
+                self.logger.info("Received control inputs, but not set to control any drone!")
+            if not self.dm.drones[self._drone_name].is_connected:
+                self.logger.warning("No connection to drone!")
+
+        # Do the action if we have a action and either can do it, or are toggling control (which is checked separately)
+        if action is not None and self._drone_name is not None and (can_do_actions or toggle_control):
+            # Cancel anything the drone might be doing
+            self.dm.drones[self._drone_name].clear_queue()
+            self.dm.drones[self._drone_name].cancel_action()
+            action_task = asyncio.create_task(action)
+            action_awaiter = coroutine_awaiter(action_task, self.logger)
+            self._running_tasks.add(action_task)
+            self._running_tasks.add(action_awaiter)
+        return True
+
+    async def _take_control(self):
+        # Put the drone into offboard if not already in it, and disable the path follower if it is active
+        # Check that we have a drone and are connected to it
+        if self._drone_name is None:
+            self.logger.warning("Can't take control without knowing which drone to control!")
+            return
+        if not self.dm.drones[self._drone_name].is_connected:
+            self.logger.warning("Can't take control of disconnected drones!")
+            return
+
+        # Change into offboard mode if we aren't already
+        if self.dm.drones[self._drone_name].flightmode != FlightMode.OFFBOARD:
+            cur_pos = self.dm.drones[self._drone_name].position_ned
+            cur_yaw = self.dm.drones[self._drone_name].attitude[2]
+            await self.dm.drones[self._drone_name].set_setpoint(Waypoint(WayPointType.POS_NED, pos=cur_pos, yaw=cur_yaw))
+            await self.dm.drones[self._drone_name].change_flight_mode("offboard")
+        self.logger.info(f"Took control of {self._drone_name}")
+        self._in_control = True
+
+    async def _release_control(self):
+        # Put the drone into HOLD mode
+        self._in_control = False
+        self.dm.change_flightmode(self._drone_name, "hold")
+        self.logger.info(f"Released control of {self._drone_name}")
+
+    async def _control_loop(self):
+        """ Take controller inputs to handle motion by setting velocity setpoints.
+
+        Actions are performed as soon as the button press is detected, but continuous inputs, such as sticks, are
+        updated here at self._control_frequency. This deactivates """
+
+        if self._in_control:
+            # TODO: All of it
+            # TODO: Make sure that the drone obeys configured acceleration and jerk limits with ruckig somehow
+            pass
+        await asyncio.sleep(self._control_frequency)
+
+    def stick_response(self, value: float) -> float:
+        """ Linear stick response with -5 to 5% deadzone """
+        if abs(value) < 0.05:
+            return 0.0
+        else:
+            return value
 
     async def close(self):
         if self.controller is not None:

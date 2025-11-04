@@ -264,7 +264,7 @@ class DroneManager:
         return await self._multiple_drone_action(self.drone_class.takeoff, names,
                                                  "Takeoff for Drone(s) {}.", altitude, schedule=schedule)
 
-    async def change_flightmode(self, names: str | Collection[str], flightmode, schedule=False):
+    async def change_flightmode(self, names: str | Collection[str], flightmode: str, schedule=False):
         await self._multiple_drone_action(self.drone_class.change_flight_mode,
                                           names,
                                           "Changing flightmode for drone(s) {} to " + flightmode + ".",
@@ -482,7 +482,7 @@ class DroneManager:
 
     async def load_plugin(self, plugin_module: str, plugin_name: str | None = None, options: list[str] | None = None,
                           class_getter: callable = None):
-        plugin = False
+        plugin = None
         if plugin_name is None:
             plugin_name = plugin_module
         if options is None:
@@ -502,7 +502,7 @@ class DroneManager:
                 return False
 
             self.logger.info(f"Loading plugin {plugin_name}...")
-            plugin = False
+            plugin = None
             try:
                 plugin_class = await asyncio.get_running_loop().run_in_executor(None, class_getter, plugin_module)
                 if not plugin_class:
