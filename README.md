@@ -10,6 +10,8 @@ pip install --upgrade pip
 pip install -e .
 ```
 
+This package requires that MSVC be installed, for example through Visual Studio. If you get an error such as `*** CMake configuration failed`, you have to install MSVC and then try again.
+
 As part of the installation a command called ```dm``` is installed, which starts the terminal interface. 
 Alternatively you can run the app.py script.
 On windows, you will also have to download the appropriate MAVSDK release (see https://mavsdk.mavlink.io/v2.0/en/cpp/guide/installation.html) and extract the mavsdk-server-bin.exe file into the same directory as drone.py.
@@ -38,8 +40,8 @@ The syntax below is as follows:
 - `-p <parameter: defaultValue>` are optional parameters with a flag to indicate that they are being supplied. Usually, 
 these have a default value.
 
-In theory, typing `-h` or `--help` should print the help string, either for the whole interface or a specific command, 
-but this doesn't currently work.
+You can also add `-h` or `--help` to print a help string, either for the whole interface or a specific command. The 
+help string for plugin commands is sparser than core commands.
 
 #### Commanding drones
 
