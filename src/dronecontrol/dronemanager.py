@@ -116,7 +116,8 @@ class DroneManager:
                 connected = None
                 try:
                     connected = await asyncio.wait_for(drone.connect(drone_address, system_id=self.system_id,
-                                                                     component_id=self.component_id, log_messages=log_messages),
+                                                                     component_id=self.component_id,
+                                                                     log_messages=log_messages),
                                                        timeout)
                 except (CancelledError, TimeoutError, OSError, socket.gaierror, AssertionError) as e:
                     if isinstance(e, CancelledError):

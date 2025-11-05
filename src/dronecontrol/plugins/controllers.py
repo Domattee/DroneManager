@@ -119,6 +119,7 @@ class ControllerPlugin(Plugin):
             return False
         self._drone_name = drone
         self._control_frequency = self.dm.drones[drone].position_update_rate
+        self.logger.info(f"Now set for drone {self._drone_name}")
         return True
 
     async def _check_controllers(self):
@@ -216,7 +217,7 @@ class ControllerPlugin(Plugin):
     async def _release_control(self):
         # Put the drone into HOLD mode
         self._in_control = False
-        self.dm.change_flightmode(self._drone_name, "hold")
+        await self.dm.change_flightmode(self._drone_name, "hold")
         self.logger.info(f"Released control of {self._drone_name}")
 
     async def _control_loop(self):

@@ -649,6 +649,7 @@ class DroneMAVSDK(Drone):
                                  sysid=system_id, compid=component_id)
 
             connected = asyncio.create_task(self.system.connect(system_address=mavsdk_passthrough_string))
+            self._running_tasks.append(connected)
 
             # Create passthrough
             if self.mav_conn:
