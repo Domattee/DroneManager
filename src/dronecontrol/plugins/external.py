@@ -12,6 +12,8 @@ from dronecontrol.plugin import Plugin
 from dronecontrol.utils import coroutine_awaiter
 
 
+SERVER_PORT = 31659
+
 class UDPClient:
 
     def __init__(self, ip, port, frequency, duration):
@@ -37,19 +39,19 @@ class UDPPlugin(Plugin):
 
     def __init__(self, dm, logger, name):
         super().__init__(dm, logger, name)
-        self.inport = 31659
+        self.inport = SERVER_PORT
         sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         sock.setblocking(False)
-        #sock.bind(("", self.inport))
+        sock.bind(("", self.inport))
         self.socket = sock
 
         self.default_duration = 30
         outsock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self.outsocket = outsock
         self.default_frequency = 5
+        self.clients: dict[tuple[str, int], UDPClient] = {}
         self.background_functions = [
-            self._send_continuously(),
-            #self._listen_for_clients(),
+            self._listen_for_clients(),
         ]
 
     async def _listen_for_clients(self):
@@ -73,12 +75,20 @@ class UDPPlugin(Plugin):
                 duration = json_dict["duration"]
                 if duration <= 0:
                     duration = self.default_duration
-                client = UDPClient(ip, port, frequency, duration)
-                send_task = asyncio.create_task(self._client_sender(client))
-                awaiter_task = asyncio.create_task(coroutine_awaiter(send_task, self.logger))
-                self._running_tasks.add(send_task)
-                self._running_tasks.add(awaiter_task)
-                self.logger.info(f"New client @{ip, port} with frequency {frequency} and duration {math.inf if duration == 0 else duration}.")
+                if (ip, port) not in self.clients:
+                    client = UDPClient(ip, port, frequency, duration)
+                    self.clients[(ip, port)] = client
+                    send_task = asyncio.create_task(self._client_sender(client))
+                    awaiter_task = asyncio.create_task(coroutine_awaiter(send_task, self.logger))
+                    self._running_tasks.add(send_task)
+                    self._running_tasks.add(awaiter_task)
+                    self.logger.info(f"New client @{ip, port} with frequency {frequency} and duration {math.inf if duration == 0 else duration}.")
+                else:
+                    self.logger.debug(f"Received repeat message from existing client {ip, port}, updating parameters and resetting timer...")
+                    client = self.clients[(ip, port)]
+                    client.start_time = time.time()
+                    client.duration = duration
+                    client.frequency = frequency
             except TimeoutError:
                 pass
             except Exception as e:
@@ -94,7 +104,6 @@ class UDPPlugin(Plugin):
             try:
                 data = self._make_json()
                 self._send_msg(data, client.ip, client.port)
-                await asyncio.sleep(1/client.frequency)
             except OSError as e:
                 self.logger.info("Couldn't send information, closing connection...")
                 self.logger.info(f"{e.errno}: {e.strerror}")
@@ -102,17 +111,10 @@ class UDPPlugin(Plugin):
             except Exception as e:
                 self.logger.warning("Exception sending data out over UDP! Check the log for details.")
                 self.logger.debug(repr(e), exc_info=True)
-
-    async def _send_continuously(self):
-        while True:
-            try:
-                await asyncio.sleep(1 / self.default_frequency)
-                json_str = self._make_json()
-                self.logger.debug(f"Sending json {json_str}")
-                self._send_msg(json_str)
-            except Exception as e:
-                self.logger.debug("Exception sending data out over UDP! Check the log for details.")
-                self.logger.debug(repr(e), exc_info=True)
+            await asyncio.sleep(1 / client.frequency)
+        if (client.ip, client.port) in self.clients:
+            self.clients.pop((client.ip, client.port))
+        self.logger.info(f"Finished sending data to {client.ip, client.port}")
 
     def _make_json(self):
         drone_data = {}
@@ -135,8 +137,8 @@ class UDPPlugin(Plugin):
             for mission_name in self.dm.mission.missions:
                 mission = self.dm.mission.missions[mission_name]
                 mission_data[mission.PREFIX] = {
-                    "flightarea": mission.flight_area.boundary_list(),
-                    "stage": mission.current_stage.name,
+                    "flightarea": mission.flight_area.boundary_list() if mission.flight_area is not None else None,
+                    "stage": mission.current_stage.name if mission.current_stage is not None else None,
                     "drones": list(mission.drones.keys()),
                 }
                 for info, func in mission.additional_info.items():
