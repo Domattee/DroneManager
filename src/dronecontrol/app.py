@@ -27,7 +27,7 @@ pane_formatter = logging.Formatter('%(asctime)s %(levelname)s %(name)s - %(messa
 UPDATE_RATE = 20  # How often the various screens update in Hz. TODO: Currently time delay after function, refactor to
 # ensure actual 20hz refresh rate
 
-DEFAULT_PLUGINS = ["mission"]
+DEFAULT_PLUGINS = ["mission", "controllers"]
 
 
 class StatusScreen(Screen):
