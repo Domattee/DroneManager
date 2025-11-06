@@ -33,6 +33,7 @@ class UDPPlugin(Plugin):
     }
 
     """
+    PREFIX = "UDP"
 
     def __init__(self, dm, logger, name):
         super().__init__(dm, logger, name)

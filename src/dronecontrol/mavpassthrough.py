@@ -54,6 +54,8 @@ class MAVPassthrough:
         self._ack_waiters: dict[tuple[int, int, int, int, int], list[asyncio.Future]] = {}
         self._msg_waiters: dict[tuple[int, int, int], list[asyncio.Future]] = {}
 
+        self._sockets = set()
+
     def connect_gcs(self, address):
         self.running_tasks.add(asyncio.create_task(self._connect_gcs(address)))
 
@@ -61,6 +63,7 @@ class MAVPassthrough:
         self.con_gcs = mavutil.mavlink_connection("udpout:" + address,
                                                   source_system=self.source_system,
                                                   source_component=self.source_component, dialect=self.dialect)
+        self._sockets.add(self.con_gcs)
         self.running_tasks.add(asyncio.create_task(self._send_heartbeats_gsc()))
         await asyncio.sleep(0)
         self.logger.debug("Waiting for GCS heartbeat")
@@ -90,66 +93,58 @@ class MAVPassthrough:
                                                           source_system=self.source_system,
                                                           source_component=self.source_component,
                                                           dialect=self.dialect)
-
-            await self._process_initial_drone_connection(tmp_con_drone_in)
-            tmp_con_drone_in.close()
-
-            self.con_drone_in = mavutil.mavlink_connection(f"{path}",
-                                                           baud=baud,
-                                                           source_system=self.source_system,
-                                                           source_component=self.source_component,
-                                                           dialect=self.dialect)
-
-            self.running_tasks.add(asyncio.create_task(self._send_pings_drone()))
-            self.running_tasks.add(asyncio.create_task(self._listen_drone()))
-            self.running_tasks.add(asyncio.create_task(self._send_heartbeats_drone()))
+            self._sockets.add(tmp_con_drone_in)
+            await self._connect_drone(tmp_con_drone_in)
         except Exception as e:
             self.logger.debug(f"Error during connection to drone: {repr(e)}", exc_info=True)
 
     async def _connect_drone_udp(self, ip, port):
+        self.logger.debug(f"Connecting to drone @{ip}:{port}")
+        if ip == "":
+            tmp_con_out = mavutil.mavlink_connection(f"udp:{ip}:{port}",
+                                                     input=True,
+                                                     source_system=self.source_system,
+                                                     source_component=self.source_component, dialect=self.dialect)
+        else:
+            tmp_con_out = mavutil.mavlink_connection(f"udp:{ip}:{port}",
+                                                     input=False,
+                                                     source_system=self.source_system,
+                                                     source_component=self.source_component, dialect=self.dialect)
+        self._sockets.add(tmp_con_out)
+        await self._connect_drone(tmp_con_out)
+
+    async def _connect_drone(self, con):
         try:
-            self.logger.debug(f"Connecting to drone @{ip}:{port}")
+            init_con_task = asyncio.create_task(self._process_initial_drone_connection(con))
+            self.running_tasks.add(init_con_task)
+            await init_con_task
 
-            self.logger.debug("Creating temp udp connections")
-            tmp_con_drone_out = mavutil.mavlink_connection(f"udp:{ip}:{port}",
-                                                           input=False,
-                                                           source_system=self.source_system,
-                                                           source_component=self.source_component, dialect=self.dialect)
-            tmp_con_drone_in = mavutil.mavlink_connection(f"udp::{port}",
-                                                          input=True,
-                                                          source_system=self.source_system,
-                                                          source_component=self.source_component, dialect=self.dialect)
-
-            await self._process_initial_drone_connection(tmp_con_drone_in, tmp_con_drone_out)
-
-            tmp_con_drone_in.close()
-            tmp_con_drone_out.close()
-
-            self.con_drone_in = mavutil.mavlink_connection(f"udpin::{port}",
-                                                           source_system=self.source_system,
-                                                           source_component=self.source_component, dialect=self.dialect)
-
-            self.running_tasks.add(asyncio.create_task(self._send_pings_drone()))
-            self.running_tasks.add(asyncio.create_task(self._listen_drone()))
+            # Start continuously sending heartbeats and pings once we have system and component id from drone
             self.running_tasks.add(asyncio.create_task(self._send_heartbeats_drone()))
+            self.running_tasks.add(asyncio.create_task(self._send_pings_drone()))
+
+            # Do version handshake
+            handshake_task = asyncio.create_task(self._do_version_handshake(self.con_drone_in, "Drone"))
+            self.running_tasks.add(handshake_task)
+            await handshake_task
+
+             # Start listening and transferring messages
+            self.running_tasks.add(asyncio.create_task(self._listen_drone()))
         except Exception as e:
             self.logger.debug(f"Error during connection to drone: {repr(e)}", exc_info=True)
 
-    async def _process_initial_drone_connection(self, con_in, con_out=None):
-        if con_out is None:
-            con_out = con_in
-        received_hb = 0
-        while received_hb < 3:
-            self.logger.debug("Sending initial drone heartbeats")
-            con_out.mav.heartbeat_send(mavutil.mavlink.MAV_TYPE_GCS, mavutil.mavlink.MAV_AUTOPILOT_INVALID, 0, 0, 0)
-            m = con_in.wait_heartbeat(blocking=False)
+    async def _process_initial_drone_connection(self, con):
+        self.logger.debug("Sending initial drone heartbeats")
+        con.mav.heartbeat_send(mavutil.mavlink.MAV_TYPE_GCS, mavutil.mavlink.MAV_AUTOPILOT_INVALID, 0, 0, 0)
+        hb_received = False
+        while not hb_received:
+            m = con.wait_heartbeat(blocking=False)
             if m is not None:
                 if m.get_srcSystem() != self.source_system and m.get_srcComponent() == 1:
-                    received_hb += 1
+                    hb_received = True
                     self.drone_system = m.get_srcSystem()
                     self.drone_component = m.get_srcComponent()
-                    self.logger.debug(f"Got drone {self.drone_system, self.drone_component} heartbeat! "
-                                      f"Received {received_hb} total.")
+                    self.logger.debug(f"Got drone {self.drone_system, self.drone_component} heartbeat!")
                     # Check whether we are connecting to ardupilot or PX4 and change dialect accordingly
                     if self.dialect is None:
                         match m.autopilot:
@@ -160,7 +155,29 @@ class MAVPassthrough:
                                 self.drone_autopilot = "PX4"
                                 self.dialect = "cubepilot"
                         self.logger.debug(f"Identified drone as {self.drone_autopilot}")
-            await asyncio.sleep(0.5)
+            if not hb_received:
+                await asyncio.sleep(0.5)
+        self.con_drone_in = con
+
+    async def _do_version_handshake(self, con, con_name):
+        try:
+            self.logger.info(f"MAV Version {con_name}: {con.mavlink20()}")
+
+            # Version handshake, have to do this explicitly to avoid breaking messages.
+            # Send protocol version request
+            msg = con.mav.command_long_encode(self.drone_system, self.drone_component, 512, 0,
+                                                            300, math.nan, math.nan, math.nan, math.nan, math.nan, 1)
+            con.mav.send(msg)
+            self.logger.debug(f"Sent Protocol message request {msg.get_srcSystem(), msg.get_srcComponent()}: {msg.to_dict()}")
+
+            # In theory we should listen to the response, but the main issue currently is getting two links that support mavlink 2 to actually use it, for which the response is pointless.
+            # pymavlink autoupgrades us, as soon as the mavlink 2 response is sent, and we can't receive it anyway since we're on mavlink 1 until then, which doesn't support the message.
+            # If we ever have a system that is mavlink 1 only, or there is a newer mavlink version, we should look into doing this "properly"
+
+            return True
+        except Exception as e:
+            self.logger.debug(repr(e), exc_info=True)
+
 
     def connected_to_drone(self):
         if time.time_ns() - self.time_of_last_drone < self.disconnected_thresh:
@@ -279,10 +296,7 @@ class MAVPassthrough:
                               f"{msg.fieldnames}, {msg.fieldtypes}, {msg.orders}, {msg.lengths}, "
                               f"{msg.array_lengths}, {msg.crc_extra}, {msg.unpacker}")
             return False
-        msg_class = mavutil.mavlink.mavlink_map[msg_id]
-        msg.__class__ = msg_class
         return True
-        # maybe like this?: message_class(**msg.to_dict())
 
     async def _listen_gcs(self):
         self.logger.debug("Starting to listen to GCS")
@@ -413,10 +427,11 @@ class MAVPassthrough:
     async def stop(self):
         self.logger.debug("Stopping")
         self.should_stop = True
-        if self.con_drone_in:
-            self.con_drone_in.close()
-        if self.con_gcs:
-            self.con_gcs.close()
+        for socket in self._sockets:
+            try:
+                await socket.close()
+            except TypeError:
+                pass
         for task in self.running_tasks:
             task.cancel()
         for handler in self.logging_handlers:

@@ -13,6 +13,7 @@ class WayPointType(Enum):
     POS_VEL_NED = auto()            # array [pos_n, pos_e, pos_d, vel_n, vel_e, vel_d, yaw]
     POS_VEL_ACC_NED = auto()        # array [pos_n, pos_e, pos_d, vel_n, vel_e, vel_d, acc_n, acc_e, acc_d, yaw]
     VEL_NED = auto()                # array [vel_n, vel_e, vel_d, yaw]
+    VEL_BODY = auto()
     POS_GLOBAL = auto()             # array [lat, long, amsl, yaw]
 
 
@@ -22,30 +23,21 @@ class Waypoint:
                  vel: np.ndarray | None = None,
                  acc: np.ndarray | None = None,
                  gps: np.ndarray | None = None,
-                 yaw: float | None = None):
-        # Internal data structure, form [x, y, z, xvel, yvel, zvel, xacc, yacc, zacc, lat, long, amsl, yaw]
-        self._array: np.ndarray[float] = np.empty((13,))
+                 yaw: float | None = None,
+                 yaw_rate: float | None = None,):
+        # Internal data structure, form [x, y, z, xvel, yvel, zvel, xacc, yacc, zacc, lat, long, amsl, yaw, yaw_rate]
+        self._array: np.ndarray[float] = np.empty((14,))
 
-        self._array[:] = None
-        self._array[-1] = yaw
-        match waypoint_type:
-            case WayPointType.POS_NED:
-                self._array[:3] = pos
-            case WayPointType.POS_VEL_NED:
-                self._array[:3] = pos
-                self._array[3:6] = vel
-            case WayPointType.POS_VEL_ACC_NED:
-                self._array[:3] = pos
-                self._array[3:6] = vel
-                self._array[6:9] = acc
-            case WayPointType.POS_GLOBAL:
-                self._array[9:12] = gps
-            case WayPointType.VEL_NED:
-                self._array[3:6] = vel
+        self._array[:3] = pos
+        self._array[3:6] = vel
+        self._array[6:9] = acc
+        self._array[9:12] = gps
+        self._array[12] = yaw
+        self._array[13] = yaw_rate
         self.type = waypoint_type
 
     def __str__(self):
-        return f"{self.type}, {self.pos}, {self.vel}, {self.acc}, {self.gps}, {self.yaw}"
+        return f"{self.type}, {self.pos}, {self.vel}, {self.acc}, {self.gps}, {self.yaw}, {self.yaw_rate}"
 
     @property
     def pos(self):
@@ -81,11 +73,19 @@ class Waypoint:
 
     @property
     def yaw(self):
-        return self._array[-1]
+        return self._array[12]
 
     @yaw.setter
     def yaw(self, new_yaw: float):
-        self._array[-1] = new_yaw
+        self._array[12] = new_yaw
+
+    @property
+    def yaw_rate(self):
+        return self._array[13]
+
+    @yaw_rate.setter
+    def yaw_rate(self, new_yaw_rate: float):
+        self._array[13] = new_yaw_rate
 
     def distance(self, other: "Waypoint"):
         return dist_ned(self.pos, other.pos)
