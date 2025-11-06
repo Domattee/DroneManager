@@ -39,6 +39,7 @@ class Plugin(ABC):
     def __init__(self, dm, logger, name, *args, **kwargs):
         self.dm: "dronecontrol.dronemanager.DroneManager" = dm
         self.logger = logger.getChild(self.__class__.__name__)
+        self.name = name
         self.cli_commands = {}
         self.background_functions = []
         self._running_tasks = set()

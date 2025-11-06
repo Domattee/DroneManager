@@ -56,7 +56,7 @@ class MissionPlugin(Plugin):
         """
         mission = await self.dm.load_plugin(mission_module, name, self.mission_options(), self._get_mission_class)
         if mission:
-            self.missions[name] = mission
+            self.missions[mission.name] = mission
         return mission
 
     async def status(self):
