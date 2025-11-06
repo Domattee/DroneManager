@@ -54,14 +54,14 @@ class InputMapping:
             cls.extra_axis_inputs[axis] = {method}
 
     @classmethod
-    def remove_method_to_button(cls, button: int, method: Callable):
+    def remove_method_from_button(cls, button: int, method: Callable):
         try:
             cls.extra_button_inputs[button].remove(method)
         except KeyError:
             pass
 
     @classmethod
-    def remove_method_to_axis(cls, axis: int, method: Callable):
+    def remove_method_from_axis(cls, axis: int, method: Callable):
         try:
             cls.extra_axis_inputs[axis].remove(method)
         except KeyError:
@@ -70,15 +70,41 @@ class InputMapping:
 
 class PS4Mapping(InputMapping):
 
-    thrust_axis = -1
-    yaw_axis = 0
-    forward_axis = -3
-    right_axis = 2
-    arm_button = 0
-    disarm_button = 1
-    land_button = 12
-    takeoff_button = 11
-    control_button = 5
+    thrust_axis = -1        # Left stick down
+    yaw_axis = 0            # Left stick right
+    forward_axis = -3       # Right stick down
+    right_axis = 2          # Right stick right
+    arm_button = 0          # X
+    disarm_button = 1       # Circle
+    land_button = 12        # D-Pad Down
+    takeoff_button = 11     # D-Pad up
+    control_button = 5      # PS Button
+
+    # All buttons:
+    # X: 0
+    # Circle: 1
+    # Square: 2
+    # Triangle: 3
+    # Share button: 4
+    # PS button: 5
+    # Options button: 6
+    # Pressing left stick: 7
+    # Pressing right stick: 8
+    # LB: 9
+    # RB: 10
+    # D-Pad up: 11
+    # D-Pad down: 12
+    # D-Pad left: 13
+    # D-pad right: 14
+    # Touch pad press: 15
+
+    # All Axis. Positive direction, zero at neutral, except for triggers, which are at -1 when fully released.
+    # Left Stick right: 0
+    # Left Stick down: 1
+    # Right Stick right: 2
+    # Right Stick down: 3
+    # Left Trigger: 4
+    # Right Trigger: 5
 
 
 class ControllerPlugin(Plugin):
@@ -115,6 +141,10 @@ class ControllerPlugin(Plugin):
         self._drone_name: str | None = None
         self._in_control = False
         self._mapping: InputMapping | None = None
+
+        self.print_button_axis_ids = False
+        # Set this to True to log the IDs of any button presses or axis motions. Useful for development.
+        # Axis motions can generate a lot of logs!
 
     async def _add_controller(self, dev_id: int):
         if dev_id >= pygame.joystick.get_count():
@@ -184,8 +214,8 @@ class ControllerPlugin(Plugin):
                                     disconnected = True
                                     await self._release_control()
                                     await self._remove_controller()
-                            else:
-                                self.logger.debug(f"{event.type}, {event_dict}")
+                            if self.print_button_axis_ids:
+                                self.logger.info(f"{event.type}, {event_dict}")
                         else:
                             if event.type == pygame.JOYDEVICEADDED and disconnected:
                                 disconnected = False
