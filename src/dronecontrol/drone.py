@@ -18,7 +18,8 @@ from mavsdk.telemetry import FlightMode as MAVSDKFlightMode
 from mavsdk.telemetry import FixType as MAVSDKFixType
 from mavsdk.telemetry import StatusTextType
 from mavsdk.action import ActionError, OrbitYawBehavior
-from mavsdk.offboard import PositionNedYaw, PositionGlobalYaw, VelocityNedYaw, AccelerationNed, OffboardError
+from mavsdk.offboard import PositionNedYaw, PositionGlobalYaw, VelocityNedYaw, AccelerationNed, OffboardError, \
+    VelocityBodyYawspeed
 from mavsdk.manual_control import ManualControlError
 
 from dronecontrol.utils import dist_ned, dist_gps, relative_gps
@@ -960,6 +961,9 @@ class DroneMAVSDK(Drone):
         elif setpoint_type == WayPointType.VEL_NED:
             vel_yaw = VelocityNedYaw(*setpoint.vel, setpoint.yaw)
             return await self._error_wrapper(self.system.offboard.set_velocity_ned, OffboardError, vel_yaw)
+        elif setpoint_type == WayPointType.VEL_BODY:
+            vel_yawrate = VelocityBodyYawspeed(*setpoint.vel, setpoint.yaw_rate)
+            return await self._error_wrapper(self.system.offboard.set_velocity_body, OffboardError, vel_yawrate)
         elif setpoint_type == WayPointType.POS_GLOBAL:
             latitude, longitude, amsl = setpoint.gps
             alt_type = PositionGlobalYaw.AltitudeType.AMSL
@@ -1249,6 +1253,20 @@ class DroneMAVSDK(Drone):
         self.logger.info("Landed!")
         await self.change_flight_mode("hold")
         return True
+
+    async def manual_control_position(self):
+        await self.path_follower.deactivate()
+        result = await self._error_wrapper(self.system.manual_control.start_position_control, ManualControlError)
+        return result
+
+    async def manual_control_altitude(self):
+        await self.path_follower.deactivate()
+        result = await self._error_wrapper(self.system.manual_control.start_altitude_control, ManualControlError)
+        return result
+
+    async def set_manual_control_input(self, x, y, z, r):
+        result = await self._error_wrapper(self.system.manual_control.set_manual_control_input, ManualControlError, x, y, z, r)
+        return result
 
     async def stop_execution(self):
         """ Stops all coroutines, closes all connections, etc.

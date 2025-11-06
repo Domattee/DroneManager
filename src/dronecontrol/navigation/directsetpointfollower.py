@@ -9,12 +9,14 @@ class DirectSetpointFollower(PathFollower):
     SETPOINT_TYPES = {WayPointType.POS_NED,
                       WayPointType.POS_GLOBAL,
                       WayPointType.VEL_NED,
+                      WayPointType.VEL_BODY,
                       WayPointType.POS_VEL_NED,
                       WayPointType.POS_VEL_ACC_NED}
 
     WAYPOINT_TYPES = {WayPointType.POS_NED,
                       WayPointType.POS_GLOBAL,
                       WayPointType.VEL_NED,
+                      WayPointType.VEL_BODY,
                       WayPointType.POS_VEL_NED,
                       WayPointType.POS_VEL_ACC_NED}
 

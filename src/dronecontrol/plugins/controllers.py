@@ -2,19 +2,14 @@
 
 """
 import asyncio
+import math
 
 import pygame
 
 from dronecontrol.drone import FlightMode
-from dronecontrol.navigation.core import Waypoint, WayPointType
 from dronecontrol.plugin import Plugin
 from dronecontrol.utils import coroutine_awaiter
 
-# TODO: Actual control loop
-# TODO: Controller state?
-# TODO: Different controllers?
-# TODO: Control mapping?
-# TODO: Hotplugging?
 
 DEFAULT_FREQUENCY = 50
 
@@ -22,6 +17,7 @@ DEFAULT_FREQUENCY = 50
 class InputMapping:
     """ Map actions to controller axis"""
     # TODO: UI for keybinds
+    # TODO: Methods for other components of the software to add commands to keybinds
 
     thrust_axis: int = None
     yaw_axis: int = None
@@ -36,9 +32,9 @@ class InputMapping:
 
 class PS4Mapping(InputMapping):
 
-    thrust_axis = 1
+    thrust_axis = -1
     yaw_axis = 0
-    forward_axis = 3
+    forward_axis = -3
     right_axis = 2
     arm_button = 0
     disarm_button = 1
@@ -64,16 +60,18 @@ class ControllerPlugin(Plugin):
         self.controller: pygame.joystick.JoystickType | None = None
         self.cli_commands = {
             "check": self._check_controllers,
-            "connect": self._add_controller,
+            "set": self._add_controller,
             "disconnect": self._remove_controller,
-            "set": self._set_drone,
+            "drone": self._set_drone,
             "status": self.status,
         }
         self._relevant_events = [pygame.JOYAXISMOTION,
                                  pygame.JOYBUTTONUP,
                                  pygame.JOYBUTTONDOWN,
                                  pygame.JOYHATMOTION,
-                                 pygame.JOYBALLMOTION]
+                                 pygame.JOYBALLMOTION,
+                                 pygame.JOYDEVICEADDED,
+                                 pygame.JOYDEVICEREMOVED]
         self._frequency = DEFAULT_FREQUENCY
         self._control_frequency = DEFAULT_FREQUENCY
         self._drone_name: str | None = None
@@ -127,12 +125,13 @@ class ControllerPlugin(Plugin):
         self.logger.info(f"Detected controllers: {[f'{i}: {pygame.joystick.Joystick(i).get_name()}{new_line}' for i in range(pygame.joystick.get_count())]}")
 
     async def _event_processor(self):
+        disconnected = False
         while True:
             try:
                 for event in pygame.event.get():
                     if event.type in self._relevant_events:
                         event_dict = event.dict
-                        if event_dict["instance_id"] == self.controller.get_instance_id():
+                        if "instance_id" in event_dict and event_dict["instance_id"] == self.controller.get_instance_id():
                             if event.type == pygame.JOYBUTTONDOWN:
                                 self._process_button_press(event_dict["button"])
                             elif event.type == pygame.JOYBUTTONUP:
@@ -141,8 +140,21 @@ class ControllerPlugin(Plugin):
                                 #self.logger.info(f"Released button {event_dict["button"]}")
                             elif event.type == pygame.JOYAXISMOTION:
                                 pass  # Axis motion is handled in the control loop
+                            elif event.type == pygame.JOYDEVICEREMOVED:
+                                if event_dict["instance_id"] == self.controller.get_instance_id():
+                                    self.logger.warning("Controller disconnected!")
+                                    disconnected = True
+                                    await self._release_control()
+                                    await self._remove_controller()
                             else:
-                                self.logger.info(f"{event.type}, {event_dict}")
+                                self.logger.debug(f"{event.type}, {event_dict}")
+                        else:
+                            if event.type == pygame.JOYDEVICEADDED and disconnected:
+                                disconnected = False
+                                await self._add_controller(event_dict["device_index"])
+                                await self._take_control()
+                            else:
+                                self.logger.debug(f"{event.type}, {event_dict}")
             except Exception as e:
                 self.logger.warning("Exception processing controller event!")
                 self.logger.debug(repr(e), exc_info=True)
@@ -160,16 +172,16 @@ class ControllerPlugin(Plugin):
                 action = self._take_control()
             toggle_control = True
         elif button == self._mapping.arm_button:
-            self.logger.info("Arm button pressed")
+            self.logger.debug("Arm button pressed")
             action = self.dm.arm(self._drone_name)
         elif button == self._mapping.disarm_button:
-            self.logger.info("Disarm button pressed")
+            self.logger.debug("Disarm button pressed")
             action = self.dm.disarm(self._drone_name)
         elif button == self._mapping.land_button:
-            self.logger.info("Land button pressed")
+            self.logger.debug("Land button pressed")
             action = self.dm.land(self._drone_name)
         elif button == self._mapping.takeoff_button:
-            self.logger.info("Takeoff button pressed")
+            self.logger.debug("Takeoff button pressed")
             action = self.dm.takeoff(self._drone_name)
         else:
             self.logger.info(f"Pressed unbound button {button}")
@@ -205,12 +217,8 @@ class ControllerPlugin(Plugin):
             self.logger.warning("Can't take control of disconnected drones!")
             return
 
-        # Change into offboard mode if we aren't already
-        if self.dm.drones[self._drone_name].flightmode != FlightMode.OFFBOARD:
-            cur_pos = self.dm.drones[self._drone_name].position_ned
-            cur_yaw = self.dm.drones[self._drone_name].attitude[2]
-            await self.dm.drones[self._drone_name].set_setpoint(Waypoint(WayPointType.POS_NED, pos=cur_pos, yaw=cur_yaw))
-            await self.dm.drones[self._drone_name].change_flight_mode("offboard")
+        await self.dm.drones[self._drone_name].manual_control_position()
+
         self.logger.info(f"Took control of {self._drone_name}")
         self._in_control = True
 
@@ -224,20 +232,39 @@ class ControllerPlugin(Plugin):
         """ Take controller inputs to handle motion by setting velocity setpoints.
 
         Actions are performed as soon as the button press is detected, but continuous inputs, such as sticks, are
-        updated here at self._control_frequency. This deactivates """
+        updated here at self._control_frequency. """
+        # TODO: Usual arm and disarm with moving stick bottom right and bottom left
+        while True:
+            try:
+                await asyncio.sleep(1/self._control_frequency)
+                if self._in_control and self._drone_name is not None:
+                    # drone_config = self._drone_config
+                    vertical_input = self.stick_response(self._mapping.thrust_axis)
+                    yaw_input = self.stick_response(self._mapping.yaw_axis)
+                    right_input = self.stick_response(self._mapping.right_axis)
+                    forward_input = self.stick_response(self._mapping.forward_axis)
 
-        if self._in_control:
-            # TODO: All of it
-            # TODO: Make sure that the drone obeys configured acceleration and jerk limits with ruckig somehow
-            pass
-        await asyncio.sleep(self._control_frequency)
+                    # If we have non-zero inputs and we aren't in the appropriate mode, put us into appropriate mode
+                    if abs(vertical_input) > 0.01 or abs(yaw_input) > 0.01 or abs(right_input) > 0.01 or abs(forward_input) > 0.01:
+                        if self.dm.drones[self._drone_name].flightmode != FlightMode.POSCTL:
+                            await self.dm.drones[self._drone_name].manual_control_position()
 
-    def stick_response(self, value: float) -> float:
-        """ Linear stick response with -5 to 5% deadzone """
-        if abs(value) < 0.05:
-            return 0.0
-        else:
-            return value
+                    vertical_input = (vertical_input + 1) / 2  # Scale from -1/1 to 0/1
+
+                    self.logger.debug(forward_input, right_input, vertical_input, yaw_input)
+                    await self.dm.drones[self._drone_name].set_manual_control_input(forward_input, right_input, vertical_input, yaw_input)
+            except Exception as e:
+                self.logger.warning("Error in control loop for joystick!")
+                self.logger.debug(repr(e), exc_info=True)
+
+    def stick_response(self, axis: int) -> float:
+        """ Linear stick response with -10 to 10% deadzone.
+
+        Axis should be the joystick axis. A negative number means that the response is inverted. """
+        value = self.controller.get_axis(abs(axis))
+        if abs(value) < 0.1:
+            value = 0.0
+        return value * math.copysign(1, axis)
 
     async def close(self):
         if self.controller is not None:
