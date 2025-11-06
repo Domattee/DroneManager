@@ -3,6 +3,7 @@
 """
 import asyncio
 import math
+from collections.abc import Callable
 
 import pygame
 
@@ -17,7 +18,6 @@ DEFAULT_FREQUENCY = 50
 class InputMapping:
     """ Map actions to controller axis"""
     # TODO: UI for keybinds
-    # TODO: Methods for other components of the software to add commands to keybinds
 
     thrust_axis: int = None
     yaw_axis: int = None
@@ -28,6 +28,44 @@ class InputMapping:
     land_button: int = None
     takeoff_button: int = None
     control_button: int = None
+
+    extra_button_inputs: dict[int, set[Callable]] = {}
+    # Functions in this dict are called every time their button is pressed. They should not take any arguments. These
+    # should be simple functions, not coroutines. They should also complete very quickly. Note that no check is
+    # performed to see if the drone is controllable!
+
+    extra_axis_inputs: dict[int, set[Callable]] = {}
+    # Functions in this dict are called every timestep in the control loop. They should take one argument,
+    # corresponding to the output of the axis. These should be simple functions, not coroutines. They should also
+    # complete very quickly. Note that no check is performed to see if the drone is controllable!
+
+    @classmethod
+    def add_method_to_button(cls, button: int, method: Callable):
+        if button in cls.extra_button_inputs:
+            cls.extra_button_inputs[button].add(method)
+        else:
+            cls.extra_button_inputs[button] = {method}
+
+    @classmethod
+    def add_method_to_axis(cls, axis: int, method: Callable):
+        if axis in cls.extra_axis_inputs:
+            cls.extra_axis_inputs[axis].add(method)
+        else:
+            cls.extra_axis_inputs[axis] = {method}
+
+    @classmethod
+    def remove_method_to_button(cls, button: int, method: Callable):
+        try:
+            cls.extra_button_inputs[button].remove(method)
+        except KeyError:
+            pass
+
+    @classmethod
+    def remove_method_to_axis(cls, axis: int, method: Callable):
+        try:
+            cls.extra_axis_inputs[axis].remove(method)
+        except KeyError:
+            pass
 
 
 class PS4Mapping(InputMapping):
@@ -196,7 +234,7 @@ class ControllerPlugin(Plugin):
             if not self.dm.drones[self._drone_name].is_connected:
                 self.logger.warning("No connection to drone!")
 
-        # Do the action if we have a action and either can do it, or are toggling control (which is checked separately)
+        # Do the action if we have an action and either can do it, or are toggling control (which is checked separately)
         if action is not None and self._drone_name is not None and (can_do_actions or toggle_control):
             # Cancel anything the drone might be doing
             self.dm.drones[self._drone_name].clear_queue()
@@ -205,6 +243,16 @@ class ControllerPlugin(Plugin):
             action_awaiter = coroutine_awaiter(action_task, self.logger)
             self._running_tasks.add(action_task)
             self._running_tasks.add(action_awaiter)
+
+        # Also perform whatever other actions are bound to this key
+        if button in self._mapping.extra_button_inputs:
+            for func in self._mapping.extra_button_inputs[button]:
+                try:
+                    func()
+                except Exception as e:
+                    self.logger.warning(f"Encountered an exception processing function {func} for button {button}")
+                    self.logger.debug(repr(e), exc_info=True)
+
         return True
 
     async def _take_control(self):
@@ -244,7 +292,7 @@ class ControllerPlugin(Plugin):
                     right_input = self.stick_response(self._mapping.right_axis)
                     forward_input = self.stick_response(self._mapping.forward_axis)
 
-                    # If we have non-zero inputs and we aren't in the appropriate mode, put us into appropriate mode
+                    # If we have non-zero inputs, and we aren't in the appropriate mode, put us into appropriate mode
                     if abs(vertical_input) > 0.01 or abs(yaw_input) > 0.01 or abs(right_input) > 0.01 or abs(forward_input) > 0.01:
                         if self.dm.drones[self._drone_name].flightmode != FlightMode.POSCTL:
                             await self.dm.drones[self._drone_name].manual_control_position()
@@ -253,16 +301,27 @@ class ControllerPlugin(Plugin):
 
                     self.logger.debug(forward_input, right_input, vertical_input, yaw_input)
                     await self.dm.drones[self._drone_name].set_manual_control_input(forward_input, right_input, vertical_input, yaw_input)
+
+                    # Also perform whatever other functions are bound to any other axis
+                    for axis in self._mapping.extra_axis_inputs:
+                        axis_value = self.controller.get_axis(axis)
+                        for func in self._mapping.extra_axis_inputs[axis]:
+                            try:
+                                func(axis_value)
+                            except Exception as e:
+                                self.logger.warning(
+                                    f"Encountered an exception processing function {func} for axis {axis} with value {axis_value}")
+                                self.logger.debug(repr(e), exc_info=True)
             except Exception as e:
                 self.logger.warning("Error in control loop for joystick!")
                 self.logger.debug(repr(e), exc_info=True)
 
     def stick_response(self, axis: int) -> float:
-        """ Linear stick response with -10 to 10% deadzone.
+        """ Linear stick response with -5 to 5% dead zone.
 
         Axis should be the joystick axis. A negative number means that the response is inverted. """
         value = self.controller.get_axis(abs(axis))
-        if abs(value) < 0.1:
+        if abs(value) < 0.05:
             value = 0.0
         return value * math.copysign(1, axis)
 

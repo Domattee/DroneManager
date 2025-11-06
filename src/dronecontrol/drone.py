@@ -6,7 +6,6 @@ import os.path
 import threading
 import platform
 import time
-import json
 from subprocess import Popen, DEVNULL
 from abc import ABC, abstractmethod
 from typing import Coroutine
@@ -27,10 +26,9 @@ from dronecontrol.utils import parse_address, common_formatter, get_free_port
 from dronecontrol.utils import LOG_DIR
 from dronecontrol.mavpassthrough import MAVPassthrough
 from dronecontrol.navigation.core import WayPointType, Waypoint, PathGenerator, PathFollower, Fence
-from dronecontrol.navigation.directsetpointfollower import DirectSetpointFollower
 from dronecontrol.navigation.directtargetgenerator import DirectTargetGenerator
 from dronecontrol.navigation.gmp3generator import GMP3Generator
-from dronecontrol.navigation.ruckigfollower import RuckigOfflineFollower, RuckigOnlineFollower
+from dronecontrol.navigation.ruckigfollower import RuckigOfflineFollower
 
 import logging
 
