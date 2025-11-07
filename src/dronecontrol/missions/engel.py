@@ -4,6 +4,7 @@ Functions to retake the same position as in a previous image and take another im
 """
 import asyncio
 import pathlib
+from collections.abc import Callable
 
 import numpy as np
 import json
@@ -17,7 +18,8 @@ from dronecontrol.plugins.mission import Mission
 from dronecontrol.sensors.ecowitt import WeatherData
 from dronecontrol.plugins.camera import CameraParameter, Camera
 from dronecontrol.plugins.gimbal import Gimbal
-from dronecontrol.utils import LOG_DIR
+from dronecontrol.plugins.controllers import PS4Mapping
+from dronecontrol.utils import LOG_DIR, coroutine_awaiter
 
 
 CAPTURE_DIR = os.path.join(LOG_DIR, "engel_data_captures")
@@ -53,6 +55,7 @@ class EngelImageInfo:
         gimbal_yaw = json_dict["gimbal_yaw_absolute"]
         cam_file = json_dict["file_location"]
         return cls(img_time, gps, drone_att, gimbal_att, gimbal_yaw, cam_file)
+
 
 class ENGELCaptureInfo:
 
@@ -100,7 +103,7 @@ class ENGELDataMission(Mission):
 
     """
 
-    DEPENDENCIES = ["gimbal", "camera", "sensor.ecowitt"]
+    DEPENDENCIES = ["gimbal", "camera", "sensor.ecowitt", "controllers"]
 
     def __init__(self, dm, logger, name="engel"):
         super().__init__(dm, logger, name)
@@ -120,6 +123,7 @@ class ENGELDataMission(Mission):
         self.launch_point: Waypoint | None = None  # A dictionary with latitude and longitude and amsl values
         self.rtl_height = 10  # Height above launch point for return
         self.background_functions = [
+            self._set_gimbal_rates_controller(),
         ]
         self.drone_name = None
         self.gimbal: Gimbal | None = None
@@ -132,6 +136,23 @@ class ENGELDataMission(Mission):
         self.loaded_captures: list[ENGELCaptureInfo] = []  # Images taken during a previous session, intended to be replayed
         self.loaded_file: str | None = None
         self._current_capture: ENGELCaptureInfo | None = None
+
+        # Controller stuff
+        self._added_controller_buttons: dict[int, Callable] = {}
+        self._added_controller_axis_methods: set[Callable] = set()
+
+        # Gimbal is controlled with triggers, press more to move more. Press square to switch between pitch and yaw control.
+        self._gimbal_rate = 0
+        self._gimbal_max_rate = 10  # Maximum rotation rate of the gimbal in degrees per second
+        self._control_gimbal_pitch = True  # If false, control gimbal yaw instead
+        self._gimbal_frequency = 20  # Default frequency until we get an actual drone
+
+    async def close(self):
+        for button, func in self._added_controller_buttons.items():
+            PS4Mapping.remove_method_from_button(button, func)
+        for func in self._added_controller_axis_methods:
+            PS4Mapping.remove_axis_method(func)
+        await super().close()
 
     async def connect(self):
         """ Connect to the Leitstand sensor"""
@@ -407,6 +428,14 @@ class ENGELDataMission(Mission):
         """ Print information, such as how many captures we have taken"""
         self.logger.info(f"Drones {self.drones}. {len(self.captures)} current, {len(self.loaded_captures)} old captures.")
 
+    def _register_controller_inputs(self):
+        PS4Mapping.add_method_to_button(3, self._do_capture_controller)  # Do capture on Triangle
+        self._added_controller_buttons[3] = self._do_capture_controller
+        PS4Mapping.add_method_to_button(2, self._swap_gimbal_axis)
+        self._added_controller_buttons[2] = self._swap_gimbal_axis
+        PS4Mapping.add_axis_method(self._get_gimbal_rate, [4, 5])
+        self._added_controller_axis_methods.add(self._get_gimbal_rate)
+
     async def add_drones(self, names: list[str]):
         """ Adds camera and gimbal objects and stores current position for rtl"""
         if len(names) + len(self.drones) > 1:
@@ -428,6 +457,9 @@ class ENGELDataMission(Mission):
                     self.launch_point = Waypoint(WayPointType.POS_GLOBAL, gps=rtl_pos, yaw=cur_yaw)
                     await self.gimbal.take_control()
                     await self.gimbal.set_gimbal_mode("lock")
+                    self._gimbal_frequency = self.dm.drones[self.drone_name].position_update_rate
+                    self._register_controller_inputs()
+                    self.dm.controllers.set_drone(self.drone_name)
                     self.logger.info(f"Added drone {name} to mission!")
                     return True
                 else:
@@ -453,3 +485,55 @@ class ENGELDataMission(Mission):
 
     async def mission_ready(self, drone: str):
         return drone in self.drones
+
+    # Controller functions
+
+    def _do_capture_controller(self):
+        capture_task = asyncio.create_task(self.do_capture())
+        capture_awaiter = asyncio.create_task(coroutine_awaiter(capture_task, self.logger))
+        self._running_tasks.add(capture_task)
+        self._running_tasks.add(capture_awaiter)
+
+    def _swap_gimbal_axis(self):
+        self.logger.info(f"Now controlling gimbal {'Pitch' if self._control_gimbal_pitch else 'Yaw'}")
+        self._control_gimbal_pitch = not self._control_gimbal_pitch
+
+    def _get_gimbal_rate(self, values):
+        # If the trigger is depressed enough to be positive only:
+        l_trigger, r_trigger = values
+        l_value = self._trigger_response_function(l_trigger)
+        r_value = self._trigger_response_function(r_trigger)
+        final_value = r_value - l_value
+        self._gimbal_rate = final_value * self._gimbal_max_rate
+
+    def _trigger_response_function(self, value):
+        # Controllers start at -1 and go to +1
+        value = (value + 1) / 2
+        if value < 0.05:
+            value = 0
+        value *= value
+        if value > 1:
+            value = 1
+        return value
+
+    async def _set_gimbal_rates_controller(self):
+        controlling_rates = False
+        while True:
+            try:
+                if abs(self._gimbal_rate) > 0.05:
+                    controlling_rates = True
+                    yaw_rate = 0
+                    pitch_rate = 0
+                    if self._control_gimbal_pitch:
+                        yaw_rate = self._gimbal_rate
+                    else:
+                        pitch_rate = self._gimbal_rate
+                    await self.gimbal.set_gimbal_rates(pitch_rate, yaw_rate)
+                else:
+                    if controlling_rates:
+                        await self.gimbal.set_gimbal_rates(0, 0)
+                        controlling_rates = False
+            except Exception as e:
+                self.logger.warning("Exception setting gimbal rates from controller!")
+                self.logger.debug(repr(e), exc_info = True)
+            await asyncio.sleep(1/self._gimbal_frequency)
