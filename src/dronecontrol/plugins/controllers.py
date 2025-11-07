@@ -34,7 +34,7 @@ class InputMapping:
     # should be simple functions, not coroutines. They should also complete very quickly. Note that no check is
     # performed to see if the drone is controllable!
 
-    extra_axis_inputs: dict[int, set[Callable]] = {}
+    extra_axis_inputs: dict[Callable, list[int]] = {}
     # Functions in this dict are called every timestep in the control loop. They should take one argument,
     # corresponding to the output of the axis. These should be simple functions, not coroutines. They should also
     # complete very quickly. Note that no check is performed to see if the drone is controllable!
@@ -47,11 +47,8 @@ class InputMapping:
             cls.extra_button_inputs[button] = {method}
 
     @classmethod
-    def add_method_to_axis(cls, axis: int, method: Callable):
-        if axis in cls.extra_axis_inputs:
-            cls.extra_axis_inputs[axis].add(method)
-        else:
-            cls.extra_axis_inputs[axis] = {method}
+    def add_axis_method(cls, method: Callable, axes: list[int]):
+        cls.extra_axis_inputs[method] = axes
 
     @classmethod
     def remove_method_from_button(cls, button: int, method: Callable):
@@ -61,9 +58,9 @@ class InputMapping:
             pass
 
     @classmethod
-    def remove_method_from_axis(cls, axis: int, method: Callable):
+    def remove_axis_method(cls, method: Callable):
         try:
-            cls.extra_axis_inputs[axis].remove(method)
+            cls.extra_axis_inputs.pop(method)
         except KeyError:
             pass
 
@@ -124,9 +121,9 @@ class ControllerPlugin(Plugin):
         self.controller: pygame.joystick.JoystickType | None = None
         self.cli_commands = {
             "check": self._check_controllers,
-            "set": self._add_controller,
-            "disconnect": self._remove_controller,
-            "drone": self._set_drone,
+            "set": self.add_controller,
+            "disconnect": self.remove_controller,
+            "drone": self.set_drone,
             "status": self.status,
         }
         self._relevant_events = [pygame.JOYAXISMOTION,
@@ -146,11 +143,11 @@ class ControllerPlugin(Plugin):
         # Set this to True to log the IDs of any button presses or axis motions. Useful for development.
         # Axis motions can generate a lot of logs!
 
-    async def _add_controller(self, dev_id: int):
+    async def add_controller(self, dev_id: int):
         if dev_id >= pygame.joystick.get_count():
             self.logger.warning(f"No controller option {dev_id}, see control-check")
             return False
-        await self._remove_controller()
+        await self.remove_controller()
         control_good = False
         self.controller = pygame.joystick.Joystick(dev_id)
         if self.controller.get_name() == "PS4 Controller":
@@ -165,7 +162,7 @@ class ControllerPlugin(Plugin):
             self.controller.rumble(0.5, 0.5, 1)
         return True
 
-    async def _remove_controller(self):
+    async def remove_controller(self):
         if self.controller is not None:
             self.logger.debug("Disconnecting from controller")
             controller = self.controller
@@ -175,7 +172,7 @@ class ControllerPlugin(Plugin):
     async def status(self):
         self.logger.info(f"Drone: {self._drone_name}. Control {self._in_control}. Controller: {self.controller}")
 
-    async def _set_drone(self, drone: str):
+    async def set_drone(self, drone: str):
         """ Set which drone is controlled by the controller. """
         if drone not in self.dm.drones:
             self.logger.warning(f"No drone named {drone}")
@@ -213,13 +210,13 @@ class ControllerPlugin(Plugin):
                                     self.logger.warning("Controller disconnected!")
                                     disconnected = True
                                     await self._release_control()
-                                    await self._remove_controller()
+                                    await self.remove_controller()
                             if self.print_button_axis_ids:
                                 self.logger.info(f"{event.type}, {event_dict}")
                         else:
                             if event.type == pygame.JOYDEVICEADDED and disconnected:
                                 disconnected = False
-                                await self._add_controller(event_dict["device_index"])
+                                await self.add_controller(event_dict["device_index"])
                                 await self._take_control()
                             else:
                                 self.logger.debug(f"{event.type}, {event_dict}")
@@ -333,15 +330,14 @@ class ControllerPlugin(Plugin):
                     await self.dm.drones[self._drone_name].set_manual_control_input(forward_input, right_input, vertical_input, yaw_input)
 
                     # Also perform whatever other functions are bound to any other axis
-                    for axis in self._mapping.extra_axis_inputs:
-                        axis_value = self.controller.get_axis(axis)
-                        for func in self._mapping.extra_axis_inputs[axis]:
-                            try:
-                                func(axis_value)
-                            except Exception as e:
-                                self.logger.warning(
-                                    f"Encountered an exception processing function {func} for axis {axis} with value {axis_value}")
-                                self.logger.debug(repr(e), exc_info=True)
+                    for func, axes in self._mapping.extra_axis_inputs.items():
+                        values = [self.controller.get_axis(axis) for axis in axes]
+                        try:
+                            func(values)
+                        except Exception as e:
+                            self.logger.warning(
+                                f"Encountered an exception processing function {func} controllers")
+                            self.logger.debug(repr(e), exc_info=True)
             except Exception as e:
                 self.logger.warning("Error in control loop for joystick!")
                 self.logger.debug(repr(e), exc_info=True)

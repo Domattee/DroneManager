@@ -139,7 +139,7 @@ class ENGELDataMission(Mission):
 
         # Controller stuff
         self._added_controller_buttons: dict[int, Callable] = {}
-        self._added_controller_axis: dict[int, Callable] = {}
+        self._added_controller_axis_methods: set[Callable] = set()
 
         # Gimbal is controlled with triggers, press more to move more. Press square to switch between pitch and yaw control.
         self._gimbal_rate = 0
@@ -147,20 +147,11 @@ class ENGELDataMission(Mission):
         self._control_gimbal_pitch = True  # If false, control gimbal yaw instead
         self._gimbal_frequency = 20  # Default frequency until we get an actual drone
 
-        PS4Mapping.add_method_to_button(3, self._do_capture_controller)  # Do capture on Triangle
-        self._added_controller_buttons[3] = self._do_capture_controller
-        PS4Mapping.add_method_to_button(2, self._swap_gimbal_axis)
-        self._added_controller_buttons[2] = self._swap_gimbal_axis
-        PS4Mapping.add_method_to_axis(4, self._get_gimbal_rate_left)
-        PS4Mapping.add_method_to_axis(5, self._get_gimbal_rate_right)
-        self._added_controller_axis[4] = self._get_gimbal_rate_left
-        self._added_controller_axis[5] = self._get_gimbal_rate_right
-
     async def close(self):
         for button, func in self._added_controller_buttons.items():
             PS4Mapping.remove_method_from_button(button, func)
-        for axis, func in self._added_controller_axis.items():
-            PS4Mapping.remove_method_from_axis(axis, func)
+        for func in self._added_controller_axis_methods:
+            PS4Mapping.remove_axis_method(func)
         await super().close()
 
     async def connect(self):
@@ -437,6 +428,14 @@ class ENGELDataMission(Mission):
         """ Print information, such as how many captures we have taken"""
         self.logger.info(f"Drones {self.drones}. {len(self.captures)} current, {len(self.loaded_captures)} old captures.")
 
+    def _register_controller_inputs(self):
+        PS4Mapping.add_method_to_button(3, self._do_capture_controller)  # Do capture on Triangle
+        self._added_controller_buttons[3] = self._do_capture_controller
+        PS4Mapping.add_method_to_button(2, self._swap_gimbal_axis)
+        self._added_controller_buttons[2] = self._swap_gimbal_axis
+        PS4Mapping.add_axis_method(self._get_gimbal_rate, [4, 5])
+        self._added_controller_axis_methods.add(self._get_gimbal_rate)
+
     async def add_drones(self, names: list[str]):
         """ Adds camera and gimbal objects and stores current position for rtl"""
         if len(names) + len(self.drones) > 1:
@@ -459,6 +458,8 @@ class ENGELDataMission(Mission):
                     await self.gimbal.take_control()
                     await self.gimbal.set_gimbal_mode("lock")
                     self._gimbal_frequency = self.dm.drones[self.drone_name].position_update_rate
+                    self._register_controller_inputs()
+                    self.dm.controllers.set_drone(self.drone_name)
                     self.logger.info(f"Added drone {name} to mission!")
                     return True
                 else:
@@ -497,16 +498,23 @@ class ENGELDataMission(Mission):
         self.logger.info(f"Now controlling gimbal {'Pitch' if self._control_gimbal_pitch else 'Yaw'}")
         self._control_gimbal_pitch = not self._control_gimbal_pitch
 
-    def _get_gimbal_rate_left(self, value):
+    def _get_gimbal_rate(self, values):
         # If the trigger is depressed enough to be positive only:
-        if value < 0:
-            value = 0
-        self._gimbal_rate = -value * self._gimbal_max_rate
+        l_trigger, r_trigger = values
+        l_value = self._trigger_response_function(l_trigger)
+        r_value = self._trigger_response_function(r_trigger)
+        final_value = r_value - l_value
+        self._gimbal_rate = final_value * self._gimbal_max_rate
 
-    def _get_gimbal_rate_right(self, value):
-        if value < 0:
+    def _trigger_response_function(self, value):
+        # Controllers start at -1 and go to +1
+        value = (value + 1) / 2
+        if value < 0.05:
             value = 0
-        self._gimbal_rate = value * self._gimbal_max_rate
+        value *= value
+        if value > 1:
+            value = 1
+        return value
 
     async def _set_gimbal_rates_controller(self):
         controlling_rates = False
