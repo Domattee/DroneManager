@@ -7,7 +7,7 @@ A package to connect to and control multiple drones.
 - [Installation](#installation)
 - [Usage](#usage)
   - [Terminal Interface](#terminal-interface)
-  - [Configuration file](#drone-config)
+  - [Configuration file](#configuration-file)
   - [Plugins](#plugins)
 - [Examples](#examples)
   
@@ -84,7 +84,7 @@ Otherwise identical to `flyto`.
 
 And many more!
 
-### Drone config
+### Configuration file
 
 To simply working with a variety of drones, a number of parameters can be set per-drone in a config file. This allows you 
 to save a name with connection string and a number of other parameters, such as acceleration limits, which will be loaded
