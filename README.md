@@ -4,12 +4,12 @@ A package to connect to and control multiple drones.
 
 ## Table of Contents:
 
-- [Installation](##Installation)
-- [Usage](##Usage)
-  - [Terminal Interface](###Terminal-interface)
-  - [Configuration file](###Drone-config)
-  - [Plugins](###Plugins)
-- [Examples](##Examples)
+- [Installation](#installation)
+- [Usage](#usage)
+  - [Terminal Interface](#terminal-interface)
+  - [Configuration file](#drone-config)
+  - [Plugins](#plugins)
+- [Examples](#examples)
   
 
 ## Installation
