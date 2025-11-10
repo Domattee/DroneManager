@@ -2,6 +2,16 @@
 
 A package to connect to and control multiple drones.
 
+## Table of Contents:
+
+- [Installation](##Installation)
+- [Usage](##Usage)
+  - [Terminal Interface](###Terminal-interface)
+  - [Configuration file](###Drone-config)
+  - [Plugins](###Plugins)
+- [Examples](##Examples)
+  
+
 ## Installation
 
 To install this package, simply clone this repository, move into the root directory and then install with pip:
@@ -74,12 +84,13 @@ Otherwise identical to `flyto`.
 
 And many more!
 
-#### Drone config
+### Drone config
 
 To simply working with a variety of drones, a number of parameters can be set per-drone in a config file. This allows you 
 to save a name with connection string and a number of other parameters, such as acceleration limits, which will be loaded
 and used automatically when `connect` with a corresponding name is called.
-#### Plugins
+
+### Plugins
 
 DroneManager comes with a plugin system for adding extra functionality! The core element are plugin modules, located in 
 the "plugins" folder. Each plugin module contains one plugin class, which is a subclass of `plugin.Plugin`, and defines 
@@ -99,6 +110,8 @@ their own folder "missions". Do not try out missions with real drones without un
 - `mission-load <name> <label?>`: Load a mission by name. This must match one of the missions returned by 
 `mission-status`. The optional parameter `label` can be used to assign the mission a specific name. Each mission must 
 have a unique name, so this allows multiple missions of the same "type".
+
+## Examples
 
 ### UAM Demo
 
