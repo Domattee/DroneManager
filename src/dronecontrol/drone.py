@@ -33,7 +33,7 @@ from dronecontrol.navigation.ruckigfollower import RuckigOfflineFollower
 import logging
 
 _cur_dir = os.path.dirname(os.path.abspath(__file__))
-_mav_server_file = os.path.join(_cur_dir, "mavsdk_server_bin.exe")
+_mav_server_file = f'"{os.path.join(_cur_dir, "mavsdk_server_bin.exe")}"'
 
 
 # TODO: Separate activate/deactivate for follower algorithm, currently can only be activated by move/flyto and cannot
@@ -625,6 +625,7 @@ class DroneMAVSDK(Drone):
                                   f"connection {mavsdk_passthrough_string}")
             if self.server_addr is None and platform.system() == "Windows":
                 try:
+                    self.logger.debug(f"On windows, using local server file {_mav_server_file}")
                     self._server_process = Popen(f"{_mav_server_file} -p {self.server_port} {mavsdk_passthrough_string}",
                                                  stdout=DEVNULL, stderr=DEVNULL)
                     self.server_addr = "127.0.0.1"
@@ -643,7 +644,7 @@ class DroneMAVSDK(Drone):
                 # Wait to try and make sure that the mavsdk server has started before booting up passthrough
                 await asyncio.sleep(0.5)
                 self.logger.debug(
-                    f"Connecting passthrough to drone @{loc}:{appendix} and MAVSDK server @ {passthrough_gcs_string}")
+                    f"Connecting passthrough to drone @{loc}:{appendix} and MAVSDK server @{passthrough_gcs_string}")
                 self.mav_conn.connect_drone(loc, appendix, scheme=scheme)
                 self.mav_conn.connect_gcs(passthrough_gcs_string)
 

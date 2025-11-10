@@ -123,7 +123,7 @@ class UDPPlugin(Plugin):
             drone_data[drone_name] = {
                 "position": drone.position_ned.tolist(),
                 "speed": drone.speed,
-                "attitude": drone.attitude,
+                "attitude": drone.attitude.tolist(),
                 "heading": drone.attitude[2],
                 "mode": drone.flightmode.name,
                 "conn": drone.is_connected,

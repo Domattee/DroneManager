@@ -177,6 +177,7 @@ class CommandScreen(Screen):
         connect_parser.add_argument("drone", type=str, help="Name for the drone.")
         connect_parser.add_argument("drone_address", type=str, nargs='?',
                                     help="Connection string. Something like udp://:14540")
+        connect_parser.add_argument("-f", "--frequency", type=float, default=None, help="Telemetry frequency in Hz.")
         connect_parser.add_argument("-sa", "--server_address", type=str, default=None,
                                     help="Address for the mavsdk server. If omitted, a server is started "
                                          "automatically. Use this only if you already have a server for this drone "
@@ -415,6 +416,7 @@ class CommandScreen(Screen):
                         log_messages = False
                 tmp = asyncio.create_task(self.dm.connect_to_drone(args.drone, args.server_address,
                                                                    args.server_port, address, args.timeout,
+                                                                   telemetry_frequency=args.frequency,
                                                                    log_messages=log_messages))
             elif command == "disconnect":
                 tmp = asyncio.create_task(self.dm.disconnect(args.drones, force=args.force))

@@ -110,6 +110,7 @@ class DroneManager:
                                mavsdk_server_port: int | None,
                                drone_address: str,
                                timeout: float,
+                               telemetry_frequency: float | None = None,
                                log_messages = True):
         try:
             scheme, parsed_addr, parsed_port = parse_address(string=drone_address)
@@ -142,6 +143,11 @@ class DroneManager:
                     self.logger.debug("Found drone config, using parameters...")
                 else:
                     config = self.drone_configs["default"]
+                if telemetry_frequency is not None:
+                    if telemetry_frequency < 2:
+                        self.logger.error("Can't have a telemetry rate of less than 2!")
+                    else:
+                        config.position_rate = telemetry_frequency
                 drone = self.drone_class(name, mavsdk_server_address, mavsdk_server_port, config=config)
                 connected = None
                 try:
