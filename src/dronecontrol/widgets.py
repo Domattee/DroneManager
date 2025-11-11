@@ -14,6 +14,11 @@ class ArgumentParserError(Exception):
     pass
 
 
+# Dummy error to stop parsing
+class PrintHelpInsteadOfParsingError(Exception):
+    pass
+
+
 class ArgParser(argparse.ArgumentParser):
 
     def __init__(self, *args, logger = None, **kwargs):
@@ -36,6 +41,7 @@ class ArgParser(argparse.ArgumentParser):
         if file is None:
             file = (self.logger, logging.INFO)
         self._print_message(self.format_help(), file)
+        raise PrintHelpInsteadOfParsingError()
 
     def _print_message(self, message, file=None):
         if message:
@@ -128,11 +134,11 @@ class DroneOverview(Static):
     COLUMN_ALIGN = ["<", ">", ">", ">", ">", ">", ">"]
     COLUMN_SPACING = 3
 
-    def __init__(self, drone, update_frequency, *args, **kwargs):
+    def __init__(self, drone, update_frequency, logger, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.drone = drone
         self.update_frequency = update_frequency
-        self.logger = self.app.logger
+        self.logger = logger
         self.column_formats = [f"{{:{self.COLUMN_ALIGN[i]}{self.COLUMN_WIDTHS[i]}}}"
                                for i in range(len(self.COLUMN_NAMES))]
         self.spacer = " "*self.COLUMN_SPACING

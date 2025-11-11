@@ -51,8 +51,6 @@ class MissionPlugin(Plugin):
 
     async def load(self, mission_module: str, name: str | None = None):
         """ Load a new mission, which work like plugins with the name taking the role of the prefix.
-
-        :return:
         """
         mission = await self.dm.load_plugin(mission_module, name, self.mission_options(), self._get_mission_class)
         if mission:

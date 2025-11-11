@@ -15,17 +15,17 @@ from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.widgets import Footer, Header, Log, Static, RadioSet, RadioButton, ProgressBar
 from textual.widget import Widget
 
-from dronecontrol.widgets import InputWithHistory, TextualLogHandler, DroneOverview, ArgParser, ArgumentParserError
+from dronecontrol.widgets import InputWithHistory, TextualLogHandler, DroneOverview, ArgParser, ArgumentParserError, \
+    PrintHelpInsteadOfParsingError
 
 import logging
 
-# TODO: Fence, trajectory generator and trajectory follower managing somehow
+# TODO: Fence, path generator and path follower managing somehow
 
 pane_formatter = logging.Formatter('%(asctime)s %(levelname)s %(name)s - %(message)s', datefmt="%H:%M:%S")
 
 
-UPDATE_RATE = 20  # How often the various screens update in Hz. TODO: Currently time delay after function, refactor to
-# ensure actual 20hz refresh rate
+UPDATE_RATE = 20  # How often the various screens update in Hz.
 
 DEFAULT_PLUGINS = ["mission", "controllers", "external"]
 
@@ -117,7 +117,6 @@ Bar {
 
 
 class CommandScreen(Screen):
-    # TODO: Make the CSS better, change widths and whatever dynamically
     # How often the drone overview screen is updated.
     STATUS_REFRESH_RATE = 20
 
@@ -328,7 +327,7 @@ class CommandScreen(Screen):
                 command = commands[command_name]
                 cli_command = f"{plugin.PREFIX}-{command_name}".lower()
                 self.logger.debug(f"Inspecting command {command_name}")
-                help_string = inspect.getdoc(command)
+                help_string = inspect.getdoc(command).split("\n")[0]
                 tmp_parser = self.command_parser.add_parser(cli_command, help=help_string, logger = self.logger)
                 for arg in check_cli_command_signatures(command):
                     is_invalid, name, is_list, is_required, accepts_none, base_type, is_kwonly, has_default, default = arg
@@ -345,6 +344,7 @@ class CommandScreen(Screen):
                     if has_default:
                         arg_kwargs["default"] = default
                     tmp_parser.add_argument(arg_name, **arg_kwargs)
+                    # TODO: Add help to argument from parameters in doc string
                     self.logger.debug(f"Added Argument {arg_name}: {base_type, is_list, is_required}")
                 self.dynamic_commands[cli_command] = command
             return True
@@ -368,7 +368,7 @@ class CommandScreen(Screen):
         drone_handler.setFormatter(pane_formatter)
         drone.add_handler(drone_handler)
         self.logger.debug(f"Adding overview widget for {name}")
-        drone_status_widget = DroneOverview(drone, UPDATE_RATE)
+        drone_status_widget = DroneOverview(drone, UPDATE_RATE, self.logger)
         self.drone_widgets[name] = drone_status_widget
         await status_field.mount(drone_status_widget)
 
@@ -398,93 +398,95 @@ class CommandScreen(Screen):
             self.logger.error(f"Exception parsing the argument: ")
             self.logger.debug(repr(e), exc_info=True)
             return
+        except PrintHelpInsteadOfParsingError:
+            return
         except Exception as e:
             self.logger.warning("Exception during argument parsing!")
             self.logger.debug(repr(e), exc_info=True)
         try:
+            if args.command:
+                command = args.command.lower()
+                if command != "kill" or args.drones:
+                    self._kill_counter = 0
 
-            command = args.command.lower()
-            if command != "kill" or args.drones:
-                self._kill_counter = 0
+                if command == "connect":
+                    address = args.drone_address
+                    if args.drone in self.dm.drone_configs and not address:
+                        address = self.dm.drone_configs[args.drone].address
+                    elif not address:
+                        address = self.dm.drone_configs["default"].address
 
-            if command == "connect":
-                address = args.drone_address
-                if args.drone in self.dm.drone_configs and not address:
-                    address = self.dm.drone_configs[args.drone].address
-                elif not address:
-                    address = self.dm.drone_configs["default"].address
-
-                log_messages = None
-                if args.log is not None:
-                    if args.log == "True":
-                        log_messages = True
+                    log_messages = None
+                    if args.log is not None:
+                        if args.log == "True":
+                            log_messages = True
+                        else:
+                            log_messages = False
+                    tmp = asyncio.create_task(self.dm.connect_to_drone(args.drone, args.server_address,
+                                                                       args.server_port, address, args.timeout,
+                                                                       telemetry_frequency=args.frequency,
+                                                                       log_messages=log_messages))
+                elif command == "disconnect":
+                    tmp = asyncio.create_task(self.dm.disconnect(args.drones, force=args.force))
+                elif command == "arm":
+                    tmp = asyncio.create_task(self.dm.arm(args.drones, schedule=args.schedule))
+                elif command == "disarm":
+                    tmp = asyncio.create_task(self.dm.disarm(args.drones, schedule=args.schedule))
+                elif command == "takeoff":
+                    tmp = asyncio.create_task(self.dm.takeoff(args.drones, altitude=args.altitude, schedule=args.schedule))
+                elif command == "mode":
+                    tmp = asyncio.create_task(self.dm.change_flightmode(args.drones, args.mode))
+                elif command == "fence":
+                    self.dm.set_fence(args.drones, args.nl, args.nu, args.el, args.eu, args.h)
+                elif command == "flyto":
+                    tmp = asyncio.create_task(self.dm.fly_to(args.drone, local=[args.x, args.y, args.z], yaw=args.yaw,
+                                                             tol=args.tolerance, schedule=args.schedule))
+                elif command == "flytogps":
+                    tmp = asyncio.create_task(self.dm.fly_to(args.drone, gps=[args.lat, args.long, args.alt], yaw=args.yaw,
+                                                             tol=args.tolerance, schedule=args.schedule))
+                elif command =="goto":
+                    tmp = asyncio.create_task(self.dm.go_to(args.drone, gps=[args.lat, args.long, args.alt], yaw=args.yaw,
+                                                             tol=args.tolerance, schedule=args.schedule))
+                elif command == "move":
+                    tmp = asyncio.create_task(self.dm.move(args.drone, [args.x, args.y, args.z], yaw=args.yaw,
+                                                           use_gps=not args.nogps, tol=args.tolerance,
+                                                           schedule=args.schedule))
+                elif command == "land":
+                    tmp = asyncio.create_task(self.dm.land(args.drones, schedule=args.schedule))
+                elif command == "pause":
+                    self.dm.pause(args.drones)
+                elif command == "resume":
+                    self.dm.resume(args.drones)
+                elif command == "stop":
+                    tmp = asyncio.create_task(self.dm.action_stop(args.drones))
+                elif command == "kill":
+                    if not args.drones:
+                        if self._kill_counter:
+                            tmp = asyncio.create_task(self.dm.kill(args.drones))
+                        else:
+                            self.logger.warning("Are you sure? Enter kill again")
+                            self._kill_counter += 1
                     else:
-                        log_messages = False
-                tmp = asyncio.create_task(self.dm.connect_to_drone(args.drone, args.server_address,
-                                                                   args.server_port, address, args.timeout,
-                                                                   telemetry_frequency=args.frequency,
-                                                                   log_messages=log_messages))
-            elif command == "disconnect":
-                tmp = asyncio.create_task(self.dm.disconnect(args.drones, force=args.force))
-            elif command == "arm":
-                tmp = asyncio.create_task(self.dm.arm(args.drones, schedule=args.schedule))
-            elif command == "disarm":
-                tmp = asyncio.create_task(self.dm.disarm(args.drones, schedule=args.schedule))
-            elif command == "takeoff":
-                tmp = asyncio.create_task(self.dm.takeoff(args.drones, altitude=args.altitude, schedule=args.schedule))
-            elif command == "mode":
-                tmp = asyncio.create_task(self.dm.change_flightmode(args.drones, args.mode))
-            elif command == "fence":
-                self.dm.set_fence(args.drones, args.nl, args.nu, args.el, args.eu, args.h)
-            elif command == "flyto":
-                tmp = asyncio.create_task(self.dm.fly_to(args.drone, local=[args.x, args.y, args.z], yaw=args.yaw,
-                                                         tol=args.tolerance, schedule=args.schedule))
-            elif command == "flytogps":
-                tmp = asyncio.create_task(self.dm.fly_to(args.drone, gps=[args.lat, args.long, args.alt], yaw=args.yaw,
-                                                         tol=args.tolerance, schedule=args.schedule))
-            elif command =="goto":
-                tmp = asyncio.create_task(self.dm.go_to(args.drone, gps=[args.lat, args.long, args.alt], yaw=args.yaw,
-                                                         tol=args.tolerance, schedule=args.schedule))
-            elif command == "move":
-                tmp = asyncio.create_task(self.dm.move(args.drone, [args.x, args.y, args.z], yaw=args.yaw,
-                                                       use_gps=not args.nogps, tol=args.tolerance,
-                                                       schedule=args.schedule))
-            elif command == "land":
-                tmp = asyncio.create_task(self.dm.land(args.drones, schedule=args.schedule))
-            elif command == "pause":
-                self.dm.pause(args.drones)
-            elif command == "resume":
-                self.dm.resume(args.drones)
-            elif command == "stop":
-                tmp = asyncio.create_task(self.dm.action_stop(args.drones))
-            elif command == "kill":
-                if not args.drones:
-                    if self._kill_counter:
                         tmp = asyncio.create_task(self.dm.kill(args.drones))
-                    else:
-                        self.logger.warning("Are you sure? Enter kill again")
-                        self._kill_counter += 1
-                else:
-                    tmp = asyncio.create_task(self.dm.kill(args.drones))
-            elif command == "load":
-                tmp = asyncio.create_task(self.dm.load_plugin(args.plugin))
-            elif command == "unload":
-                tmp = asyncio.create_task(self.dm.unload_plugin(args.plugin))
-            elif command == "loaded":
-                self.logger.info(f"Currently loaded plugins: {self.dm.currently_loaded_plugins()}")
-            elif command == "plugins":
-                available_but_not_loaded = [item for item in self.dm.plugin_options()
-                                            if item not in self.dm.currently_loaded_plugins()]
-                self.logger.info(f"Available plugins to load: {available_but_not_loaded}")
-            elif command == "exit" or command in self._exit_aliases:
-                exit_task = asyncio.create_task(self.exit())
-            elif command in self.dynamic_commands:
-                self.logger.debug(f"Performing plugin action {command}")
-                func_arguments = vars(args).copy()
-                func_arguments.pop("command")
-                tmp = asyncio.create_task(self.dynamic_commands[command](**func_arguments))
-            self.running_tasks.add(tmp)
-            self._awaiter_tasks.add(asyncio.create_task(coroutine_awaiter(tmp, self.logger)))
+                elif command == "load":
+                    tmp = asyncio.create_task(self.dm.load_plugin(args.plugin))
+                elif command == "unload":
+                    tmp = asyncio.create_task(self.dm.unload_plugin(args.plugin))
+                elif command == "loaded":
+                    self.logger.info(f"Currently loaded plugins: {self.dm.currently_loaded_plugins()}")
+                elif command == "plugins":
+                    available_but_not_loaded = [item for item in self.dm.plugin_options()
+                                                if item not in self.dm.currently_loaded_plugins()]
+                    self.logger.info(f"Available plugins to load: {available_but_not_loaded}")
+                elif command == "exit" or command in self._exit_aliases:
+                    exit_task = asyncio.create_task(self.exit())
+                elif command in self.dynamic_commands:
+                    self.logger.debug(f"Performing plugin action {command}")
+                    func_arguments = vars(args).copy()
+                    func_arguments.pop("command")
+                    tmp = asyncio.create_task(self.dynamic_commands[command](**func_arguments))
+                self.running_tasks.add(tmp)
+                self._awaiter_tasks.add(asyncio.create_task(coroutine_awaiter(tmp, self.logger)))
         except Exception as e:
             self.logger.error("Encountered an exception executing the CLI!")
             self.logger.debug(repr(e), exc_info=True)

@@ -122,7 +122,7 @@ class ControllerPlugin(Plugin):
         self.cli_commands = {
             "check": self._check_controllers,
             "set": self.add_controller,
-            "disconnect": self.remove_controller,
+            "unset": self.remove_controller,
             "drone": self.set_drone,
             "status": self.status,
         }
@@ -143,7 +143,12 @@ class ControllerPlugin(Plugin):
         # Set this to True to log the IDs of any button presses or axis motions. Useful for development.
         # Axis motions can generate a lot of logs!
 
+        self.dm.add_remove_func(self._current_drone_disconnected)
+
     async def add_controller(self, dev_id: int):
+        """ Set which controller to use, matching the ID from `check`.
+
+        """
         if dev_id >= pygame.joystick.get_count():
             self.logger.warning(f"No controller option {dev_id}, see control-check")
             return False
@@ -163,6 +168,7 @@ class ControllerPlugin(Plugin):
         return True
 
     async def remove_controller(self):
+        """ Remove the current controller. """
         if self.controller is not None:
             self.logger.debug("Disconnecting from controller")
             controller = self.controller
@@ -170,6 +176,7 @@ class ControllerPlugin(Plugin):
             controller.quit()
 
     async def status(self):
+        """ Log current configuration of the controller plugin. """
         self.logger.info(f"Drone: {self._drone_name}. Control {self._in_control}. Controller: {self.controller}")
 
     async def set_drone(self, drone: str):
@@ -186,6 +193,8 @@ class ControllerPlugin(Plugin):
         return True
 
     async def _check_controllers(self):
+        """ Check available controllers.
+        """
         new_line = "\n"
         self.logger.info(f"Detected controllers: {[f'{i}: {pygame.joystick.Joystick(i).get_name()}{new_line}' for i in range(pygame.joystick.get_count())]}")
 
@@ -258,8 +267,12 @@ class ControllerPlugin(Plugin):
                 return False
             if self._drone_name is None:
                 self.logger.info("Received control inputs, but not set to control any drone!")
+            if self._drone_name not in self.dm.drones:
+                self.logger.warning(f"Set to control drone with name {self._drone_name}, which is not connected!")
+                return False
             if not self.dm.drones[self._drone_name].is_connected:
                 self.logger.warning("No connection to drone!")
+                return False
 
         # Do the action if we have an action and either can do it, or are toggling control (which is checked separately)
         if action is not None and self._drone_name is not None and (can_do_actions or toggle_control):
@@ -302,6 +315,13 @@ class ControllerPlugin(Plugin):
         self._in_control = False
         await self.dm.change_flightmode(self._drone_name, "hold")
         self.logger.info(f"Released control of {self._drone_name}")
+
+    async def _drone_disconnected_callback(self, name):
+        # If our drone got disconnected
+        if name == self._drone_name:
+            self.logger.info("Drone set for controller was disconnected.")
+            self._drone_name = None
+            self._in_control = False
 
     async def _control_loop(self):
         """ Take controller inputs to handle motion by setting velocity setpoints.
