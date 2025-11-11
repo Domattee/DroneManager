@@ -155,5 +155,13 @@
     }
   ],
   "mav_system_id": 246,
-  "mav_component_id": 190
+  "mav_component_id": 190,
+  "plugins":
+  {
+    "controllers":
+    {
+      "auto_set": true,
+      "auto_drone": true
+    }
+  }
 }

@@ -110,7 +110,10 @@ class ControllerPlugin(Plugin):
 
     PREFIX = "control"
 
-    def __init__(self, dm, logger, name):
+    def __init__(self, dm, logger, name, auto_set = False, auto_drone = False):
+        """
+
+        """
         super().__init__(dm, logger, name)
         self.background_functions = [
             self._event_processor(),
@@ -143,7 +146,13 @@ class ControllerPlugin(Plugin):
         # Set this to True to log the IDs of any button presses or axis motions. Useful for development.
         # Axis motions can generate a lot of logs!
 
-        self.dm.add_remove_func(self._current_drone_disconnected)
+        self.dm.add_remove_func(self._drone_disconnected_callback)
+
+        self.auto_set = auto_set  # If True and there is exactly one controller connected, connect to it automatically
+        self.auto_drone = auto_drone  # If True and there is exactly one drone connected, control it automatically.
+
+        self._disconnected = False  # True if we were connected to a controller and lost it unexpectedly
+
 
     async def add_controller(self, dev_id: int):
         """ Set which controller to use, matching the ID from `check`.
@@ -199,7 +208,7 @@ class ControllerPlugin(Plugin):
         self.logger.info(f"Detected controllers: {[f'{i}: {pygame.joystick.Joystick(i).get_name()}{new_line}' for i in range(pygame.joystick.get_count())]}")
 
     async def _event_processor(self):
-        disconnected = False
+        self._disconnected = False
         while True:
             try:
                 for event in pygame.event.get():
@@ -217,14 +226,14 @@ class ControllerPlugin(Plugin):
                             elif event.type == pygame.JOYDEVICEREMOVED:
                                 if event_dict["instance_id"] == self.controller.get_instance_id():
                                     self.logger.warning("Controller disconnected!")
-                                    disconnected = True
+                                    self._disconnected = True
                                     await self._release_control()
                                     await self.remove_controller()
                             if self.print_button_axis_ids:
                                 self.logger.info(f"{event.type}, {event_dict}")
                         else:
-                            if event.type == pygame.JOYDEVICEADDED and disconnected:
-                                disconnected = False
+                            if event.type == pygame.JOYDEVICEADDED and self._disconnected:
+                                self._disconnected = False
                                 await self.add_controller(event_dict["device_index"])
                                 await self._take_control()
                             else:
@@ -319,7 +328,7 @@ class ControllerPlugin(Plugin):
     async def _drone_disconnected_callback(self, name):
         # If our drone got disconnected
         if name == self._drone_name:
-            self.logger.info("Drone set for controller was disconnected.")
+            self.logger.info("The drone we were controlling was disconnected.")
             self._drone_name = None
             self._in_control = False
 
@@ -332,6 +341,22 @@ class ControllerPlugin(Plugin):
         while True:
             try:
                 await asyncio.sleep(1/self._control_frequency)
+                # If auto_drone is True and there is one drone in drone manager, control it automatically
+                if self.auto_drone and self._drone_name is None and len(self.dm.drones) == 1:
+                    drone_name, = self.dm.drones
+                    add_task = asyncio.create_task(self.set_drone(drone_name))
+                    add_wait_task = coroutine_awaiter(add_task, self.logger)
+                    self._running_tasks.add(add_task)
+                    self._running_tasks.add(add_wait_task)
+
+                # If auto_set is True and there is exactly one controller available, use it automatically
+                if self.auto_set and self.controller is None and not self._disconnected and pygame.joystick.get_count() == 1:
+                    set_task = asyncio.create_task(self.add_controller(0))
+                    set_wait_task = coroutine_awaiter(set_task, self.logger)
+                    self._running_tasks.add(set_task)
+                    self._running_tasks.add(set_wait_task)
+
+                # Proces inputs
                 if self._in_control and self._drone_name is not None:
                     # drone_config = self._drone_config
                     vertical_input = self.stick_response(self._mapping.thrust_axis)

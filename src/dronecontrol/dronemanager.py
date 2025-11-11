@@ -6,6 +6,7 @@ import socket
 import sys
 import json
 from pathlib import Path
+import typing
 import importlib
 from collections.abc import Collection
 from asyncio.exceptions import TimeoutError, CancelledError
@@ -33,10 +34,14 @@ pane_formatter = logging.Formatter('%(asctime)s %(levelname)s %(name)s - %(messa
 
 class DMConfig:
 
-    def __init__(self, drone_configs: DroneConfigs, mav_system_id: int = 246, mav_component_id: int = 190):
+    def __init__(self, drone_configs: DroneConfigs, mav_system_id: int = 246, mav_component_id: int = 190,
+                 plugins: dict[str, dict[str, typing.Any]] | None = None):
         self.drone_configs: DroneConfigs = drone_configs
         self.mav_system_id: int = mav_system_id
         self.mav_component_id: int = mav_component_id
+        if plugins is None:
+            plugins = {}
+        self.plugins: dict[str, dict[str, typing.Any]] = plugins
 
     @classmethod
     def from_file(cls, filepath: str):
@@ -48,7 +53,9 @@ class DMConfig:
             configs = DroneConfigs(configs)
             mav_sys_id = json_obj["mav_system_id"]
             mav_comp_id = json_obj["mav_component_id"]
-        return cls(configs, mav_system_id=mav_sys_id, mav_component_id=mav_comp_id)
+            if "plugins" in json_obj:
+                plugins = json_obj["plugins"]
+        return cls(configs, mav_system_id=mav_sys_id, mav_component_id=mav_comp_id, plugins=plugins)
 
     def to_file(self, filepath: str):
         with open(filepath, "wt") as f:
@@ -56,6 +63,7 @@ class DMConfig:
             outdict["drones"] = [self.drone_configs[drone].__dict__ for drone in self.drone_configs]
             outdict["mav_system_id"] = self.mav_system_id
             outdict["mav_component_id"] = self.mav_component_id
+            outdict["plugins"] = self.plugins
             json.dump(outdict, f, indent=2)
 
 
@@ -119,9 +127,9 @@ class DroneManager:
             self.logger.debug(repr(e), exc_info=True)
             return False
         if scheme == "serial":
-            self.logger.info(f"Trying to connect to drone {name} @{scheme}://{parsed_addr} with baud {parsed_port}")
+            self.logger.info(f"Queuing connection to drone {name} @{scheme}://{parsed_addr} with baud {parsed_port}")
         else:
-            self.logger.info(f"Trying to connect to drone {name} @{scheme}://{parsed_addr}:{parsed_port}")
+            self.logger.info(f"Queuing connection to drone {name} @{scheme}://{parsed_addr}:{parsed_port}")
         drone = None
         async with self.drone_lock:
             try:
@@ -151,6 +159,10 @@ class DroneManager:
                 drone = self.drone_class(name, mavsdk_server_address, mavsdk_server_port, config=config)
                 connected = None
                 try:
+                    if scheme == "serial":
+                        self.logger.info(f"Trying to connect to drone {name} @{scheme}://{parsed_addr} with baud {parsed_port}")
+                    else:
+                        self.logger.info(f"Trying to connect to drone {name} @{scheme}://{parsed_addr}:{parsed_port}")
                     connected = await asyncio.wait_for(drone.connect(drone_address, system_id=self.system_id,
                                                                      component_id=self.component_id,
                                                                      log_messages=log_messages),
@@ -557,7 +569,11 @@ class DroneManager:
                             await self.load_plugin(dependency)
                     else:
                         self.logger.warning("Nested dependencies are only supported to the first level, i.e. one dot.")
-                plugin = plugin_class(self, self.logger, plugin_name)
+                if plugin_name in self.config.plugins:
+                    kwargs = self.config.plugins[plugin_name]
+                else:
+                    kwargs = {}
+                plugin = plugin_class(self, self.logger, plugin_name, **kwargs)
                 setattr(self, plugin_name, plugin)
                 self.plugins.add(plugin_name)
                 await plugin.start()
@@ -594,3 +610,4 @@ class DroneManager:
         await asyncio.gather(*unload_tasks, return_exceptions=True)
         await plugin.close()
         delattr(self, plugin_name)
+        return True
