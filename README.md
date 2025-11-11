@@ -2,6 +2,16 @@
 
 A package to connect to and control multiple drones.
 
+## Table of Contents:
+
+- [Installation](#installation)
+- [Usage](#usage)
+  - [Terminal Interface](#terminal-interface)
+  - [Configuration file](#configuration-file)
+  - [Plugins](#plugins)
+- [Examples](#examples)
+  
+
 ## Installation
 
 To install this package, simply clone this repository, move into the root directory and then install with pip:
@@ -45,10 +55,13 @@ help string for plugin commands is sparser than core commands.
 
 #### Commanding drones
 
-- `connect <name> <connection-string?> -t <timeout: 30>`: Connect to a drone. The parameter name is an arbitrary label that 
-is used to refer to the drone with other commands. The connection string, for example "udp://192.168.0.143:14550", 
-defines how to connect to the drone. This parameter is optional, by default "udp://:14540" is used. With `-t`a timeout 
-in seconds can be specified, the default is 30s.
+- `connect <name> <connection-string?> -t <timeout: 30> -f <frequency: None>`: Connect to a drone. The parameter name is an arbitrary label that 
+is used to refer to the drone with other commands. If a name matching an entry in the config file is used, the configuration from the file will
+be loaded. The connection string, for example "udp://192.168.0.143:14550", defines how to connect to the drone. This parameter is optional,
+by default "udp://:14540" is used. With `-t` a timeout in seconds can be specified, the default is 30s. The parameter `-f` specifies the
+telemetry frequency from the drone. A number of messenges from the are drone are requested at this rate, such as position. A number of
+components also use this frequency for their own purposes, such as time discretization of trajectories. If this parameter is omitted, the
+default value from the config file is used.
 - `disconnect <names> -f`: Close the connection to the specified drones. This command will refuse if the drones are 
 armed or flying, add the `-f` flag to force disconnect.
 - `arm <names> -s`: Arm one or more drones. Multiple drones can be armed at once by listing their name with a space 
@@ -71,7 +84,13 @@ Otherwise identical to `flyto`.
 
 And many more!
 
-#### Plugins
+### Configuration file
+
+To simply working with a variety of drones, a number of parameters can be set per-drone in a config file. This allows you 
+to save a name with connection string and a number of other parameters, such as acceleration limits, which will be loaded
+and used automatically when `connect` with a corresponding name is called.
+
+### Plugins
 
 DroneManager comes with a plugin system for adding extra functionality! The core element are plugin modules, located in 
 the "plugins" folder. Each plugin module contains one plugin class, which is a subclass of `plugin.Plugin`, and defines 
@@ -91,6 +110,8 @@ their own folder "missions". Do not try out missions with real drones without un
 - `mission-load <name> <label?>`: Load a mission by name. This must match one of the missions returned by 
 `mission-status`. The optional parameter `label` can be used to assign the mission a specific name. Each mission must 
 have a unique name, so this allows multiple missions of the same "type".
+
+## Examples
 
 ### UAM Demo
 
