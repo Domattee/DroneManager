@@ -27,7 +27,7 @@ pane_formatter = logging.Formatter('%(asctime)s %(levelname)s %(name)s - %(messa
 UPDATE_RATE = 20  # How often the various screens update in Hz. TODO: Currently time delay after function, refactor to
 # ensure actual 20hz refresh rate
 
-DEFAULT_PLUGINS = ["mission", "controllers"]
+DEFAULT_PLUGINS = ["mission", "controllers", "external"]
 
 
 class StatusScreen(Screen):
@@ -164,10 +164,16 @@ class CommandScreen(Screen):
         self.dm.add_plugin_load_func(self._load_plugin_commands)
         self.dm.add_plugin_unload_func(self._unload_plugin_commands)
 
-        for plugin_name in DEFAULT_PLUGINS:
-            asyncio.create_task(self.dm.load_plugin(plugin_name))
+        asyncio.create_task(self._default_plugin_loading())
 
         self._awaiter_tasks = set()
+
+    async def _default_plugin_loading(self):
+        plugin_tasks = []
+        for plugin_name in DEFAULT_PLUGINS:
+            plugin_tasks.append(asyncio.create_task(self.dm.load_plugin(plugin_name)))
+        await asyncio.gather(*plugin_tasks)
+        self.logger.info(f"Loaded startup plugins: {self.dm.currently_loaded_plugins()}")
 
     def _base_parser(self):
         parser = ArgParser(logger = self.logger, description="Interactive command line interface to connect and control multiple drones")
