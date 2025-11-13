@@ -356,13 +356,19 @@ class ControllerPlugin(Plugin):
                     self._running_tasks.add(set_task)
                     self._running_tasks.add(set_wait_task)
 
-                # Proces inputs
+                # Process inputs
                 if self._in_control and self._drone_name is not None:
                     # drone_config = self._drone_config
                     vertical_input = self.stick_response(self._mapping.thrust_axis)
                     yaw_input = self.stick_response(self._mapping.yaw_axis)
                     right_input = self.stick_response(self._mapping.right_axis)
                     forward_input = self.stick_response(self._mapping.forward_axis)
+
+                    # TODO: If we are landed and disarmed, left stick down and to the right will arm
+                    # Should have to hold for 1 second, prevent any inputs until ... stick is centered / allow only vertical until we are in air?
+
+                    # TODO: If we are landed and armed, left stick down and to the left will disarm
+                    # Should have to hold for 1 second, block any inputs except stick down or up while landed and armed?
 
                     # If we have non-zero inputs, and we aren't in the appropriate mode, put us into appropriate mode
                     if abs(vertical_input) > 0.01 or abs(yaw_input) > 0.01 or abs(right_input) > 0.01 or abs(forward_input) > 0.01:
@@ -371,7 +377,6 @@ class ControllerPlugin(Plugin):
 
                     vertical_input = (vertical_input + 1) / 2  # Scale from -1/1 to 0/1
 
-                    self.logger.debug(forward_input, right_input, vertical_input, yaw_input)
                     await self.dm.drones[self._drone_name].set_manual_control_input(forward_input, right_input, vertical_input, yaw_input)
 
                     # Also perform whatever other functions are bound to any other axis

@@ -73,7 +73,7 @@ class DroneConfig:
                  position_rate: float = 5.0, log_telemetry: bool = False,
                  max_h_vel: float = 10.0, max_down_vel: float = 1.0, max_up_vel: float = 3.0, max_h_acc: float = 1.5,
                  max_v_acc: float = 0.5, max_h_jerk: float = 0.5, max_v_jerk: float = 0.5, max_yaw_vel: float = 60,
-                 max_yaw_acc: float = 30, max_yaw_jerk: float = 30, size: float = 1.0):
+                 max_yaw_acc: float = 30, max_yaw_jerk: float = 30, size: float = 1.0, **kwargs):
         self.drone_name = drone_name
         self.address = address
         self.position_rate = position_rate
@@ -88,7 +88,13 @@ class DroneConfig:
         self.max_yaw_acc = max_yaw_acc
         self.max_yaw_jerk = max_yaw_jerk
         self.log_telemetry = log_telemetry
+
         self.size = size
+        # Size of the drone from propeller to propeller. This is used to adjust for example the fence limits, so that
+        # no part of the drone exceeds the fence. It is a good idea to make this a little bit larger than the actual size.
+
+        for kwarg, value in kwargs.items():
+            self.__setattr__(kwarg, value)
 
     def __str__(self):
         return str(self.__dict__)

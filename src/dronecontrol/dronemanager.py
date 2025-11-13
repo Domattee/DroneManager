@@ -5,6 +5,7 @@ import os
 import socket
 import sys
 import json
+import copy
 from pathlib import Path
 import typing
 import importlib
@@ -70,8 +71,6 @@ class DMConfig:
 class DroneManager:
     # TODO: Handle MAVSDK crashes - Not sure at all what causes them
     # TODO: Refactor functions other than fly_to to also use the list wrapping convenience
-    # TODO: Refactor the drone functions to be built dynamically from the droneclass, i.e. fly_to, move, yaw_to
-    # TODO: Also rebuild app to then dynamically build its CLI functions from the dronemanager functions.
 
     def __init__(self, drone_class, logger=None, log_to_console=True, console_log_level=logging.DEBUG):
         self.drone_class = drone_class
@@ -146,11 +145,13 @@ class DroneManager:
                     if parsed_addr == other_addr and parsed_port == other_port:
                         self.logger.warning(f"{other_name} is already connected to drone with address {drone_address}.")
                         return False
-                config = self.drone_configs[name]
-                if config:
+
+                config = copy.deepcopy(self.drone_configs["default"])
+                specific_config: DroneConfig = self.drone_configs[name]
+                if specific_config:
                     self.logger.debug("Found drone config, using parameters...")
-                else:
-                    config = self.drone_configs["default"]
+                    for key, value in specific_config.__dict__:
+                        setattr(config, key, value)
                 if telemetry_frequency is not None:
                     if telemetry_frequency < 2:
                         self.logger.error("Can't have a telemetry rate of less than 2!")
