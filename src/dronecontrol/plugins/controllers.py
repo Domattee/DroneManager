@@ -28,6 +28,7 @@ class InputMapping:
     land_button: int = None
     takeoff_button: int = None
     control_button: int = None
+    arm_hold_duration: float = 1.0  # How long the thrust/yaw stick should be held down left/right for disarm/arm. Not implemented at the moment.
 
     extra_button_inputs: dict[int, set[Callable]] = {}
     # Functions in this dict are called every time their button is pressed. They should not take any arguments. These
@@ -366,6 +367,7 @@ class ControllerPlugin(Plugin):
 
                     # TODO: If we are landed and disarmed, left stick down and to the right will arm
                     # Should have to hold for 1 second, prevent any inputs until ... stick is centered / allow only vertical until we are in air?
+                    #hold_counter_limit = self._mapping.arm_hold_duration * self._control_frequency
 
                     # TODO: If we are landed and armed, left stick down and to the left will disarm
                     # Should have to hold for 1 second, block any inputs except stick down or up while landed and armed?
