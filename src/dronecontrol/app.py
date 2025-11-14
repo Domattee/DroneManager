@@ -327,7 +327,11 @@ class CommandScreen(Screen):
                 command = commands[command_name]
                 cli_command = f"{plugin.PREFIX}-{command_name}".lower()
                 self.logger.debug(f"Inspecting command {command_name}")
-                help_string = inspect.getdoc(command).split("\n")[0]
+                doc_str = inspect.getdoc(command)
+                if doc_str is not None:
+                    help_string = doc_str.split("\n")[0]
+                else:
+                    help_string = "No doc string for this function!"
                 tmp_parser = self.command_parser.add_parser(cli_command, help=help_string, logger = self.logger)
                 for arg in check_cli_command_signatures(command):
                     is_invalid, name, is_list, is_required, accepts_none, base_type, is_kwonly, has_default, default = arg

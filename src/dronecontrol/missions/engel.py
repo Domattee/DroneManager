@@ -463,7 +463,7 @@ class ENGELDataMission(Mission):
                     self.logger.info(f"Added drone {name} to mission!")
                     return True
                 else:
-                    self.logger.info(f"Couldn't add {name} to mission: Gimbal OK {gimbal_ok}, Cam OK {cam_ok}")
+                    self.logger.info(f"Couldn't add {name} to mission: Gimbal {'OK' if gimbal_ok else 'NOT OK'}, Cam {'OK' if cam_ok else 'NOT OK'}")
                     return False
             except KeyError:
                 self.logger.error(f"No drone named {name}")

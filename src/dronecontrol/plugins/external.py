@@ -89,11 +89,10 @@ class UDPPlugin(Plugin):
                     client.start_time = time.time()
                     client.duration = duration
                     client.frequency = frequency
-            except TimeoutError:
-                pass
             except Exception as e:
                 self.logger.warning("Exception listening for incoming UDP!")
                 self.logger.debug(repr(e), exc_info=True)
+                await asyncio.sleep(5)
 
     async def _client_sender(self, client: UDPClient):
         """ Send data to the client.
@@ -122,13 +121,14 @@ class UDPPlugin(Plugin):
             drone = self.dm.drones[drone_name]
             drone_data[drone_name] = {
                 "position": drone.position_ned.tolist(),
-                "speed": drone.speed,
+                "gps": drone.position_global.tolist(),
+                "velocity": drone.velocity.tolist(),
                 "attitude": drone.attitude.tolist(),
-                "heading": drone.attitude[2],
                 "mode": drone.flightmode.name,
                 "conn": drone.is_connected,
                 "armed": drone.is_armed,
                 "in_air": drone.in_air,
+                "rtsp": drone.config.rtsp
             }
         data = {"drones": drone_data}
         if hasattr(self.dm, "mission"):  # Check that the mission plugin is actually loaded
