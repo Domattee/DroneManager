@@ -10,6 +10,7 @@ A package to connect to and control multiple drones.
   - [Configuration file](#configuration-file)
   - [Plugins](#plugins)
 - [Examples](#examples)
+- [Web interface](#web-interface)
   
 
 ## Installation
@@ -157,3 +158,20 @@ swap. The observing drone will stop circling and wait until the swapping drone h
 the observing drone will rtb on its own. This swapping happens indefinitely. To stop the mission, do `uam-rtb`.
 3. To fly drones from any position to their start position one-by-one you can use `uam-reset`. This should only be used 
 in Gazebo, in the real demo, the drones should already be at their start positions.
+
+## Web Interface
+
+We also provide a simple web interface to show the current state of any connected drones or running missions.
+We use this mainly during showcases to have something nice to show 
+It features a map, with tiles on the side to show the status of the drones. If the drones have an RTSP stream, that
+is also shown.
+
+TODO: SCREENSHOT
+
+### Installation
+
+TODO: ALL
+
+### Running it all
+
+TODO: ALL
