@@ -103,13 +103,20 @@ DroneManager.
 - `unload <name>`: Unload a plugin by name.
 - `loaded`: List currently loaded plugins.
 
-By default, the `mission` plugin is loaded at startup. Missions are essentially a special kind of plugin. They go into 
-their own folder "missions". Do not try out missions with real drones without understanding what they do first!
+By default, the `mission`, `controllers` and `external` plugins are loaded at startup. 
+Controllers allows for manual control of drones using common gamepads. It uses pygame and provides functions for creating 
+custom button and axis bindings.
+Missions are essentially a special kind of plugin. They go into their own folder "missions". Do not try out missions with 
+real drones without understanding what they do first!
 
 - `mission-status`: Prints a list of all available missions, as well as an overview for each currently running mission.
 - `mission-load <name> <label?>`: Load a mission by name. This must match one of the missions returned by 
 `mission-status`. The optional parameter `label` can be used to assign the mission a specific name. Each mission must 
 have a unique name, so this allows multiple missions of the same "type".
+
+The external plugin creates a local UDP server that sends out information about connected drones and any running missions 
+on request using json format. We provide a dummy client script that sends the request messages and prints the information
+from DM to console.
 
 ## Examples
 
