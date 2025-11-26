@@ -531,26 +531,26 @@ class DroneMAVSDK(Drone):
 
         # Init path generator
         try:
-            self.path_generator = GMP3Generator(self, 1/self.position_update_rate, self.logger)
-            #self.path_generator = DirectTargetGenerator(self, self.logger, WayPointType.POS_NED)
+            #self.path_generator = GMP3Generator(self, 1/self.position_update_rate, self.logger)
+            self.path_generator = DirectTargetGenerator(self, self.logger, WayPointType.POS_NED)
         except Exception as e:
             self.logger.error("Couldn't initialize path generator due to an exception!")
             self.logger.debug(repr(e), exc_info=True)
 
         # Init path follower
         try:
-            #self.path_follower = RuckigOfflineFollower(self, self.logger, 1 / self.position_update_rate,
-            #                                           WayPointType.POS_VEL_ACC_NED,
-            #                                           max_vel=self.config.max_h_vel,
-            #                                           max_down_vel=self.config.max_down_vel,
-            #                                           max_up_vel=self.config.max_up_vel, max_acc=self.config.max_h_acc,
-            #                                           max_v_acc=self.config.max_v_acc, max_jerk=self.config.max_h_jerk,
-            #                                           max_v_jerk=self.config.max_v_jerk,
-            #                                           max_yaw_vel=self.config.max_yaw_vel,
-            #                                           max_yaw_acc=self.config.max_yaw_acc,
-            #                                           max_yaw_jerk=self.config.max_yaw_jerk)
-            self.path_follower = DirectSetpointFollower(self, self.logger, 1/self.position_update_rate,
-                                                              WayPointType.POS_VEL_NED)
+            self.path_follower = RuckigOfflineFollower(self, self.logger, 1 / self.position_update_rate,
+                                                       WayPointType.POS_VEL_ACC_NED,
+                                                       max_vel=self.config.max_h_vel,
+                                                       max_down_vel=self.config.max_down_vel,
+                                                       max_up_vel=self.config.max_up_vel, max_acc=self.config.max_h_acc,
+                                                       max_v_acc=self.config.max_v_acc, max_jerk=self.config.max_h_jerk,
+                                                       max_v_jerk=self.config.max_v_jerk,
+                                                       max_yaw_vel=self.config.max_yaw_vel,
+                                                       max_yaw_acc=self.config.max_yaw_acc,
+                                                       max_yaw_jerk=self.config.max_yaw_jerk)
+            #self.path_follower = DirectSetpointFollower(self, self.logger, 1/self.position_update_rate,
+            #                                                  WayPointType.POS_VEL_NED)
         except Exception as e:
             self.logger.error("Couldn't initialize path follower due to an exception!")
             self.logger.debug(repr(e), exc_info=True)
