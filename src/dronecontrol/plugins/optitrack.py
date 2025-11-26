@@ -5,9 +5,7 @@ import asyncio
 
 from dronecontrol.plugin import Plugin
 from dronecontrol.utils import coroutine_awaiter
-
-from natnet import NatNetClient, DataFrame
-
+from dronecontrol.plugins.NatNet.NatNetClient import NatNetClient
 
 class OptitrackPlugin(Plugin):
     """
@@ -20,10 +18,6 @@ class OptitrackPlugin(Plugin):
 
         """
         super().__init__(dm, logger, name)
-        self.background_functions = [
-            #self._event_processor(),
-            #self._control_loop(),
-        ]
         self.cli_commands = {
             "connect": self.connect_server,
             "add_drone": self.add_drone,
@@ -33,29 +27,42 @@ class OptitrackPlugin(Plugin):
         self.local_ip: str = "127.0.0.1"
         self._drone_id_mapping: dict[int, str] = {}
 
+        self._rigid_body_data: dict = {}
+
     async def connect_server(self, remote: str = None, local: str = None):
         if self.client is not None:
             self.logger.warning("Already connected to a NatNetserver, aborting.")
-            return False
+            return
 
         if remote is not None:
             self.server_ip = remote
         if local is not None:
             self.local_ip = local
         self.logger.info(f"Connecting to NatNet Server @ {self.server_ip}")
-        client = NatNetClient(server_ip_address=self.server_ip, local_ip_address=self.local_ip, use_multicast=False)
+        client = NatNetClient()
+        client.server_ip_address = self.server_ip
+        client.local_ip_address = self.local_ip
+        client.use_multicast = False
+        conn_good = False
         try:
-            client.connect(5)
-            client.request_modeldef()
-            client.run_async()
-            client.on_data_frame_received_event.handlers.append()
+            is_running = client.run("d")
+            if not is_running:
+                self.logger.error("Couldn't start the client!")
+
+            else:
+                await asyncio.sleep(1)
+                if not client.connected():
+                    self.logger.error("Couldn't connect to the server!")
+                else:
+                    conn_good = True
         except ConnectionResetError as e:
             self.logger.warning("Couldn't connect to the server!")
             self.logger.debug(repr(e), exc_info = True)
-            return False
-
-        self.client = client
-        return True
+            return
+        if conn_good:
+            self.client = client
+        else:
+            client.shutdown()
 
     def add_drone(self, name: str, track_id: int):
         if name not in self.dm.drones:
@@ -63,25 +70,25 @@ class OptitrackPlugin(Plugin):
         else:
             self._drone_id_mapping[track_id] = name
 
-    def _data_frame_callback(self, data_frame: DataFrame):
+    def remove_drone(self, name: str):
+        to_remove = None
+        for key, value in self._drone_id_mapping.items():
+            if value == name:
+                to_remove = key
+        if to_remove:
+            self._drone_id_mapping.pop(to_remove)
+
+    def _rigid_body_callback(self, track_id, position, rotation):
         # TODO: Rework this to have one async function for each drone, instead of creating a new one every message
         # Probably save the latest information somewhere and then just send that with a given frequency.
-        self.logger.info(f"Received dataframe {data_frame.prefix} - {data_frame.rigid_bodies}")
-        for rigid_body in data_frame.rigid_bodies:
-            if rigid_body.id_num in self._drone_id_mapping:
-                send_task = asyncio.create_task(self._send_info_to_drone(rigid_body.id_num, rigid_body.pos, rigid_body.rot))
-                send_awaiter = asyncio.create_task(coroutine_awaiter(send_task, self.logger))
-                self._running_tasks.add(send_task)
-                self._running_tasks.add(send_awaiter)
-
-    async def _send_info_to_drone(self, track_id: int, pos, quat_rot):
-        try:
+        self.logger.info(f"Received rigid body frame {track_id} - {position, rotation}")
+        if track_id in self._drone_id_mapping:
             drone_name = self._drone_id_mapping[track_id]
-            self.logger.info(f"Would send info to drone {drone_name, track_id}: {pos, quat_rot}")
-            #self.dm.drones[drone_name].system.mocap.set_odometry()  # Odometry object
-        except KeyError:
-            pass
-
+            self.logger.info(f"Would send info to drone {drone_name, track_id}: {position, rotation}")
+            send_task = asyncio.create_task(self.dm.drones[drone_name].system.mocap.set_vision_position_estimate())
+            send_task_awaiter = asyncio.create_task(coroutine_awaiter(send_task, self.logger))
+            self._running_tasks.add(send_task)
+            self._running_tasks.add(send_task_awaiter)
 
     async def close(self):
         await super().close()
