@@ -379,6 +379,7 @@ class ControllerPlugin(Plugin):
 
                     vertical_input = (vertical_input + 1) / 2  # Scale from -1/1 to 0/1
 
+                    # TODO: Enforce fence somehow
                     await self.dm.drones[self._drone_name].set_manual_control_input(forward_input, right_input, vertical_input, yaw_input)
 
                     # Also perform whatever other functions are bound to any other axis
