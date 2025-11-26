@@ -2,13 +2,11 @@
 
 """
 import asyncio
-import math
-from collections.abc import Callable
 
 from dronecontrol.plugin import Plugin
 from dronecontrol.utils import coroutine_awaiter
 
-from natnet import NatNetClient, DataFrame, RigidBody
+from natnet import NatNetClient, DataFrame
 
 
 class OptitrackPlugin(Plugin):
