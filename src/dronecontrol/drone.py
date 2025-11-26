@@ -151,6 +151,7 @@ class Drone(ABC, threading.Thread):
             self.config = DroneConfig(name, self.drone_addr)
         self.action_queue: deque[tuple[Coroutine, asyncio.Future]] = deque()
         self.current_action: asyncio.Task | None = None
+        self.current_action_tasks: set[asyncio.Task] = set()  # TODO: Go through all functions and add any intermediates
         self.should_stop = threading.Event()
         self.logger = logging.getLogger(name)
         self.logger.setLevel(logging.DEBUG)
@@ -478,6 +479,10 @@ class Drone(ABC, threading.Thread):
         if self.current_action:
             self.logger.debug("Cancelling current action!")
             self.current_action.cancel()
+            for task in self.current_action_tasks:
+                if task is not None:
+                    task.cancel()
+            self.current_action_tasks = set()
 
 
 class DroneMAVSDK(Drone):
@@ -535,16 +540,16 @@ class DroneMAVSDK(Drone):
         # Init path follower
         try:
             self.path_follower = RuckigOfflineFollower(self, self.logger, 1 / self.position_update_rate,
-                                                      WayPointType.POS_VEL_ACC_NED,
-                                                      max_vel=self.config.max_h_vel,
-                                                      max_down_vel=self.config.max_down_vel,
-                                                      max_up_vel=self.config.max_up_vel, max_acc=self.config.max_h_acc,
-                                                      max_v_acc=self.config.max_v_acc, max_jerk=self.config.max_h_jerk,
-                                                      max_v_jerk=self.config.max_v_jerk,
-                                                      max_yaw_vel=self.config.max_yaw_vel,
-                                                      max_yaw_acc=self.config.max_yaw_acc,
-                                                      max_yaw_jerk=self.config.max_yaw_jerk)
-            # self.path_follower = DirectSetpointFollower(self, self.logger, 1/self.position_update_rate,
+                                                       WayPointType.POS_VEL_ACC_NED,
+                                                       max_vel=self.config.max_h_vel,
+                                                       max_down_vel=self.config.max_down_vel,
+                                                       max_up_vel=self.config.max_up_vel, max_acc=self.config.max_h_acc,
+                                                       max_v_acc=self.config.max_v_acc, max_jerk=self.config.max_h_jerk,
+                                                       max_v_jerk=self.config.max_v_jerk,
+                                                       max_yaw_vel=self.config.max_yaw_vel,
+                                                       max_yaw_acc=self.config.max_yaw_acc,
+                                                       max_yaw_jerk=self.config.max_yaw_jerk)
+            #self.path_follower = DirectSetpointFollower(self, self.logger, 1/self.position_update_rate,
             #                                                  WayPointType.POS_VEL_NED)
         except Exception as e:
             self.logger.error("Couldn't initialize path follower due to an exception!")
@@ -1122,7 +1127,9 @@ class DroneMAVSDK(Drone):
 
         # Create path and activate follower algorithm if not already active
         self.logger.debug("Creating path...")
-        have_path = await self.path_generator.create_path()
+        path_task = asyncio.create_task(self.path_generator.create_path())
+        self.current_action_tasks.add(path_task)
+        have_path = await path_task
         if not have_path:
             self.logger.warning("The path generator couldn't generate a path!")
             return False

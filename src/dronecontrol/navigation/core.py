@@ -1,6 +1,6 @@
 import asyncio
 import numpy as np
-from abc import ABC, abstractmethod
+from abc import ABC, abstractmethod, abstractproperty
 from enum import Enum, auto
 
 from dronecontrol.utils import dist_ned, relative_gps, heading_ned, heading_gps, offset_from_gps
@@ -121,6 +121,16 @@ class Fence(ABC):
 
         "Fits within" is taken broadly here, a fence can be inclusive, exclusive, around a dynamic obstacle, or
          anything else. As long as True is returned when the waypoint is "good" and False otherwise, it works."""
+        pass
+
+    @property
+    @abstractmethod
+    def bounding_box(self) -> np.ndarray:
+        """ Should return an axis aligned bounding box for other components to use.
+
+        Output array should have shape (6,) and contain the limits as [north_lower, north_upper, east_lower,
+        east_upper, down_lower, down_upper].
+        """
         pass
 
 
@@ -253,6 +263,7 @@ class PathFollower(ABC):
                         self._is_waypoint_new = True
                         have_waypoints = True
                         using_dummy_waypoint = False
+                        self.logger.debug(f"Follower got waypoint: {waypoint}")
                     self.current_waypoint = waypoint
                 await self.set_setpoint(waypoint)
                 self._is_waypoint_new = False
