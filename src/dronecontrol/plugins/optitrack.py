@@ -28,6 +28,8 @@ class OptitrackPlugin(Plugin):
         self._drone_id_mapping: dict[int, str] = {}
 
         self._rigid_body_data: dict = {}
+        self.frame_count: int = 0
+        self.log_every = 100
 
     async def connect_server(self, remote: str = None, local: str = None):
         if self.client is not None:
@@ -40,9 +42,10 @@ class OptitrackPlugin(Plugin):
             self.local_ip = local
         self.logger.info(f"Connecting to NatNet Server @ {self.server_ip}")
         client = NatNetClient()
-        client.server_ip_address = self.server_ip
-        client.local_ip_address = self.local_ip
-        client.use_multicast = False
+        client.set_client_address(self.local_ip)
+        client.set_server_address(self.server_ip)
+        client.rigid_body_listener = self._rigid_body_callback
+        client.set_use_multicast(True)
         conn_good = False
         try:
             is_running = client.run("d")
@@ -61,6 +64,8 @@ class OptitrackPlugin(Plugin):
             return
         if conn_good:
             self.client = client
+            self.logger.info("Connected to NatNet Server!")
+            
         else:
             client.shutdown()
 
@@ -79,18 +84,25 @@ class OptitrackPlugin(Plugin):
             self._drone_id_mapping.pop(to_remove)
 
     def _rigid_body_callback(self, track_id, position, rotation):
-        # TODO: Rework this to have one async function for each drone, instead of creating a new one every message
-        # Probably save the latest information somewhere and then just send that with a given frequency.
-        self.logger.info(f"Received rigid body frame {track_id} - {position, rotation}")
-        if track_id in self._drone_id_mapping:
-            drone_name = self._drone_id_mapping[track_id]
-            self.logger.info(f"Would send info to drone {drone_name, track_id}: {position, rotation}")
-            send_task = asyncio.create_task(self.dm.drones[drone_name].system.mocap.set_vision_position_estimate())
-            send_task_awaiter = asyncio.create_task(coroutine_awaiter(send_task, self.logger))
-            self._running_tasks.add(send_task)
-            self._running_tasks.add(send_task_awaiter)
+        try:
+            self.frame_count += 1
+            self.frame_count = self.frame_count % 1000000
+            if self.frame_count % self.log_every == 0:
+                self.logger.info(f"Logging every {self.log_every}th rigid body frame {track_id} - {position, rotation}")
+            if track_id in self._drone_id_mapping:
+                drone_name = self._drone_id_mapping[track_id]
+                self.logger.info(f"Would send info to drone {drone_name, track_id}: {position, rotation}")
+                # TODO: Figoure out position and rotation transform
+                #send_task = asyncio.create_task(self.dm.drones[drone_name].system.mocap.set_vision_position_estimate())
+                #send_task_awaiter = asyncio.create_task(coroutine_awaiter(send_task, self.logger))
+                #self._running_tasks.add(send_task)
+                #self._running_tasks.add(send_task_awaiter)
+        except Exception as e:
+            self.logger.error("Error in rigid body callback:")
+            self.logger.debug(repr(e), exc_info = True)
 
     async def close(self):
-        await super().close()
         if self.client is not None:
             self.client.shutdown()
+        await super().close()
+        
