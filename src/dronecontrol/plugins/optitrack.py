@@ -8,7 +8,7 @@ from collections.abc import Callable
 from dronecontrol.plugin import Plugin
 from dronecontrol.utils import coroutine_awaiter
 
-from natnet import NatNetClient, DataFrame
+from natnet import NatNetClient, DataFrame, RigidBody
 
 
 class OptitrackPlugin(Plugin):
@@ -28,10 +28,12 @@ class OptitrackPlugin(Plugin):
         ]
         self.cli_commands = {
             "connect": self.connect_server,
+            "add_drone": self.add_drone,
         }
         self.client: NatNetClient | None = None
         self.server_ip: str = server_ip if server_ip is not None else "127.0.0.1"
         self.local_ip: str = "127.0.0.1"
+        self._drone_id_mapping: dict[int, str] = {}
 
     async def connect_server(self, remote: str = None, local: str = None):
         if self.client is not None:
@@ -57,8 +59,31 @@ class OptitrackPlugin(Plugin):
         self.client = client
         return True
 
+    def add_drone(self, name: str, track_id: int):
+        if name not in self.dm.drones:
+            self.logger.warning(f"No drone named {name}")
+        else:
+            self._drone_id_mapping[track_id] = name
+
     def _data_frame_callback(self, data_frame: DataFrame):
-        self.logger.info(f"Received dataframe {data_frame.} - {data_frame.rigid_bodies}")
+        # TODO: Rework this to have one async function for each drone, instead of creating a new one every message
+        # Probably save the latest information somewhere and then just send that with a given frequency.
+        self.logger.info(f"Received dataframe {data_frame.prefix} - {data_frame.rigid_bodies}")
+        for rigid_body in data_frame.rigid_bodies:
+            if rigid_body.id_num in self._drone_id_mapping:
+                send_task = asyncio.create_task(self._send_info_to_drone(rigid_body.id_num, rigid_body.pos, rigid_body.rot))
+                send_awaiter = asyncio.create_task(coroutine_awaiter(send_task, self.logger))
+                self._running_tasks.add(send_task)
+                self._running_tasks.add(send_awaiter)
+
+    async def _send_info_to_drone(self, track_id: int, pos, quat_rot):
+        try:
+            drone_name = self._drone_id_mapping[track_id]
+            self.logger.info(f"Would send info to drone {drone_name, track_id}: {pos, quat_rot}")
+            #self.dm.drones[drone_name].system.mocap.set_odometry()  # Odometry object
+        except KeyError:
+            pass
+
 
     async def close(self):
         await super().close()
