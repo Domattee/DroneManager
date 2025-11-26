@@ -26,8 +26,8 @@ import struct
 from threading import Thread
 import copy
 import time
-import DataDescriptions
-import MoCapData
+import dronecontrol.plugins.NatNet.DataDescriptions as DataDescriptions
+import dronecontrol.plugins.NatNet.MoCapData as MoCapData
 
 
 def trace(*args):
