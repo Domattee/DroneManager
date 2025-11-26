@@ -129,7 +129,7 @@ class Fence(ABC):
         """ Should return an axis aligned bounding box for other components to use.
 
         Output array should have shape (6,) and contain the limits as [north_lower, north_upper, east_lower,
-        east_upper, height_lower, height_upper], with height positive for up.
+        east_upper, down_lower, down_upper].
         """
         pass
 

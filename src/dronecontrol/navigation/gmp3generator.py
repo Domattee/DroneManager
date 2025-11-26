@@ -23,8 +23,8 @@ class GMP3Generator(PathGenerator):
             x_min = self.drone.fence.bounding_box[0]
             y_max = self.drone.fence.bounding_box[3]
             y_min = self.drone.fence.bounding_box[2]
-            z_max = self.drone.fence.bounding_box[4]
-            z_min = self.drone.fence.bounding_box[5]
+            z_max = self.drone.fence.bounding_box[5]
+            z_min = self.drone.fence.bounding_box[4]
         else:
             x_max = 20
             x_min = -20
@@ -74,8 +74,10 @@ class GMP3Generator(PathGenerator):
             cur_x, cur_y, cur_z = self.drone.position_ned
             target_x, target_y, target_z = self.target_position.pos
             with ProcessPoolExecutor(max_workers=1) as executor:
-                self.waypoints = await asyncio.get_running_loop().run_in_executor(executor, _calculate_path, cur_x,
-                                                                                  cur_y, cur_z, target_x, target_y, target_z, self.gmp3)
+                calc_task = asyncio.get_running_loop().run_in_executor(executor, _calculate_path, cur_x, cur_y,
+                                                                       cur_z, target_x, target_y, target_z, self.gmp3)
+                self.drone.current_action_tasks.add(calc_task)
+                self.waypoints = await calc_task
             valid = True
             for waypoint in self.waypoints:
                 t, x, y, z, xdot, ydot, zdot = waypoint
@@ -107,27 +109,27 @@ class GMP3Generator(PathGenerator):
     def next(self) -> Waypoint | None:
         if not self.valid_path:
             return None
-        while self.cur_wp < len(self.waypoints):
-            _, x, y, z, xdot, ydot, zdot = self.waypoints[self.cur_wp]
-            self.cur_wp += 1
-            waypoint = Waypoint(WayPointType.POS_VEL_NED, pos=np.asarray([x, y, z]),
-                                vel=np.asarray([xdot, ydot, zdot]), yaw=self.target_position.yaw)
-            return waypoint
-        return None
+        #while self.cur_wp < len(self.waypoints):
+        #    _, x, y, z, xdot, ydot, zdot = self.waypoints[self.cur_wp]
+        #    self.cur_wp += 1
+        #    waypoint = Waypoint(WayPointType.POS_VEL_NED, pos=np.asarray([x, y, z]),
+        #                        vel=np.asarray([xdot, ydot, zdot]), yaw=self.target_position.yaw)
+        #    return waypoint
+        #return None
 
-        #current_waypoint = None
-        #for wp in self.waypoints:
-        #    if time.time_ns()/1e9 <= self.start_time + wp[0]:
-        #        current_waypoint = wp
-        #        break
-        #if current_waypoint is None:
-        #    return None
-        #t, x, y, z, xdot, ydot, zdot = current_waypoint
-        #waypoint = Waypoint(WayPointType.POS_VEL_NED,
-        #                    pos=np.asarray([x, y, z]),
-        #                    vel=np.asarray([xdot, ydot, zdot]),
-        #                    yaw=self.target_position.yaw)
-        #return waypoint
+        current_waypoint = None
+        for wp in self.waypoints:
+            if time.time_ns()/1e9 <= self.start_time + wp[0]:
+                current_waypoint = wp
+                break
+        if current_waypoint is None:
+            return None
+        t, x, y, z, xdot, ydot, zdot = current_waypoint
+        waypoint = Waypoint(WayPointType.POS_VEL_NED,
+                            pos=np.asarray([x, y, z]),
+                            vel=np.asarray([xdot, ydot, zdot]),
+                            yaw=self.target_position.yaw)
+        return waypoint
 
 
 def _calculate_path(cur_x, cur_y, cur_z, target_x, target_y, target_z, gmp3):

@@ -232,7 +232,8 @@ class CommandScreen(Screen):
         fence_parser.add_argument("nu", type=float, help="Upper area limit along 'North' axis")
         fence_parser.add_argument("el", type=float, help="Lower area limit along 'East' axis")
         fence_parser.add_argument("eu", type=float, help="Upper area limit along 'East' axis")
-        fence_parser.add_argument("h", type=float, help="Height limit, upper only. Positive for up.")
+        fence_parser.add_argument("dl", type=float, help="Lower area limit along 'Down' axis")
+        fence_parser.add_argument("du", type=float, help="Upper area limit along 'Down' axis")
 
         fly_to_parser = command_parsers.add_parser("flyto", help="Send the drone to a local coordinate.", logger = self.logger)
         fly_to_parser.add_argument("drone", type=str, help="Name of the drone")
@@ -441,7 +442,7 @@ class CommandScreen(Screen):
                 elif command == "mode":
                     tmp = asyncio.create_task(self.dm.change_flightmode(args.drones, args.mode))
                 elif command == "fence":
-                    self.dm.set_fence(args.drones, args.nl, args.nu, args.el, args.eu, args.h)
+                    self.dm.set_fence(args.drones, args.nl, args.nu, args.el, args.eu, args.dl, args.du)
                 elif command == "flyto":
                     tmp = asyncio.create_task(self.dm.fly_to(args.drone, local=[args.x, args.y, args.z], yaw=args.yaw,
                                                              tol=args.tolerance, schedule=args.schedule))
