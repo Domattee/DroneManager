@@ -74,7 +74,13 @@ class RuckigOfflineFollower(PathFollower):
         await super().deactivate()
 
     def get_next_waypoint(self) -> bool:
-        return self.current_waypoint is None or self.drone.is_at_waypoint(self.current_waypoint)
+        if self.current_waypoint is None:
+            return True
+        elif self.current_waypoint.type is WayPointType.POS_GLOBAL:
+            return self.drone.is_at_waypoint(self.current_waypoint)
+        else:
+            return self.drone.is_at_pos(self.current_waypoint.pos) and self.drone.is_at_heading(self.current_waypoint.yaw)
+        #return self.current_waypoint is None or self.drone.is_at_waypoint(self.current_waypoint)
 
     async def set_setpoint(self, waypoint):
         # If we don't have a trajectory, create one
@@ -91,10 +97,12 @@ class RuckigOfflineFollower(PathFollower):
                 self.planner_input.current_velocity = self.drone.velocity
                 self.planner_input.current_acceleration = [0, 0, 0]
                 self.planner_input.target_position = waypoint.pos
-                if waypoint.type in [WayPointType.POS_VEL_NED, WayPointType.POS_VEL_ACC_NED]:
-                    self.planner_input.target_velocity = waypoint.vel
-                if waypoint.type is WayPointType.POS_VEL_ACC_NED:
-                    self.planner_input.target_acceleration = waypoint.acc
+                # Unfortunately ruckig trajectories increase in position indefinitely if target velocity isn't 0 and we
+                # don't have another cancel condition
+                #if waypoint.type in [WayPointType.POS_VEL_NED, WayPointType.POS_VEL_ACC_NED]:
+                #    self.planner_input.target_velocity = waypoint.vel
+                #if waypoint.type is WayPointType.POS_VEL_ACC_NED:
+                #    self.planner_input.target_acceleration = waypoint.acc
                 res = self.planner.calculate(self.planner_input, self.planner_output)
                 # Yaw
                 self.init_yaw = self.drone.attitude[2]
@@ -120,6 +128,7 @@ class RuckigOfflineFollower(PathFollower):
             setpoint = Waypoint(WayPointType.POS_VEL_ACC_NED, pos=pos, vel=vel, acc=acc, yaw=yaw_setpoint)
             if self.drone.check_waypoint(setpoint):
                 await self.drone.set_setpoint(setpoint)
+                #self.logger.debug(f"Set setpoint: {setpoint}")
             else:
                 self.logger.warning("Generated setpoint is invalid, keeping previous.")
         except Exception as e:
