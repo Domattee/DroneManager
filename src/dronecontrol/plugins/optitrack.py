@@ -2,10 +2,55 @@
 
 """
 import asyncio
+import numpy as np
+from scipy.spatial.transform import Rotation
 
 from dronecontrol.plugin import Plugin
 from dronecontrol.utils import coroutine_awaiter
 from dronecontrol.plugins.NatNet.NatNetClient import NatNetClient
+
+
+
+class CoordinateConversion:
+
+    def __init__(self, n_axis: str, e_axis: str, d_axis: str):
+        """
+
+        """
+        # The drone axes expressed as a tracking system axes. The axes must be aligned, only permutation and
+        # direction can change.
+        # For example:
+        # n_axis = -z  (Drone north/forward axis is aligned with negative z-axis in the tracking coordinate system)
+        # e_axis = -x (Drone east/right matches negative x-axis)
+        # d_axis = y (Drone down matches tracking y-axis)
+        self._choices = ["x", "-x", "y", "-y", "z", "-z"]
+        assert n_axis in self._choices and e_axis in self._choices and d_axis in self._choices, f"Invalid axis for coordinate conversion, must be one of {self._choices}"
+        self.axes = [n_axis, e_axis, d_axis]
+        self.rotation: Rotation | None = None
+        self._perm_matrix = np.zeros((3,3))
+        self.make_rotation()
+
+    def convert(self, tracking_pos, tracking_quat):
+        converted_pos = self.rotation.apply(tracking_pos)
+        converted_rot = self.rotation * Rotation.from_quat(tracking_quat) * self.rotation.inv().as_euler("xyz", degrees=False)
+        return converted_pos, converted_rot
+
+    def _make_perm_matrix(self):
+        self._perm_matrix = np.zeros((3, 3))
+        for i, axis in enumerate(self.axes):
+            neg = axis.startswith("-")
+            if axis.endswith("x"):
+                pos = 0
+            elif axis.endswith("y"):
+                pos = 1
+            else:
+                pos = 2
+            self._perm_matrix[i, pos] = -1 if neg else 1
+
+    def make_rotation(self):
+        self._make_perm_matrix()
+        self.rotation = Rotation.from_matrix(self._perm_matrix)
+
 
 class OptitrackPlugin(Plugin):
     """
@@ -94,3 +139,19 @@ class OptitrackPlugin(Plugin):
         await super().close()
         if self.client is not None:
             self.client.shutdown()
+
+
+if __name__ == "__main__":
+    test_pos = [-1, -2, 3]
+    test_attitudes = [[0, 10, 0], [10, 90, 10], [10, 180, 0]]
+    test_perm_matrix = np.asarray([[0, 0, -1],
+                                   [-1, 0, 0],
+                                   [0, 1, 0]])
+    opti_conv = CoordinateConversion("-z", "-x", "y")
+    rot = opti_conv.rotation
+    print("Permutation matrix: ", test_perm_matrix, opti_conv._perm_matrix)
+    print("Test vector: ", test_pos, rot.apply(test_pos))
+    print("Rotation matrix: ", rot.as_euler("xyz", degrees=True))
+    for attitude in test_attitudes:
+        att_rot = Rotation.from_euler("yxz", [*attitude], degrees=True)
+        print("Test_attitude: ", attitude, (rot*att_rot*rot.inv()).as_euler("zxy", degrees=True))
