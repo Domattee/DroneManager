@@ -158,7 +158,6 @@ class OptitrackPlugin(Plugin):
                 self.logger.info(f"Logging every {self.log_every}th rigid body frame {track_id} - {position, rotation}")
             if track_id in self._drone_id_mapping:
                 drone_name = self._drone_id_mapping[track_id]
-
                 conv_position, conv_rotation = self.coordinate_transform.convert_quat(position, rotation)
                 if self.frame_count % self.log_every == 0:
                     self.logger.info(f"Would send info to drone {drone_name, track_id}: {conv_position, conv_rotation}")
@@ -177,7 +176,6 @@ class OptitrackPlugin(Plugin):
     async def close(self):
         if self.client is not None:
             self.client.shutdown()
-
 
     async def _error_wrapper(self, func, *args, **kwargs):
         try:

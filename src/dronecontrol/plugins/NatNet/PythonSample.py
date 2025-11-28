@@ -66,7 +66,7 @@ def receive_new_frame_with_data(data_dict):
 def receive_rigid_body_frame(new_id, position, rotation):
     pass
     # print("Received frame for rigid body", new_id)
-    # print("Received frame for rigid body", new_id," ",position," ",rotation)
+    print("Received frame for rigid body", new_id," ",position," ",rotation)
 
 
 def add_lists(totals, totals_tmp):
@@ -203,7 +203,7 @@ if __name__ == "__main__":
 
     # Streaming client configuration.
     # Calls RB handler on emulator for data transmission.
-    streaming_client.new_frame_listener = receive_new_frame
+    #streaming_client.new_frame_listener = receive_new_frame
     # streaming_client.new_frame_with_data_listener = receive_new_frame_with_data  # type ignore # noqa E501
     streaming_client.rigid_body_listener = receive_rigid_body_frame
 
