@@ -2,13 +2,15 @@
 
 """
 import asyncio
+
+import mavsdk.mocap
 import numpy as np
 from scipy.spatial.transform import Rotation
 
 from dronecontrol.plugin import Plugin
-from dronecontrol.utils import coroutine_awaiter
 from dronecontrol.plugins.NatNet.NatNetClient import NatNetClient
 
+from mavsdk.mocap import VisionPositionEstimate, PositionBody, AngleBody
 
 
 class CoordinateConversion:
@@ -23,33 +25,49 @@ class CoordinateConversion:
         # n_axis = -z  (Drone north/forward axis is aligned with negative z-axis in the tracking coordinate system)
         # e_axis = -x (Drone east/right matches negative x-axis)
         # d_axis = y (Drone down matches tracking y-axis)
+        # xyz can also be written as capital letters to indicate extrinsic rotations, same convention as scipy
         self._choices = ["x", "-x", "y", "-y", "z", "-z"]
+        self._choices.extend([choice.upper() for choice in self._choices])
         assert n_axis in self._choices and e_axis in self._choices and d_axis in self._choices, f"Invalid axis for coordinate conversion, must be one of {self._choices}"
         self.axes = [n_axis, e_axis, d_axis]
         self.rotation: Rotation | None = None
+        self._inv_rotation: Rotation | None = None
         self._perm_matrix = np.zeros((3,3))
+        self.rotation_sequence: str = ""
         self.make_rotation()
 
-    def convert(self, tracking_pos, tracking_quat):
+    def convert_euler(self, tracking_pos, tracking_euler, out_sequence = "XYZ", degrees = False, in_degrees = True):
         converted_pos = self.rotation.apply(tracking_pos)
-        converted_rot = self.rotation * Rotation.from_quat(tracking_quat) * self.rotation.inv().as_euler("xyz", degrees=False)
+        converted_rot = (self.rotation * Rotation.from_euler(self.rotation_sequence, tracking_euler, degrees=in_degrees)
+                         * self._inv_rotation).as_euler(out_sequence, degrees=degrees)
+        return converted_pos, converted_rot
+
+    def convert_quat(self, tracking_pos, tracking_quat, out_sequence = "XYZ", degrees = False):
+        converted_pos = self.rotation.apply(tracking_pos)
+        converted_rot = (self.rotation * Rotation.from_quat(tracking_quat) *
+                         self.rotation.inv()).as_euler(out_sequence,degrees=degrees)
         return converted_pos, converted_rot
 
     def _make_perm_matrix(self):
         self._perm_matrix = np.zeros((3, 3))
+        seq = ""
         for i, axis in enumerate(self.axes):
+            seq += axis[-1]
+            axis = axis.lower()
             neg = axis.startswith("-")
-            if axis.endswith("x"):
+            if axis.endswith("x") or axis.endswith(()):
                 pos = 0
             elif axis.endswith("y"):
                 pos = 1
             else:
                 pos = 2
             self._perm_matrix[i, pos] = -1 if neg else 1
+        self.rotation_sequence = seq
 
     def make_rotation(self):
         self._make_perm_matrix()
         self.rotation = Rotation.from_matrix(self._perm_matrix)
+        self._inv_rotation = self.rotation.inv()
 
 
 class OptitrackPlugin(Plugin):
@@ -58,7 +76,7 @@ class OptitrackPlugin(Plugin):
 
     PREFIX = "opti"
 
-    def __init__(self, dm, logger, name, server_ip: str | None = None):
+    def __init__(self, dm, logger, name, server_ip: str | None = None, axes: list[str] | None = None):
         """
 
         """
@@ -73,6 +91,12 @@ class OptitrackPlugin(Plugin):
         self._drone_id_mapping: dict[int, str] = {}
 
         self._rigid_body_data: dict = {}
+        self.frame_count: int = 0
+        self.log_every = 99
+
+        if axes is None:
+            axes = ["z", "-x", "-y"]
+        self.coordinate_transform = CoordinateConversion(*axes)
 
     async def connect_server(self, remote: str = None, local: str = None):
         if self.client is not None:
@@ -85,9 +109,10 @@ class OptitrackPlugin(Plugin):
             self.local_ip = local
         self.logger.info(f"Connecting to NatNet Server @ {self.server_ip}")
         client = NatNetClient()
-        client.server_ip_address = self.server_ip
-        client.local_ip_address = self.local_ip
-        client.use_multicast = False
+        client.set_client_address(self.local_ip)
+        client.set_server_address(self.server_ip)
+        client.rigid_body_listener = self._rigid_body_callback
+        client.set_use_multicast(True)
         conn_good = False
         try:
             is_running = client.run("d")
@@ -106,6 +131,8 @@ class OptitrackPlugin(Plugin):
             return
         if conn_good:
             self.client = client
+            self.logger.info("Connected to NatNet Server!")
+            
         else:
             client.shutdown()
 
@@ -124,34 +151,55 @@ class OptitrackPlugin(Plugin):
             self._drone_id_mapping.pop(to_remove)
 
     def _rigid_body_callback(self, track_id, position, rotation):
-        # TODO: Rework this to have one async function for each drone, instead of creating a new one every message
-        # Probably save the latest information somewhere and then just send that with a given frequency.
-        self.logger.info(f"Received rigid body frame {track_id} - {position, rotation}")
-        if track_id in self._drone_id_mapping:
-            drone_name = self._drone_id_mapping[track_id]
-            self.logger.info(f"Would send info to drone {drone_name, track_id}: {position, rotation}")
-            send_task = asyncio.create_task(self.dm.drones[drone_name].system.mocap.set_vision_position_estimate())
-            send_task_awaiter = asyncio.create_task(coroutine_awaiter(send_task, self.logger))
-            self._running_tasks.add(send_task)
-            self._running_tasks.add(send_task_awaiter)
+        try:
+            self.frame_count += 1
+            self.frame_count = self.frame_count % 1000000
+            if self.frame_count % self.log_every == 0:
+                self.logger.info(f"Logging every {self.log_every}th rigid body frame {track_id} - {position, rotation}")
+            if track_id in self._drone_id_mapping:
+                drone_name = self._drone_id_mapping[track_id]
+
+                conv_position, conv_rotation = self.coordinate_transform.convert_quat(position, rotation)
+                if self.frame_count % self.log_every == 0:
+                    self.logger.info(f"Would send info to drone {drone_name, track_id}: {conv_position, conv_rotation}")
+                #vis_pos_estimate = VisionPositionEstimate(0,
+                #                                          PositionBody(*conv_position),
+                #                                          AngleBody(*conv_rotation),
+                #                                          None)
+                #send_task = asyncio.create_task(self._error_wrapper(self.dm.drones[drone_name].system.mocap.set_vision_position_estimate(vis_pos_estimate)))
+                #send_task_awaiter = asyncio.create_task(coroutine_awaiter(send_task, self.logger))
+                #self._running_tasks.add(send_task)
+                #self._running_tasks.add(send_task_awaiter)
+        except Exception as e:
+            self.logger.error("Error in rigid body callback:")
+            self.logger.debug(repr(e), exc_info = True)
 
     async def close(self):
-        await super().close()
         if self.client is not None:
             self.client.shutdown()
 
 
+    async def _error_wrapper(self, func, *args, **kwargs):
+        try:
+            res = await func(*args, **kwargs)
+        except mavsdk.mocap.MocapError as e:
+            self.logger.error(f"CameraError: {e._result.result_str}")
+            return False
+        return res
+
+
 if __name__ == "__main__":
     test_pos = [-1, -2, 3]
-    test_attitudes = [[0, 10, 0], [10, 90, 10], [10, 180, 0]]
-    test_perm_matrix = np.asarray([[0, 0, -1],
-                                   [-1, 0, 0],
-                                   [0, 1, 0]])
-    opti_conv = CoordinateConversion("-z", "-x", "y")
+    test_attitudes = [[0, 0, 10], [10, 5, 90], [10, 0, 180]]
+    GT_test_attitudes = [[0, 0, -100]]
+
+    opti_conv = CoordinateConversion("z", "-x", "-y")
     rot = opti_conv.rotation
-    print("Permutation matrix: ", test_perm_matrix, opti_conv._perm_matrix)
+    seq = opti_conv.rotation_sequence
+
     print("Test vector: ", test_pos, rot.apply(test_pos))
-    print("Rotation matrix: ", rot.as_euler("xyz", degrees=True))
+    print("Rotation matrix: ", rot.as_quat(canonical=True))
+
     for attitude in test_attitudes:
-        att_rot = Rotation.from_euler("yxz", [*attitude], degrees=True)
-        print("Test_attitude: ", attitude, (rot*att_rot*rot.inv()).as_euler("zxy", degrees=True))
+        print("Init Position, Rotation: ", test_pos, attitude)
+        print("Converted Position, Rotation: ", opti_conv.convert_euler(test_pos, attitude, degrees=True))
