@@ -2,15 +2,18 @@
 
 """
 import asyncio
-
-import mavsdk.mocap
+import math
 import numpy as np
 from scipy.spatial.transform import Rotation
 
+from mavsdk.mocap import VisionPositionEstimate, PositionBody, AngleBody, MocapError, Covariance
+
 from dronecontrol.plugin import Plugin
 from dronecontrol.plugins.NatNet.NatNetClient import NatNetClient
+from dronecontrol.utils import coroutine_awaiter    
 
-from mavsdk.mocap import VisionPositionEstimate, PositionBody, AngleBody
+
+# TODO: Check available bodies
 
 
 class CoordinateConversion:
@@ -83,7 +86,8 @@ class OptitrackPlugin(Plugin):
         super().__init__(dm, logger, name)
         self.cli_commands = {
             "connect": self.connect_server,
-            "add_drone": self.add_drone,
+            "add": self.add_drone,
+            "remove": self.remove_drone,
         }
         self.client: NatNetClient | None = None
         self.server_ip: str = server_ip if server_ip is not None else "127.0.0.1"
@@ -92,11 +96,16 @@ class OptitrackPlugin(Plugin):
 
         self._rigid_body_data: dict = {}
         self.frame_count: int = 0
-        self.log_every = 99
+
+        self.log_rigid_frames: bool = False
+        self.log_every: int = 99
 
         if axes is None:
             axes = ["z", "-x", "-y"]
         self.coordinate_transform = CoordinateConversion(*axes)
+        self._event_loop = asyncio.get_running_loop()
+
+        self._covariance_matrix = Covariance([math.nan])
 
     async def connect_server(self, remote: str = None, local: str = None):
         if self.client is not None:
@@ -136,13 +145,13 @@ class OptitrackPlugin(Plugin):
         else:
             client.shutdown()
 
-    def add_drone(self, name: str, track_id: int):
-        if name not in self.dm.drones:
-            self.logger.warning(f"No drone named {name}")
-        else:
-            self._drone_id_mapping[track_id] = name
+    async def add_drone(self, name: str, track_id: int):
+        #if name not in self.dm.drones:
+        #    self.logger.warning(f"No drone named {name}")
+        #else:
+        self._drone_id_mapping[track_id] = name
 
-    def remove_drone(self, name: str):
+    async def remove_drone(self, name: str):
         to_remove = None
         for key, value in self._drone_id_mapping.items():
             if value == name:
@@ -151,36 +160,52 @@ class OptitrackPlugin(Plugin):
             self._drone_id_mapping.pop(to_remove)
 
     def _rigid_body_callback(self, track_id, position, rotation):
+        callback_task = asyncio.run_coroutine_threadsafe(self._process_rigid_body(track_id, position, rotation), self._event_loop)
+        callback_awaiter = asyncio.run_coroutine_threadsafe(coroutine_awaiter(callback_task, self.logger), self._event_loop)
+        self._running_tasks.add(callback_task)
+        self._running_tasks.add(callback_awaiter)
+
+    async def _process_rigid_body(self, track_id, position, rotation):
         try:
             self.frame_count += 1
             self.frame_count = self.frame_count % 1000000
-            if self.frame_count % self.log_every == 0:
+            if self.log_rigid_frames and self.frame_count % self.log_every == 0:
                 self.logger.info(f"Logging every {self.log_every}th rigid body frame {track_id} - {position, rotation}")
             if track_id in self._drone_id_mapping:
                 drone_name = self._drone_id_mapping[track_id]
-                conv_position, conv_rotation = self.coordinate_transform.convert_quat(position, rotation)
+                conv_position, conv_rotation = self.coordinate_transform.convert_quat(position, rotation, out_sequence="xyz", degrees=False)
                 if self.frame_count % self.log_every == 0:
-                    self.logger.info(f"Would send info to drone {drone_name, track_id}: {conv_position, conv_rotation}")
-                #vis_pos_estimate = VisionPositionEstimate(0,
-                #                                          PositionBody(*conv_position),
-                #                                          AngleBody(*conv_rotation),
-                #                                          None)
-                #send_task = asyncio.create_task(self._error_wrapper(self.dm.drones[drone_name].system.mocap.set_vision_position_estimate(vis_pos_estimate)))
-                #send_task_awaiter = asyncio.create_task(coroutine_awaiter(send_task, self.logger))
-                #self._running_tasks.add(send_task)
-                #self._running_tasks.add(send_task_awaiter)
+                    self.logger.info(f"Drone {drone_name, track_id}: Position{conv_position}, Attitude: {[float(rot * 180 / math.pi) for rot in conv_rotation]}")
+
+                try:
+                    drone = self.dm.drones[drone_name]
+                except KeyError:
+                    self.logger.warning(f"Received tracking data for drone '{drone_name}' which is no longer connected, removing...")
+                    await self.remove_drone(drone_name)
+                if drone.is_connected:
+                    vis_pos_estimate = VisionPositionEstimate(0,
+                                                            PositionBody(*conv_position),
+                                                            AngleBody(*conv_rotation),
+                                                            self._covariance_matrix)
+                    send_task = asyncio.create_task(self._error_wrapper(drone.system.mocap.set_vision_position_estimate, vis_pos_estimate))
+                    send_task_awaiter = asyncio.create_task(coroutine_awaiter(send_task, self.logger))
+                    self._running_tasks.add(send_task)
+                    self._running_tasks.add(send_task_awaiter)
+        except UnboundLocalError:
+            pass
         except Exception as e:
-            self.logger.error("Error in rigid body callback:")
+            self.logger.error("Exception in rigid body callback, see log for details.")
             self.logger.debug(repr(e), exc_info = True)
 
     async def close(self):
+        await super().close()
         if self.client is not None:
             self.client.shutdown()
 
     async def _error_wrapper(self, func, *args, **kwargs):
         try:
             res = await func(*args, **kwargs)
-        except mavsdk.mocap.MocapError as e:
+        except MocapError as e:
             self.logger.error(f"CameraError: {e._result.result_str}")
             return False
         return res
