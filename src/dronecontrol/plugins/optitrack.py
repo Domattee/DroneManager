@@ -79,13 +79,14 @@ class OptitrackPlugin(Plugin):
 
     PREFIX = "opti"
 
-    def __init__(self, dm, logger, name, server_ip: str | None = None, axes: list[str] | None = None):
+    def __init__(self, dm, logger, name, server_ip: str | None = None, axes: list[str] | None = None, log_frames: bool = False):
         """
 
         """
         super().__init__(dm, logger, name)
         self.cli_commands = {
             "connect": self.connect_server,
+            "bodies": self.log_available_bodies,
             "add": self.add_drone,
             "remove": self.remove_drone,
         }
@@ -93,11 +94,10 @@ class OptitrackPlugin(Plugin):
         self.server_ip: str = server_ip if server_ip is not None else "127.0.0.1"
         self.local_ip: str = "127.0.0.1"
         self._drone_id_mapping: dict[int, str] = {}
+        self.available_bodies: dict[int, np.ndarray] = {}
 
-        self._rigid_body_data: dict = {}
         self.frame_count: int = 0
-
-        self.log_rigid_frames: bool = False
+        self.log_rigid_frames: bool = log_frames
         self.log_every: int = 99
 
         if axes is None:
@@ -120,7 +120,7 @@ class OptitrackPlugin(Plugin):
         client = NatNetClient()
         client.set_client_address(self.local_ip)
         client.set_server_address(self.server_ip)
-        client.rigid_body_listener = self._rigid_body_callback
+        client.new_frame_with_data_listener = self._new_frame_callback
         client.set_use_multicast(True)
         conn_good = False
         try:
@@ -159,6 +159,32 @@ class OptitrackPlugin(Plugin):
         if to_remove:
             self._drone_id_mapping.pop(to_remove)
 
+    async def log_available_bodies(self):
+        if self.client is None:
+            self.logger.warning("Not connected to a NatNet server!")
+            return
+        body_str = "\n".join([f"Track: {track_id}, Position {position}" for track_id, position in self.available_bodies.items()])
+        self.logger.info("Available Rigid Bodies:\n" + body_str)
+
+    def _new_frame_callback(self, data_dict):
+        try:
+            body_dict = {}
+            rigid_body_list = data_dict["mocap_data"].rigid_body_data.rigid_body_list
+            for rb in rigid_body_list:
+                track_id = rb.id_num
+                position = rb.pos
+                body_dict[track_id] = position
+                rotation = rb.rot
+                if track_id in self._drone_id_mapping:
+                    callback_task = asyncio.run_coroutine_threadsafe(self._process_rigid_body(track_id, position, rotation), self._event_loop)
+                    callback_awaiter = asyncio.run_coroutine_threadsafe(coroutine_awaiter(callback_task, self.logger), self._event_loop)
+                    self._running_tasks.add(callback_task)
+                    self._running_tasks.add(callback_awaiter)
+            self.available_bodies = body_dict
+        except Exception as e:
+            self.logger.error("Exception in new frame callback, see log for details.")
+            self.logger.debug(repr(e), exc_info = True)
+
     def _rigid_body_callback(self, track_id, position, rotation):
         callback_task = asyncio.run_coroutine_threadsafe(self._process_rigid_body(track_id, position, rotation), self._event_loop)
         callback_awaiter = asyncio.run_coroutine_threadsafe(coroutine_awaiter(callback_task, self.logger), self._event_loop)
@@ -174,9 +200,6 @@ class OptitrackPlugin(Plugin):
             if track_id in self._drone_id_mapping:
                 drone_name = self._drone_id_mapping[track_id]
                 conv_position, conv_rotation = self.coordinate_transform.convert_quat(position, rotation, out_sequence="xyz", degrees=False)
-                if self.frame_count % self.log_every == 0:
-                    self.logger.info(f"Drone {drone_name, track_id}: Position{conv_position}, Attitude: {[float(rot * 180 / math.pi) for rot in conv_rotation]}")
-
                 try:
                     drone = self.dm.drones[drone_name]
                 except KeyError:
