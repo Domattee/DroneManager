@@ -108,6 +108,7 @@ class OptitrackPlugin(Plugin):
         self._covariance_matrix = Covariance([math.nan])
 
     async def connect_server(self, remote: str = None, local: str = None):
+        """ Connect to a NatNet server at the given IP remote and local IP addresses. Localhost by default. """
         if self.client is not None:
             self.logger.warning("Already connected to a NatNetserver, aborting.")
             return
@@ -146,12 +147,14 @@ class OptitrackPlugin(Plugin):
             client.shutdown()
 
     async def add_drone(self, name: str, track_id: int):
-        #if name not in self.dm.drones:
-        #    self.logger.warning(f"No drone named {name}")
-        #else:
-        self._drone_id_mapping[track_id] = name
+        """ Add a drone to the data forwarding system by name and track ID"""
+        if name not in self.dm.drones:
+            self.logger.warning(f"No drone named {name}")
+        else:
+            self._drone_id_mapping[track_id] = name
 
     async def remove_drone(self, name: str):
+        """ Remove a drone from the data forwarding system by name"""
         to_remove = None
         for key, value in self._drone_id_mapping.items():
             if value == name:
@@ -160,6 +163,7 @@ class OptitrackPlugin(Plugin):
             self._drone_id_mapping.pop(to_remove)
 
     async def log_available_bodies(self):
+        """ Print available rigid bodies on the NatNet server"""
         if self.client is None:
             self.logger.warning("Not connected to a NatNet server!")
             return
