@@ -119,7 +119,7 @@ class MAVPassthrough:
                                                        source_component=self.source_component, dialect=self.dialect)
             self._sockets.add(tmp_con_local)
         self._sockets.add(tmp_con_out)
-        await self._connect_drone(tmp_con_out)
+        await self._connect_drone(tmp_con_out, tmp_con_local)
 
     async def _connect_drone(self, con, backup = None):
         # Backup is a secondary connection (usually local) on which we listen for heartbeats as well.
@@ -155,7 +155,6 @@ class MAVPassthrough:
             hb_received_con = self._check_heartbeat(con)
             if local is not None:
                 hb_received_local = self._check_heartbeat(local)
-            self.logger.debug(f"Received hb remote: {hb_received_con} local: {hb_received_local}")
             # Use the local port if we get a heartbeat on that, use the remote if we get a heartbeat on that but not
             # local, keep listening if we get no heartbeats at all
             if hb_received_local:
