@@ -1,6 +1,23 @@
 {
   "drones": [
     {
+      "drone_name": "holodeck",
+      "address": "udp://:14561",
+      "position_rate": 6.00,
+      "max_h_vel": 10.0,
+      "max_down_vel": 1.0,
+      "max_up_vel": 3.0,
+      "max_h_acc": 1.5,
+      "max_v_acc": 0.5,
+      "max_h_jerk": 0.5,
+      "max_v_jerk": 0.5,
+      "max_yaw_vel": 60,
+      "max_yaw_acc": 30,
+      "max_yaw_jerk": 30,
+      "log_telemetry": false,
+      "size": 1.0
+    },
+    {
       "drone_name": "default",
       "address": "udp://:14540",
       "position_rate": 5.0,

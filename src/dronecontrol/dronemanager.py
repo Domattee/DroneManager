@@ -150,7 +150,7 @@ class DroneManager:
                 specific_config: DroneConfig = self.drone_configs[name]
                 if specific_config:
                     self.logger.debug("Found drone config, using parameters...")
-                    for key, value in specific_config.__dict__:
+                    for key, value in specific_config.__dict__.items():
                         setattr(config, key, value)
                 if telemetry_frequency is not None:
                     if telemetry_frequency < 2:
