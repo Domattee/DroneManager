@@ -10,6 +10,12 @@
     "controllers": {
       "auto_set": true,
       "auto_drone": true
+    },
+    "optitrack": {
+      "server_ip": "127.0.0.1",
+      "local_ip": "127.0.0.1",
+      "axes": ["z", "-x", "-y"],
+      "log_frames": false
     }
   },
   "drones": [

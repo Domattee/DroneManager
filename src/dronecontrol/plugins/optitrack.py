@@ -79,7 +79,8 @@ class OptitrackPlugin(Plugin):
 
     PREFIX = "opti"
 
-    def __init__(self, dm, logger, name, server_ip: str | None = None, axes: list[str] | None = None, log_frames: bool = False):
+    def __init__(self, dm, logger, name, server_ip: str | None = None, local_ip: str | None = None,
+                 axes: list[str] | None = None, log_frames: bool = False):
         """
 
         """
@@ -92,7 +93,7 @@ class OptitrackPlugin(Plugin):
         }
         self.client: NatNetClient | None = None
         self.server_ip: str = server_ip if server_ip is not None else "127.0.0.1"
-        self.local_ip: str = "127.0.0.1"
+        self.local_ip: str = local_ip if local_ip is not None else "127.0.0.1"
         self._drone_id_mapping: dict[int, str] = {}
         self.available_bodies: dict[int, np.ndarray] = {}
 
