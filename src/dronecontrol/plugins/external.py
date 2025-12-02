@@ -3,7 +3,9 @@
 Currently only features a basic UDP server which sends data on connected drones and running missions in a json format.
 """
 import asyncio
+import threading
 import socket
+import errno
 import json
 import time
 import math
@@ -41,6 +43,7 @@ class UDPPlugin(Plugin):
         super().__init__(dm, logger, name)
         self.inport = SERVER_PORT
         sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        sock.setblocking(False)
         sock.bind(("", self.inport))
         self.socket = sock
 
@@ -50,16 +53,29 @@ class UDPPlugin(Plugin):
         self.default_frequency = 5
         self.clients: dict[tuple[str, int], UDPClient] = {}
         self.background_functions = [
-            self._listen_for_clients(),
         ]
 
-    async def _listen_for_clients(self):
+        self._stop_threads = False
+        self._event_loop = asyncio.get_running_loop()
+        self._listen_thread = threading.Thread(target=self._listen_for_clients, args = (lambda: self._stop_threads,))
+        self._listen_thread.start()
+
+    async def close(self):
+        await super().close()
+        self._stop_threads = True
+        self.socket.close()
+
+    def _listen_for_clients(self, stop):
         self.logger.debug("Listening for clients...")
-        while True:
+        while not stop():
             try:
-                rec_task = asyncio.get_running_loop().run_in_executor(None, self._listen_socket)
-                self._running_tasks.add(rec_task)
-                msg, addr = await rec_task
+                try:
+                    msg, addr = self.socket.recvfrom(1024)
+                except socket.error as e:
+                    if e.errno in [errno.EAGAIN, errno.EWOULDBLOCK, errno.ECONNREFUSED]:
+                        continue
+                    else:
+                        raise
                 self.logger.debug(f"Received message from {addr}")
                 json_dict = json.loads(msg)
                 if "frequency" not in json_dict or "duration" not in json_dict:
@@ -77,8 +93,8 @@ class UDPPlugin(Plugin):
                 if (ip, port) not in self.clients:
                     client = UDPClient(ip, port, frequency, duration)
                     self.clients[(ip, port)] = client
-                    send_task = asyncio.create_task(self._client_sender(client))
-                    awaiter_task = asyncio.create_task(coroutine_awaiter(send_task, self.logger))
+                    send_task = asyncio.run_coroutine_threadsafe(self._client_sender(client), self._event_loop)
+                    awaiter_task = asyncio.run_coroutine_threadsafe(coroutine_awaiter(send_task, self.logger), self._event_loop)
                     self._running_tasks.add(send_task)
                     self._running_tasks.add(awaiter_task)
                     self.logger.info(f"New client @{ip, port} with frequency {frequency} and duration {math.inf if duration == 0 else duration}.")
@@ -91,10 +107,8 @@ class UDPPlugin(Plugin):
             except Exception as e:
                 self.logger.warning("Exception listening for incoming UDP!")
                 self.logger.debug(repr(e), exc_info=True)
-                await asyncio.sleep(5)
-
-    def _listen_socket(self):
-        return self.socket.recvfrom(1024)
+                self.logger.debug("Dummy")
+        return 0
 
     async def _client_sender(self, client: UDPClient):
         """ Send data to the client.

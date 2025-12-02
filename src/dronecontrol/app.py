@@ -27,8 +27,6 @@ pane_formatter = logging.Formatter('%(asctime)s %(levelname)s %(name)s - %(messa
 
 UPDATE_RATE = 20  # How often the various screens update in Hz.
 
-DEFAULT_PLUGINS = ["mission", "controllers", "external"]
-
 
 class StatusScreen(Screen):
 
@@ -169,7 +167,7 @@ class CommandScreen(Screen):
 
     async def _default_plugin_loading(self):
         plugin_tasks = []
-        for plugin_name in DEFAULT_PLUGINS:
+        for plugin_name in self.dm.config.default_plugins:
             plugin_tasks.append(asyncio.create_task(self.dm.load_plugin(plugin_name)))
         await asyncio.gather(*plugin_tasks)
         self.logger.info(f"Loaded startup plugins: {self.dm.currently_loaded_plugins()}")

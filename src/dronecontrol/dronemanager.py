@@ -35,14 +35,25 @@ pane_formatter = logging.Formatter('%(asctime)s %(levelname)s %(name)s - %(messa
 
 class DMConfig:
 
+    CORE_ENTRIES = ["drones", "mav_system_id", "mav_component_id", "plugin_settings", "default_plugins"]  # These must be present
+
     def __init__(self, drone_configs: DroneConfigs, mav_system_id: int = 246, mav_component_id: int = 190,
-                 plugins: dict[str, dict[str, typing.Any]] | None = None):
+                 default_plugins: list[str] | None = None, plugin_settings: dict[str, dict[str, typing.Any]] | None = None, **kwargs):
         self.drone_configs: DroneConfigs = drone_configs
         self.mav_system_id: int = mav_system_id
         self.mav_component_id: int = mav_component_id
-        if plugins is None:
-            plugins = {}
-        self.plugins: dict[str, dict[str, typing.Any]] = plugins
+        if default_plugins is None:
+            default_plugins = []
+        self.default_plugins = default_plugins
+        if plugin_settings is None:
+            plugin_settings = {}
+        self.plugin_settings: dict[str, dict[str, typing.Any]] = plugin_settings
+
+        # Load any extra attributes
+        for kwarg in kwargs:
+            if hasattr(self, kwarg):
+                raise RuntimeError(f"Attribute collision from entry {kwarg} in configuration file!")
+            self.__setattr__(kwarg, kwargs[kwarg])
 
     @classmethod
     def from_file(cls, filepath: str):
@@ -54,17 +65,21 @@ class DMConfig:
             configs = DroneConfigs(configs)
             mav_sys_id = json_obj["mav_system_id"]
             mav_comp_id = json_obj["mav_component_id"]
-            if "plugins" in json_obj:
-                plugins = json_obj["plugins"]
-        return cls(configs, mav_system_id=mav_sys_id, mav_component_id=mav_comp_id, plugins=plugins)
+            if "plugin_settings" in json_obj:
+                plugin_settings = json_obj["plugin_settings"]
+            if "default_plugins" in json_obj:
+                default_plugins = json_obj["default_plugins"]
+            extra_entries = {}
+            for key in json_obj:
+                if key not in cls.CORE_ENTRIES:
+                    extra_entries[key] = json_obj[key]
+        return cls(configs, mav_system_id=mav_sys_id, mav_component_id=mav_comp_id, plugin_settings=plugin_settings, default_plugins=default_plugins, **extra_entries)
 
     def to_file(self, filepath: str):
         with open(filepath, "wt") as f:
-            outdict = {}
+            outdict = self.__dict__.copy()
+            outdict.pop("drone_configs")
             outdict["drones"] = [self.drone_configs[drone].__dict__ for drone in self.drone_configs]
-            outdict["mav_system_id"] = self.mav_system_id
-            outdict["mav_component_id"] = self.mav_component_id
-            outdict["plugins"] = self.plugins
             json.dump(outdict, f, indent=2)
 
 
@@ -570,8 +585,8 @@ class DroneManager:
                             await self.load_plugin(dependency)
                     else:
                         self.logger.warning("Nested dependencies are only supported to the first level, i.e. one dot.")
-                if plugin_name in self.config.plugins:
-                    kwargs = self.config.plugins[plugin_name]
+                if plugin_name in self.config.plugin_settings:
+                    kwargs = self.config.plugin_settings[plugin_name]
                 else:
                     kwargs = {}
                 plugin = plugin_class(self, self.logger, plugin_name, **kwargs)
