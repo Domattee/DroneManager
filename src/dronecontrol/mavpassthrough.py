@@ -76,7 +76,13 @@ class MAVPassthrough:
         self.logger.debug(f"Got GCS {self.gcs_system, self.gcs_component} heartbeat.")
         self.time_of_last_gcs = time.time_ns()
         self.running_tasks.add(asyncio.create_task(self._send_pings_gcs()))
+
+        handshake_task = asyncio.create_task(self._do_version_handshake(self.con_drone_in, "GCS"))
+        self.running_tasks.add(handshake_task)
+        await handshake_task
+
         self.running_tasks.add(asyncio.create_task(self._listen_gcs()))
+
 
     def connect_drone(self, loc, appendix, scheme="udp"):
         if scheme == "udp":
