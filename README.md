@@ -118,9 +118,19 @@ real drones without understanding what they do first!
 `mission-status`. The optional parameter `label` can be used to assign the mission a specific name. Each mission must 
 have a unique name, so this allows multiple missions of the same "type".
 
-The external plugin creates a local UDP server that sends out information about connected drones and any running missions 
+The plugin `external` creates a local UDP server that sends out information about connected drones and any running missions 
 on request using json format. We provide a dummy client script that sends the request messages and prints the information
 from DM to console.
+
+#### Other Plugins
+
+- `gimbal`: A plugin for controlling gimbals connected to the drone FC.
+- `camera`: A plugin for controlling cameras connected to the drone FC. Quite specific for our camera and probably not generally applicable.
+- `sensor`: A plugin for managing generic extra data sources. We also have example code for a specific sensor: An Ecowitt weather station.
+- `scripts`: A plugin that allows executing arbitrary scripts from the terminal interface. They are executed in a separate process.
+- `optitrack`: A plugin using the python code from the NatNetSDK. Can be used to connect to a running motive server and
+  forward tracking information to any connected drones. This also requires that motive be configured to stream the information and that
+  the flight controller on the drones themselves be configured to use this information.
 
 ## Examples
 
@@ -131,8 +141,7 @@ To run it, you will need three drones, preferably running PX4, a dummy object of
 where you can fly multiple drones with high precision.
 In the event we are flying with three drones, "luke", "derek" and "corran". No object recognition takes place, the 
 POI location is pre-determined.
-We ran this demo in an indoor environment with an OptiTrack system for positioning. Note that the positioning system
-is independent of DM.
+We ran this demo in an indoor environment with an OptiTrack system for positioning.
 The setup instructions below assume a similar setup.
 
 If you don't have an indoor flying set up ready to go, we suggest going outside and using GPS instead. The setup will 
@@ -153,9 +162,6 @@ drones. If drones were added in the wrong order, you can either rearrange them o
 `uam-remove <name>` and re-add them.
 5. Check that each drone reports the correct position. If they report 0,0, the tracking system isn't connected. 
 6. Do `uam-set` to change the mission state to "ready-to-go". With `uam-unset` you can go back to Uninitialized.
-7. To send out UDP information for the visualization: `load external`. Note that currently the destination IP for the 
-external module is hardcoded, you will have to change this in the code and then either reload the plugin or restart the 
-setup process from step 1.
 
 #### Mission
 With the drones connected and all the scripts loaded you can begin flying missions.
@@ -167,4 +173,4 @@ drone starts circling until its (faked) battery runs low, when one of the drones
 swap. The observing drone will stop circling and wait until the swapping drone has eyes on the object, at which point 
 the observing drone will rtb on its own. This swapping happens indefinitely. To stop the mission, do `uam-rtb`.
 3. To fly drones from any position to their start position one-by-one you can use `uam-reset`. This should only be used 
-in Gazebo, in the real demo, the drones should already be at their start positions.
+in Gazebo, the drones should already be at their start positions in a real demo.

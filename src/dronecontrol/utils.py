@@ -217,9 +217,9 @@ def check_cli_command_signatures(command):
     return list(zip(args_invalid, args_name, args_list, args_required, args_accepts_none, args_types, args_kwonly, args_has_defaults, args_defaults))
 
 
-async def coroutine_awaiter(task: asyncio.Task, logger):
+async def coroutine_awaiter(task: asyncio.Future, logger):
     try:
-        if isinstance(task, asyncio.Task):
+        if isinstance(task, asyncio.Future):
             await task
     except asyncio.CancelledError:
         pass
