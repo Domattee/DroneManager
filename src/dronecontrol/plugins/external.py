@@ -41,7 +41,6 @@ class UDPPlugin(Plugin):
         super().__init__(dm, logger, name)
         self.inport = SERVER_PORT
         sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        sock.setblocking(False)
         sock.bind(("", self.inport))
         self.socket = sock
 
@@ -58,7 +57,7 @@ class UDPPlugin(Plugin):
         self.logger.debug("Listening for clients...")
         while True:
             try:
-                rec_task = asyncio.get_running_loop().sock_recvfrom(self.socket, 1024)
+                rec_task = asyncio.get_running_loop().run_in_executor(None, self._listen_socket)
                 self._running_tasks.add(rec_task)
                 msg, addr = await rec_task
                 self.logger.debug(f"Received message from {addr}")
@@ -93,6 +92,9 @@ class UDPPlugin(Plugin):
                 self.logger.warning("Exception listening for incoming UDP!")
                 self.logger.debug(repr(e), exc_info=True)
                 await asyncio.sleep(5)
+
+    def _listen_socket(self):
+        return self.socket.recvfrom(1024)
 
     async def _client_sender(self, client: UDPClient):
         """ Send data to the client.
