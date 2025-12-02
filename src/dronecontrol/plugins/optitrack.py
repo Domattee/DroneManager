@@ -200,7 +200,7 @@ class OptitrackPlugin(Plugin):
             self.frame_count += 1
             self.frame_count = self.frame_count % 1000000
             if self.log_rigid_frames and self.frame_count % self.log_every == 0:
-                self.logger.info(f"Logging every {self.log_every}th rigid body frame {track_id} - {position, rotation}")
+                self.logger.debug(f"Logging every {self.log_every}th rigid body frame RAW: {track_id} - {position, rotation}")
             if track_id in self._drone_id_mapping:
                 drone_name = self._drone_id_mapping[track_id]
                 conv_position, conv_rotation = self.coordinate_transform.convert_quat(position, rotation, out_sequence="xyz", degrees=False)
@@ -214,6 +214,8 @@ class OptitrackPlugin(Plugin):
                                                             PositionBody(*conv_position),
                                                             AngleBody(*conv_rotation),
                                                             self._covariance_matrix)
+                    if self.log_rigid_frames and self.frame_count % self.log_every == 0:
+                        self.logger.info(f"Logging every {self.log_every}th rigid body frame CONVERTED:{track_id} - {conv_position, conv_rotation}")
                     send_task = asyncio.create_task(self._error_wrapper(drone.system.mocap.set_vision_position_estimate, vis_pos_estimate))
                     send_task_awaiter = asyncio.create_task(coroutine_awaiter(send_task, self.logger))
                     self._running_tasks.add(send_task)
