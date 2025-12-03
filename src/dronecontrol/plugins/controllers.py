@@ -391,7 +391,7 @@ class ControllerPlugin(Plugin):
                             margin_depth = 1 # Safety margin for forward backwards in meters
                             # SAFETY_LEVEL maximum 5
                             # TODO: Set Safety_level as variable in fence and limit it between 0 and 5
-                            SAFETY_LEVEL = 4
+                            SAFETY_LEVEL = fence.safety_level
                             scaling_margin_vertical = abs(fence.down_lower - fence.down_upper) * (SAFETY_LEVEL / 10)
                             scaling_margin_horizontal = abs(fence.east_lower - fence.east_upper) * (SAFETY_LEVEL / 10)
                             scaling_margin_depth = abs(fence.north_lower - fence.north_upper) * (SAFETY_LEVEL / 10)
@@ -528,6 +528,10 @@ class ControllerPlugin(Plugin):
                     # --- FENCE LOGIC END ---
 
                     vertical_input = (vertical_input + 1) / 2  # Scale from -1/1 to 0/1
+                    if SAFETY_LEVEL >= 4:
+                        forward_input *= 0.1
+                        right_input *= 0.1
+                        vertical_input *= 0.1
 
                     # TODO: Enforce fence somehow
                     await self.dm.drones[self._drone_name].set_manual_control_input(forward_input, right_input, vertical_input, yaw_input)
