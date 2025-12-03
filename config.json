@@ -11,6 +11,12 @@
       "auto_set": true,
       "auto_drone": true
     },
+    "external": {
+      "server_port": 31659,
+      "max_frequency": 100,
+      "min_frequency": 1,
+      "max_duration": 60
+    },
     "optitrack": {
       "server_ip": "127.0.0.1",
       "local_ip": "127.0.0.1",

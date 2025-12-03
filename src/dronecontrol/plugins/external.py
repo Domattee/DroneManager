@@ -15,6 +15,9 @@ from dronecontrol.utils import coroutine_awaiter
 
 
 SERVER_PORT = 31659
+MAX_FREQUENCY = 100
+MIN_FREQUENCY = 1
+MAX_DURATION = 60
 
 class UDPClient:
 
@@ -39,18 +42,21 @@ class UDPPlugin(Plugin):
     """
     PREFIX = "UDP"
 
-    def __init__(self, dm, logger, name):
+    def __init__(self, dm, logger, name, server_port = SERVER_PORT, max_frequency: float = MAX_FREQUENCY,
+                 min_frequency: float = MIN_FREQUENCY, max_duration: float = MAX_DURATION):
         super().__init__(dm, logger, name)
-        self.inport = SERVER_PORT
+        self.inport = server_port
         sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         sock.setblocking(False)
         sock.bind(("", self.inport))
         self.socket = sock
 
-        self.default_duration = 30
+        self.max_frequency = max_frequency
+        self.min_frequency = min_frequency
+        self.max_duration = max_duration
+
         outsock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self.outsocket = outsock
-        self.default_frequency = 5
         self.clients: dict[tuple[str, int], UDPClient] = {}
         self.background_functions = [
         ]
@@ -83,13 +89,13 @@ class UDPPlugin(Plugin):
                     continue
                 ip, port = addr
                 frequency = json_dict["frequency"]
-                if frequency > 100:
-                    frequency = 100
-                elif frequency < 1/60:
-                    frequency = 1/60
+                if frequency > self.max_frequency:
+                    frequency = self.max_frequency
+                elif frequency < self.min_frequency:
+                    frequency = self.min_frequency
                 duration = json_dict["duration"]
                 if duration <= 0:
-                    duration = self.default_duration
+                    duration = self.max_duration
                 if (ip, port) not in self.clients:
                     client = UDPClient(ip, port, frequency, duration)
                     self.clients[(ip, port)] = client
@@ -114,7 +120,8 @@ class UDPPlugin(Plugin):
         """ Send data to the client.
         """
         # TODO: If we ever have a larger number of clients we should cache the jsons somehow
-        # TODO: The OSError for the send command is raised at the recvfrom for some reason, which breaks this client handling
+        # TODO: The OSError for the send command is raised at the recvfrom for some reason, which breaks this client
+        #  closing. Not critical while we have a limited max duration.
         while client.duration == 0 or time.time() < (client.start_time + client.duration):
             try:
                 data = self._make_json()
