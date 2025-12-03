@@ -39,4 +39,5 @@ class RectLocalFence(Fence):
 
     def __str__(self):
         return (f"{self.__class__.__name__}, with limits N {self.north_lower, self.north_upper}, "
-                f"E {self.east_lower, self.east_upper} and D {self.down_lower, self.down_upper}")
+                f"E {self.east_lower, self.east_upper} and D {self.down_lower, self.down_upper}, "
+                f"Safety Level: {self.safety_level}")
