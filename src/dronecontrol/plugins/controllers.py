@@ -386,110 +386,93 @@ class ControllerPlugin(Plugin):
                             fence = drone.fence
                             SAFETY_LEVEL = fence.safety_level
                             
-                            # Consolidate Margin (used for horizontal clamping limits and vertical hard limit)
-                            # Using a fixed margin for the robust horizontal clamp (1.0m as set in previous step)
-                            margin = 1.0 
+                            # Common parameters for all axes
+                            margin = 1.0  # Safety margin in meters
+                            dt = 1.0 / self._control_frequency # Time step for prediction
                             
-                            # --- Vertical Variables (Retained for your scaling logic) ---
-                            # Note: D-axis position is drone.position_ned[2]
-                            # Your vertical proportional scaling uses a slightly different position estimate:
-                            drone_pos_z_axis = drone.position_ned[2] - 2 * drone.velocity[2]
+                            # Store raw inputs
+                            V_Body_X = forward_input
+                            V_Body_Y = right_input
+                            V_Body_Z = vertical_input # Raw vertical input [-1.0, 1.0]
+
+                            # --- Horizontal Clamping (N-E Axes via Vector Rotation) ---
                             
-                            # These variables are needed for your existing vertical proportional scaling logic
-                            margin_vertical = 1.0 # Initialize fixed margin
-                            scaling_margin_vertical = abs(fence.down_lower - fence.down_upper) * (SAFETY_LEVEL / 10)
-                            
-                            if SAFETY_LEVEL >= 4:
-                                # Overwrite margin_vertical based on your custom safety logic
-                                margin_vertical = ((abs(fence.down_lower) + abs(fence.down_upper))) * 0.2
-                                if margin_vertical < 1:
-                                    margin_vertical = 1
-                            
-                            # Set the one remaining necessary vertical thresholds for your existing scaling logic
-                            threshold_down = fence.down_upper - margin_vertical - scaling_margin_vertical
-                            threshold_up = fence.down_lower + margin_vertical + scaling_margin_vertical
-                            
-                            # --- Horizontal Clamping (Robust Vector Solution) ---
-                            
-                            # 1. Setup constants and vectors (no changes here needed from the last step)
                             yaw_deg = drone.attitude[2]
                             yaw_rad = math.radians(yaw_deg)
                             pos_ned = drone.position_ned[:2] # [N, E]
                             
-                            # V_Body_X (Forward/Backward), V_Body_Y (Right/Left)
-                            V_Body_X = forward_input
-                            V_Body_Y = right_input
-                            V_Body_desired = np.array([V_Body_X, V_Body_Y])
+                            V_Body_desired_H = np.array([V_Body_X, V_Body_Y])
                             
-                            dt = 1.0 / self._control_frequency # Time step for prediction
-
-                            # 2. Body Frame Velocity to NED Frame Velocity
+                            # 1. Body Frame Velocity to NED Frame Velocity
                             R_body_to_ned = np.array([
                                 [math.cos(yaw_rad), -math.sin(yaw_rad)],
                                 [math.sin(yaw_rad), math.cos(yaw_rad)]
                             ])
-                            V_NED_desired = R_body_to_ned @ V_Body_desired
-                            V_NED_clamped = np.copy(V_NED_desired)
+                            V_NED_desired_H = R_body_to_ned @ V_Body_desired_H
+                            V_NED_clamped_H = np.copy(V_NED_desired_H)
                             
-                            # 3. Check and Clamp in NED Frame
+                            # 2. Check and Clamp N-E Axes
                             
-                            # N-axis (North/South) Check: drone.position_ned[0]
                             N_pos = pos_ned[0]
-                            V_N = V_NED_desired[0]
+                            V_N = V_NED_desired_H[0]
                             N_lower = drone.fence.north_lower + margin
                             N_upper = drone.fence.north_upper - margin
 
-                            # Check North limit (V_N > 0)
+                            # Clamp N-axis
                             if V_N > 0 and N_pos + V_N * dt >= N_upper:
-                                V_NED_clamped[0] = max(0.0, (N_upper - N_pos) / dt)
-                            # Check South limit (V_N < 0)
+                                V_NED_clamped_H[0] = max(0.0, (N_upper - N_pos) / dt)
                             elif V_N < 0 and N_pos + V_N * dt <= N_lower:
-                                V_NED_clamped[0] = min(0.0, (N_lower - N_pos) / dt)
+                                V_NED_clamped_H[0] = min(0.0, (N_lower - N_pos) / dt)
 
-                            # E-axis (East/West) Check: drone.position_ned[1]
                             E_pos = pos_ned[1]
-                            V_E = V_NED_desired[1]
+                            V_E = V_NED_desired_H[1]
                             E_lower = drone.fence.east_lower + margin
                             E_upper = drone.fence.east_upper - margin
 
-                            # Check East limit (V_E > 0)
+                            # Clamp E-axis
                             if V_E > 0 and E_pos + V_E * dt >= E_upper:
-                                V_NED_clamped[1] = max(0.0, (E_upper - E_pos) / dt)
-                            # Check West limit (V_E < 0)
+                                V_NED_clamped_H[1] = max(0.0, (E_upper - E_pos) / dt)
                             elif V_E < 0 and E_pos + V_E * dt <= E_lower:
-                                V_NED_clamped[1] = min(0.0, (E_lower - E_pos) / dt)
+                                V_NED_clamped_H[1] = min(0.0, (E_lower - E_pos) / dt)
 
-                            # 4. Clamped NED Velocity back to Body Frame Joystick Inputs
+                            # 3. Clamped NED Velocity back to Body Frame Joystick Inputs
                             R_ned_to_body = R_body_to_ned.T
-                            V_Body_clamped = R_ned_to_body @ V_NED_clamped
+                            V_Body_clamped_H = R_ned_to_body @ V_NED_clamped_H
                             
-                            # Update the inputs that will be sent to the drone
-                            forward_input = V_Body_clamped[0]
-                            right_input = V_Body_clamped[1]
+                            forward_input = V_Body_clamped_H[0]
+                            right_input = V_Body_clamped_H[1]
+                            
+                            # --- Vertical Clamping (1D NED Check, Consistent Logic) ---
+                            
+                            D_pos = drone.position_ned[2]
+                            V_D = V_Body_Z # Raw input [-1.0, 1.0] used as desired D velocity (negative = ascend)
+                            
+                            # D_lower is the ceiling (min D value), D_upper is the floor (max D value)
+                            D_lower = drone.fence.down_lower + margin 
+                            D_upper = drone.fence.down_upper - margin 
 
-                            # --- Vertical Clamping (Your retained proportional/hard limits) ---
+                            V_D_clamped = V_D
+
+                            # Check Ceiling limit (Ascend, V_D < 0)
+                            #self.logger.info(f"V_D: {V_D}")
+                            #self.logger.info(f"D_pos: {D_pos}")
+                            #self.logger.info(f"dt: {dt}")
+                            #self.logger.info(f"D_lower: {D_lower}")
+                            if V_D > 0 and D_pos + V_D * dt <= D_lower:
+                                # Clamp V_D to the speed that just reaches the ceiling limit
+                                V_D_clamped = min(0.0, (D_lower - D_pos) / dt)
+                                if V_D_clamped == 0.0:
+                                    self.logger.warning("Fence: Upward motion clamped (Ceiling limit).")
                             
-                            # Ground Limit (Min Altitude) with scaling
-                            if drone_pos_z_axis >= threshold_down and vertical_input < 0 and drone_pos_z_axis < fence.down_upper:
-                                scaling_factor = abs((drone_pos_z_axis - fence.down_upper) / (threshold_down - fence.down_upper))
-                                if scaling_factor > 1:
-                                    scaling_factor = 1
-                                vertical_input = vertical_input * scaling_factor
-                            # Hard Ground Limit
-                            if drone.position_ned[2] >= (fence.down_upper - margin_vertical) and vertical_input < 0:
-                                vertical_input = 0.0
-                                self.logger.warning("Fence: Downward motion clamped (Ground limit).")
-                            
-                            # Ceiling Limit (Max Altitude) with scaling
-                            if drone_pos_z_axis <= threshold_up and vertical_input > 0:
-                                scaling_factor = abs((drone_pos_z_axis - fence.down_lower) / (threshold_up - fence.down_lower)) * (1 - (SAFETY_LEVEL/10))
-                                if scaling_factor > 1:
-                                    scaling_factor = 1
-                                vertical_input = vertical_input * scaling_factor
-                            # Hard Ceiling Limit
-                            if drone.position_ned[2] <= fence.down_lower + margin_vertical and vertical_input > 0:
-                                vertical_input = 0.0
-                                self.logger.warning("Fence: Upward motion clamped (Ceiling limit).")
+                            # Check Floor limit (Descend, V_D > 0)
+                            elif V_D < 0 and D_pos + V_D * dt >= D_upper:
+                                # Clamp V_D to the speed that just reaches the floor limit
+                                V_D_clamped = max(0.0, (D_upper - D_pos) / dt)
+                                if V_D_clamped == 0.0:
+                                    self.logger.warning("Fence: Downward motion clamped (Floor limit).")
+
+                            # Update the final vertical input signal
+                            vertical_input = V_D_clamped
 
                         except AttributeError:
                             # Catches errors if the fence object is missing expected attributes
@@ -498,10 +481,14 @@ class ControllerPlugin(Plugin):
                             self.logger.error(f"Error applying vertical fence logic: {repr(e)}")
                     # --- FENCE LOGIC END ---
 
-                    if SAFETY_LEVEL >= 4:
+                    if SAFETY_LEVEL == 4:
                         forward_input *= 0.5
                         right_input *= 0.5
                         vertical_input = (vertical_input*0.5 + 1) / 2
+                    elif SAFETY_LEVEL == 5:
+                        forward_input *= 0.3
+                        right_input *= 0.3
+                        vertical_input = (vertical_input*0.3 + 1) / 2
                     else:
                         vertical_input = (vertical_input + 1) / 2  # Scale from -1/1 to 0/1
 
