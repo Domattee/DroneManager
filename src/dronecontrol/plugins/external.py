@@ -83,8 +83,8 @@ class UDPPlugin(Plugin):
                     continue
                 ip, port = addr
                 frequency = json_dict["frequency"]
-                if frequency > 20:
-                    frequency = 20
+                if frequency > 100:
+                    frequency = 100
                 elif frequency < 1/60:
                     frequency = 1/60
                 duration = json_dict["duration"]
