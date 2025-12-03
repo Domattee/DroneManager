@@ -361,6 +361,7 @@ class ControllerPlugin(Plugin):
                 # Process inputs
                 if self._in_control and self._drone_name is not None:
                     # drone_config = self._drone_config
+                    SAFETY_LEVEL = 0
                     vertical_input = self.stick_response(self._mapping.thrust_axis)
                     yaw_input = self.stick_response(self._mapping.yaw_axis)
                     right_input = self.stick_response(self._mapping.right_axis)
