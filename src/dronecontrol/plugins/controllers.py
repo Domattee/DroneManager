@@ -462,15 +462,15 @@ class ControllerPlugin(Plugin):
                             if V_D > 0 and D_pos + V_D * dt <= D_lower:
                                 # Clamp V_D to the speed that just reaches the ceiling limit
                                 V_D_clamped = min(0.0, (D_lower - D_pos) / dt)
-                                if V_D_clamped == 0.0:
-                                    self.logger.warning("Fence: Upward motion clamped (Ceiling limit).")
+                                #if V_D_clamped == 0.0:
+                                #    self.logger.warning("Fence: Upward motion clamped (Ceiling limit).")
                             
                             # Check Floor limit (Descend, V_D > 0)
                             elif V_D < 0 and D_pos + V_D * dt >= D_upper:
                                 # Clamp V_D to the speed that just reaches the floor limit
                                 V_D_clamped = max(0.0, (D_upper - D_pos) / dt)
-                                if V_D_clamped == 0.0:
-                                    self.logger.warning("Fence: Downward motion clamped (Floor limit).")
+                                #if V_D_clamped == 0.0:
+                                #    self.logger.warning("Fence: Downward motion clamped (Floor limit).")
 
                             # Update the final vertical input signal
                             vertical_input = V_D_clamped
@@ -486,10 +486,12 @@ class ControllerPlugin(Plugin):
                         forward_input *= 0.5
                         right_input *= 0.5
                         vertical_input = (vertical_input*0.5 + 1) / 2
+                        yaw_input *= 0.5
                     elif SAFETY_LEVEL == 5:
                         forward_input *= 0.3
                         right_input *= 0.3
-                        vertical_input = (vertical_input*0.3 + 1) / 2
+                        yaw_input *= 0.3
+                        vertical_input = (vertical_input*0.4 + 1) / 2
                     else:
                         vertical_input = (vertical_input + 1) / 2  # Scale from -1/1 to 0/1
 
@@ -515,8 +517,13 @@ class ControllerPlugin(Plugin):
 
         Axis should be the joystick axis. A negative number means that the response is inverted. """
         value = self.controller.get_axis(abs(axis))
-        if abs(value) < 0.05:
-            value = 0.0
+        dz = 0.1
+        if abs(value) < dz:
+            return 0.0
+        elif value > 0:
+            value = (value - dz) / (1 - dz)
+        else:
+            value = (value + dz) / (1 - dz)
         return value * math.copysign(1, axis)
 
     async def close(self):
