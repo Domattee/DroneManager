@@ -3,6 +3,7 @@
 """
 import asyncio
 import math
+import numpy as np
 from collections.abc import Callable
 
 import pygame
@@ -381,124 +382,96 @@ class ControllerPlugin(Plugin):
                     drone = self.dm.drones[self._drone_name]
                     if drone.fence is not None and drone.is_connected:
                         try:
-                            # Current Down position (D-axis is positive downwards)
-                            drone_pos_z_axis = drone.position_ned[2] - 2 * drone.velocity[2]
-                            drone_pos_x_axis = drone.position_ned[0] - 2 * drone.velocity[0]
-                            drone_pos_y_axis = drone.position_ned[1] - 2 * drone.velocity[1]
+                    # --- Initialization ---
                             fence = drone.fence
-                            margin_vertical = 1  # Safety margin_vertical in meters
-                            margin_horizontal = 1 # Safety margin for left right in meters
-                            margin_depth = 1 # Safety margin for forward backwards in meters
-                            # SAFETY_LEVEL maximum 5
-                            # TODO: Set Safety_level as variable in fence and limit it between 0 and 5
                             SAFETY_LEVEL = fence.safety_level
+                            
+                            # Consolidate Margin (used for horizontal clamping limits and vertical hard limit)
+                            # Using a fixed margin for the robust horizontal clamp (1.0m as set in previous step)
+                            margin = 1.0 
+                            
+                            # --- Vertical Variables (Retained for your scaling logic) ---
+                            # Note: D-axis position is drone.position_ned[2]
+                            # Your vertical proportional scaling uses a slightly different position estimate:
+                            drone_pos_z_axis = drone.position_ned[2] - 2 * drone.velocity[2]
+                            
+                            # These variables are needed for your existing vertical proportional scaling logic
+                            margin_vertical = 1.0 # Initialize fixed margin
                             scaling_margin_vertical = abs(fence.down_lower - fence.down_upper) * (SAFETY_LEVEL / 10)
-                            scaling_margin_horizontal = abs(fence.east_lower - fence.east_upper) * (SAFETY_LEVEL / 10)
-                            scaling_margin_depth = abs(fence.north_lower - fence.north_upper) * (SAFETY_LEVEL / 10)
+                            
                             if SAFETY_LEVEL >= 4:
+                                # Overwrite margin_vertical based on your custom safety logic
                                 margin_vertical = ((abs(fence.down_lower) + abs(fence.down_upper))) * 0.2
                                 if margin_vertical < 1:
                                     margin_vertical = 1
-                                margin_horizontal = (abs(fence.east_lower) + abs(fence.east_upper)) * 0.2
-                                if margin_horizontal < 1:
-                                    margin_vertical = 1
-                                margin_depth = (abs(fence.north_lower) + abs(fence.north_upper)) * 0.2
-                                if margin_depth < 1:
-                                    margin_depth = 1
-
-                            # set scaling thresholds
-                            # fence.down_upper is the bottom limit on z-axis e.g. -1
-                            # fence.down_lower is the top limit on z-axis e.g. -5 which is higher than -1
+                            
+                            # Set the one remaining necessary vertical thresholds for your existing scaling logic
                             threshold_down = fence.down_upper - margin_vertical - scaling_margin_vertical
                             threshold_up = fence.down_lower + margin_vertical + scaling_margin_vertical
-                            threshold_left = fence.east_lower + margin_horizontal + scaling_margin_horizontal
-                            threshold_right = fence.east_upper - margin_horizontal - scaling_margin_horizontal
-                            threshold_backward = fence.north_lower + margin_depth + scaling_margin_depth
-                            threshold_forward = fence.north_upper - margin_depth - scaling_margin_depth
-
-                            # if the thresholds cris cross (aka right threshold is more left that the left threshold) set them as the middle
-                            if threshold_down < threshold_up:
-                                midpoint = (threshold_down - threshold_up) / 2
-                                threshold_down, threshold_up = midpoint, midpoint
-                            if threshold_right < threshold_left:
-                                midpoint = (threshold_left + threshold_right) / 2
-                                threshold_left, threshold_right = midpoint, midpoint
-                            if threshold_forward < threshold_backward:
-                                midpoint = (threshold_backward + threshold_forward) / 2
-                                threshold_backward, threshold_forward = midpoint, midpoint
                             
-                            #self.logger.warning(f"drone_pos_x_axis: {drone_pos_x_axis}")
-                            #self.logger.warning(f"threshold_left: {threshold_left}")
-                            #self.logger.warning(f"threshold_right: {threshold_right}")
-                            #self.logger.warning(f"fence.east_lower: {fence.east_lower}")
-                            #self.logger.warning(f"fence.east_upper: {fence.east_upper}")
-                            #self.logger.warning(f"margin_horizontal: {margin_horizontal}")
-                            #self.logger.warning(f"scaling_margin_horizontal: {scaling_margin_horizontal}")
-                            #self.logger.warning(f"unscaled drone pos on x axis: {drone.position_ned[1]}")
-                            #self.logger.warning(f"drone_pos_y_axis: {drone_pos_y_axis}")
-                            #self.logger.warning(f"threshold_forward: {threshold_forward}")
-                            #self.logger.warning(f"fence.north_upper: {fence.north_upper}")
-                            #self.logger.warning(f"forward_input: {forward_input}")
-                            #self.logger.warning(f"right_input: {right_input}")
+                            # --- Horizontal Clamping (Robust Vector Solution) ---
                             
+                            # 1. Setup constants and vectors (no changes here needed from the last step)
+                            yaw_deg = drone.attitude[2]
+                            yaw_rad = math.radians(yaw_deg)
+                            pos_ned = drone.position_ned[:2] # [N, E]
                             
-                            # Right Limit with scaling
-                            if drone_pos_x_axis <= threshold_right and right_input > 0 and drone_pos_x_axis > fence.east_lower:
-                                self.logger.warning(f"In drone_pos_x_axis {drone_pos_x_axis} >= {threshold_right}")
-                                scaling_factor = abs((drone_pos_x_axis - fence.east_lower) / (threshold_right - fence.east_lower))
-                                self.logger.warning(f"scaling_factor {scaling_factor}")
-                                if scaling_factor > 1:
-                                    scaling_factor = 1
-                                right_input = right_input * scaling_factor
-                            # Right Hard Limit
-                            if drone.position_ned[0] <= (fence.east_lower - margin_horizontal) and right_input > 0:
-                                right_input = 0.0
-                                self.logger.warning("Fence: Rightward motion clamped (Right limit).")
-
-                            # Left Limit with scaling
-                            if drone_pos_x_axis <= threshold_left and right_input < 0 and drone_pos_x_axis < fence.east_upper:
-                                self.logger.warning(f"In drone_pos_x_axis {drone_pos_x_axis} >= {threshold_left}")
-                                scaling_factor = abs((drone_pos_x_axis - fence.east_upper) / (threshold_left - fence.east_upper))
-                                self.logger.warning(f"scaling_factor {scaling_factor}")
-                                if scaling_factor > 1:
-                                    scaling_factor = 1
-                                right_input = right_input * scaling_factor
-                            # Left Hard Limit
-                            if drone.position_ned[0] >= (fence.east_upper + margin_horizontal) and right_input < 0:
-                                right_input = 0.0
-                                self.logger.warning("Fence: Leftward motion clamped (Left limit).")
+                            # V_Body_X (Forward/Backward), V_Body_Y (Right/Left)
+                            V_Body_X = forward_input
+                            V_Body_Y = right_input
+                            V_Body_desired = np.array([V_Body_X, V_Body_Y])
                             
-                            # Forward Limit with scaling
-                            if drone_pos_y_axis >= threshold_forward and forward_input > 0 and drone_pos_y_axis < fence.north_upper:
-                                self.logger.warning(f"In drone_pos_y_axis {drone_pos_y_axis} >= {threshold_forward}")
-                                scaling_factor = abs((drone_pos_y_axis - fence.north_upper) / (threshold_forward - fence.north_upper))
-                                self.logger.warning(f"scaling_factor {scaling_factor}")
-                                if scaling_factor > 1:
-                                    scaling_factor = 1
-                                forward_input = forward_input * scaling_factor
-                            # Forward Hard Limit
-                            if drone.position_ned[1] >= (fence.north_upper - margin_depth) and forward_input > 0:
-                                forward_input = 0.0
-                                self.logger.warning("Fence: Forward motion clamped (Forward limit).")
+                            dt = 1.0 / self._control_frequency # Time step for prediction
 
-                            # Backward Limit with scaling
-                            if drone_pos_y_axis <= threshold_backward and forward_input < 0 and drone_pos_y_axis > fence.north_lower:
-                                self.logger.warning(f"In drone_pos_x_axis {drone_pos_y_axis} >= {threshold_backward}")
-                                scaling_factor = abs((drone_pos_y_axis - fence.north_lower) / (threshold_forward - fence.north_lower))
-                                self.logger.warning(f"scaling_factor {scaling_factor}")
-                                if scaling_factor > 1:
-                                    scaling_factor = 1
-                                forward_input = forward_input * scaling_factor
-                            # Backward Hard Limit
-                            if drone.position_ned[1] <= (fence.north_lower + margin_depth) and forward_input < 0:
-                                forward_input = 0.0
-                                self.logger.warning("Fence: Backward motion clamped (Backward limit).")
+                            # 2. Body Frame Velocity to NED Frame Velocity
+                            R_body_to_ned = np.array([
+                                [math.cos(yaw_rad), -math.sin(yaw_rad)],
+                                [math.sin(yaw_rad), math.cos(yaw_rad)]
+                            ])
+                            V_NED_desired = R_body_to_ned @ V_Body_desired
+                            V_NED_clamped = np.copy(V_NED_desired)
+                            
+                            # 3. Check and Clamp in NED Frame
+                            
+                            # N-axis (North/South) Check: drone.position_ned[0]
+                            N_pos = pos_ned[0]
+                            V_N = V_NED_desired[0]
+                            N_lower = drone.fence.north_lower + margin
+                            N_upper = drone.fence.north_upper - margin
 
+                            # Check North limit (V_N > 0)
+                            if V_N > 0 and N_pos + V_N * dt >= N_upper:
+                                V_NED_clamped[0] = max(0.0, (N_upper - N_pos) / dt)
+                            # Check South limit (V_N < 0)
+                            elif V_N < 0 and N_pos + V_N * dt <= N_lower:
+                                V_NED_clamped[0] = min(0.0, (N_lower - N_pos) / dt)
+
+                            # E-axis (East/West) Check: drone.position_ned[1]
+                            E_pos = pos_ned[1]
+                            V_E = V_NED_desired[1]
+                            E_lower = drone.fence.east_lower + margin
+                            E_upper = drone.fence.east_upper - margin
+
+                            # Check East limit (V_E > 0)
+                            if V_E > 0 and E_pos + V_E * dt >= E_upper:
+                                V_NED_clamped[1] = max(0.0, (E_upper - E_pos) / dt)
+                            # Check West limit (V_E < 0)
+                            elif V_E < 0 and E_pos + V_E * dt <= E_lower:
+                                V_NED_clamped[1] = min(0.0, (E_lower - E_pos) / dt)
+
+                            # 4. Clamped NED Velocity back to Body Frame Joystick Inputs
+                            R_ned_to_body = R_body_to_ned.T
+                            V_Body_clamped = R_ned_to_body @ V_NED_clamped
+                            
+                            # Update the inputs that will be sent to the drone
+                            forward_input = V_Body_clamped[0]
+                            right_input = V_Body_clamped[1]
+
+                            # --- Vertical Clamping (Your retained proportional/hard limits) ---
+                            
                             # Ground Limit (Min Altitude) with scaling
                             if drone_pos_z_axis >= threshold_down and vertical_input < 0 and drone_pos_z_axis < fence.down_upper:
-                                self.logger.warning(f"In drone_pos_z_axis {drone_pos_z_axis} >= {threshold_down}")
                                 scaling_factor = abs((drone_pos_z_axis - fence.down_upper) / (threshold_down - fence.down_upper))
-                                self.logger.warning(f"scaling_factor {scaling_factor}")
                                 if scaling_factor > 1:
                                     scaling_factor = 1
                                 vertical_input = vertical_input * scaling_factor
@@ -507,11 +480,9 @@ class ControllerPlugin(Plugin):
                                 vertical_input = 0.0
                                 self.logger.warning("Fence: Downward motion clamped (Ground limit).")
                             
-                            # Ceiling Limit (Max Altitude) with
+                            # Ceiling Limit (Max Altitude) with scaling
                             if drone_pos_z_axis <= threshold_up and vertical_input > 0:
-                                self.logger.warning(f"In drone_pos_z_axis {drone_pos_z_axis} <= {threshold_up}")
                                 scaling_factor = abs((drone_pos_z_axis - fence.down_lower) / (threshold_up - fence.down_lower)) * (1 - (SAFETY_LEVEL/10))
-                                self.logger.warning(f"scaling_factor {scaling_factor}")
                                 if scaling_factor > 1:
                                     scaling_factor = 1
                                 vertical_input = vertical_input * scaling_factor
@@ -527,11 +498,13 @@ class ControllerPlugin(Plugin):
                             self.logger.error(f"Error applying vertical fence logic: {repr(e)}")
                     # --- FENCE LOGIC END ---
 
-                    vertical_input = (vertical_input + 1) / 2  # Scale from -1/1 to 0/1
                     if SAFETY_LEVEL >= 4:
-                        forward_input *= 0.1
-                        right_input *= 0.1
-                        vertical_input *= 0.1
+                        forward_input *= 0.5
+                        right_input *= 0.5
+                        vertical_input = (vertical_input*0.5 + 1) / 2
+                    else:
+                        vertical_input = (vertical_input + 1) / 2  # Scale from -1/1 to 0/1
+
 
                     # TODO: Enforce fence somehow
                     await self.dm.drones[self._drone_name].set_manual_control_input(forward_input, right_input, vertical_input, yaw_input)
