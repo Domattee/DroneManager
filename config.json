@@ -11,6 +11,12 @@
       "auto_set": true,
       "auto_drone": true
     },
+    "external": {
+      "server_port": 31659,
+      "max_frequency": 100,
+      "min_frequency": 1,
+      "max_duration": 60
+    },
     "optitrack": {
       "server_ip": "127.0.0.1",
       "local_ip": "127.0.0.1",
@@ -21,7 +27,7 @@
   "drones": [
     {
       "drone_name": "holodeck",
-      "address": "udp://:14561",
+      "address": "udp://192.168.1.31:14561",
       "position_rate": 60.0,
       "max_h_vel": 10.0,
       "max_down_vel": 1.0,

@@ -3,6 +3,7 @@
 """
 import asyncio
 import math
+import numpy as np
 from collections.abc import Callable
 
 import pygame
@@ -360,6 +361,7 @@ class ControllerPlugin(Plugin):
                 # Process inputs
                 if self._in_control and self._drone_name is not None:
                     # drone_config = self._drone_config
+                    SAFETY_LEVEL = 0
                     vertical_input = self.stick_response(self._mapping.thrust_axis)
                     yaw_input = self.stick_response(self._mapping.yaw_axis)
                     right_input = self.stick_response(self._mapping.right_axis)
@@ -377,8 +379,124 @@ class ControllerPlugin(Plugin):
                         if self.dm.drones[self._drone_name].flightmode != FlightMode.POSCTL:
                             await self.dm.drones[self._drone_name].manual_control_position()
 
-                    vertical_input = (vertical_input + 1) / 2  # Scale from -1/1 to 0/1
+                    # --- FENCE LOGIC START ---
+                    drone = self.dm.drones[self._drone_name]
+                    if drone.fence is not None and drone.is_connected:
+                        try:
+                    # --- Initialization ---
+                            fence = drone.fence
+                            SAFETY_LEVEL = fence.safety_level
+                            
+                            # Common parameters for all axes
+                            margin = 1.0  # Safety margin in meters
+                            dt = 1.0 / self._control_frequency # Time step for prediction
+                            
+                            # Store raw inputs
+                            V_Body_X = forward_input
+                            V_Body_Y = right_input
+                            V_Body_Z = vertical_input # Raw vertical input [-1.0, 1.0]
 
+                            # --- Horizontal Clamping (N-E Axes via Vector Rotation) ---
+                            
+                            yaw_deg = drone.attitude[2]
+                            yaw_rad = math.radians(yaw_deg)
+                            pos_ned = drone.position_ned[:2] # [N, E]
+                            
+                            V_Body_desired_H = np.array([V_Body_X, V_Body_Y])
+                            
+                            # 1. Body Frame Velocity to NED Frame Velocity
+                            R_body_to_ned = np.array([
+                                [math.cos(yaw_rad), -math.sin(yaw_rad)],
+                                [math.sin(yaw_rad), math.cos(yaw_rad)]
+                            ])
+                            V_NED_desired_H = R_body_to_ned @ V_Body_desired_H
+                            V_NED_clamped_H = np.copy(V_NED_desired_H)
+                            
+                            # 2. Check and Clamp N-E Axes
+                            
+                            N_pos = pos_ned[0]
+                            V_N = V_NED_desired_H[0]
+                            N_lower = drone.fence.north_lower + margin
+                            N_upper = drone.fence.north_upper - margin
+
+                            # Clamp N-axis
+                            if V_N > 0 and N_pos + V_N * dt >= N_upper:
+                                V_NED_clamped_H[0] = max(0.0, (N_upper - N_pos) / dt)
+                            elif V_N < 0 and N_pos + V_N * dt <= N_lower:
+                                V_NED_clamped_H[0] = min(0.0, (N_lower - N_pos) / dt)
+
+                            E_pos = pos_ned[1]
+                            V_E = V_NED_desired_H[1]
+                            E_lower = drone.fence.east_lower + margin
+                            E_upper = drone.fence.east_upper - margin
+
+                            # Clamp E-axis
+                            if V_E > 0 and E_pos + V_E * dt >= E_upper:
+                                V_NED_clamped_H[1] = max(0.0, (E_upper - E_pos) / dt)
+                            elif V_E < 0 and E_pos + V_E * dt <= E_lower:
+                                V_NED_clamped_H[1] = min(0.0, (E_lower - E_pos) / dt)
+
+                            # 3. Clamped NED Velocity back to Body Frame Joystick Inputs
+                            R_ned_to_body = R_body_to_ned.T
+                            V_Body_clamped_H = R_ned_to_body @ V_NED_clamped_H
+                            
+                            forward_input = V_Body_clamped_H[0]
+                            right_input = V_Body_clamped_H[1]
+                            
+                            # --- Vertical Clamping (1D NED Check, Consistent Logic) ---
+                            
+                            D_pos = drone.position_ned[2]
+                            V_D = V_Body_Z # Raw input [-1.0, 1.0] used as desired D velocity (negative = ascend)
+                            
+                            # D_lower is the ceiling (min D value), D_upper is the floor (max D value)
+                            D_lower = drone.fence.down_lower + margin 
+                            D_upper = drone.fence.down_upper - margin 
+
+                            V_D_clamped = V_D
+
+                            # Check Ceiling limit (Ascend, V_D < 0)
+                            #self.logger.info(f"V_D: {V_D}")
+                            #self.logger.info(f"D_pos: {D_pos}")
+                            #self.logger.info(f"dt: {dt}")
+                            #self.logger.info(f"D_lower: {D_lower}")
+                            if V_D > 0 and D_pos + V_D * dt <= D_lower:
+                                # Clamp V_D to the speed that just reaches the ceiling limit
+                                V_D_clamped = min(0.0, (D_lower - D_pos) / dt)
+                                #if V_D_clamped == 0.0:
+                                #    self.logger.warning("Fence: Upward motion clamped (Ceiling limit).")
+                            
+                            # Check Floor limit (Descend, V_D > 0)
+                            elif V_D < 0 and D_pos + V_D * dt >= D_upper:
+                                # Clamp V_D to the speed that just reaches the floor limit
+                                V_D_clamped = max(0.0, (D_upper - D_pos) / dt)
+                                #if V_D_clamped == 0.0:
+                                #    self.logger.warning("Fence: Downward motion clamped (Floor limit).")
+
+                            # Update the final vertical input signal
+                            vertical_input = V_D_clamped
+
+                        except AttributeError:
+                            # Catches errors if the fence object is missing expected attributes
+                            self.logger.warning("Fence constraints could not be applied due to missing fence attributes.")
+                        except Exception as e:
+                            self.logger.error(f"Error applying vertical fence logic: {repr(e)}")
+                    # --- FENCE LOGIC END ---
+
+                    if SAFETY_LEVEL == 4:
+                        forward_input *= 0.5
+                        right_input *= 0.5
+                        vertical_input = (vertical_input*0.5 + 1) / 2
+                        yaw_input *= 0.5
+                    elif SAFETY_LEVEL == 5:
+                        forward_input *= 0.3
+                        right_input *= 0.3
+                        yaw_input *= 0.3
+                        vertical_input = (vertical_input*0.4 + 1) / 2
+                    else:
+                        vertical_input = (vertical_input + 1) / 2  # Scale from -1/1 to 0/1
+
+
+                    # TODO: Enforce fence somehow
                     await self.dm.drones[self._drone_name].set_manual_control_input(forward_input, right_input, vertical_input, yaw_input)
 
                     # Also perform whatever other functions are bound to any other axis
@@ -399,8 +517,13 @@ class ControllerPlugin(Plugin):
 
         Axis should be the joystick axis. A negative number means that the response is inverted. """
         value = self.controller.get_axis(abs(axis))
-        if abs(value) < 0.05:
-            value = 0.0
+        dz = 0.1
+        if abs(value) < dz:
+            return 0.0
+        elif value > 0:
+            value = (value - dz) / (1 - dz)
+        else:
+            value = (value + dz) / (1 - dz)
         return value * math.copysign(1, axis)
 
     async def close(self):
