@@ -176,7 +176,7 @@ class OptitrackPlugin(Plugin):
         if len(self._drone_id_mapping) > 0:
             out_str = "Streaming configured for following drones:\nNAME\tTRACK ID\n"
             for track_id, name in self._drone_id_mapping.items():
-                self.logger.info(f"{name}\t{track_id}")
+                out_str += f"{name}\t{track_id}\n"
             self.logger.info(out_str)
         await self.log_available_bodies()
 
