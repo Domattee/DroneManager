@@ -14,17 +14,21 @@ A package to connect to and control multiple drones.
 
 ## Installation
 
-To install this package, simply clone this repository, move into the root directory and then install with pip:
+1. Clone this repository, 
+2. Move into the root directory of the repository 
+3. On Windows only: ` python windows_setup.py `
+4. Install with pip:
 ```
 pip install --upgrade pip
 pip install -e .
 ```
 
-This package requires that MSVC be installed, for example through Visual Studio. If you get an error such as `*** CMake configuration failed`, you have to install MSVC and then try again.
 
 As part of the installation a command called ```dm``` is installed, which starts the terminal interface. 
 Alternatively you can run the app.py script.
-On windows, you will also have to download the appropriate MAVSDK release (see https://mavsdk.mavlink.io/v2.0/en/cpp/guide/installation.html) and extract the mavsdk-server-bin.exe file into the same directory as drone.py.
+
+> [!NOTE]  
+> The additional script on windows is required to install MSVC and the MAVSDK Server binary, which isn't shipped with the installation.
 
 ## Usage
 

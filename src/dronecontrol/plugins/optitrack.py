@@ -87,9 +87,10 @@ class OptitrackPlugin(Plugin):
         super().__init__(dm, logger, name)
         self.cli_commands = {
             "connect": self.connect_server,
-            "bodies": self.log_available_bodies,
+            "list": self.log_available_bodies,
             "add": self.add_drone,
             "remove": self.remove_drone,
+            "status": self.status,
         }
         self.client: NatNetClient | None = None
         self.server_ip: str = server_ip if server_ip is not None else "127.0.0.1"
@@ -168,8 +169,16 @@ class OptitrackPlugin(Plugin):
         if self.client is None:
             self.logger.warning("Not connected to a NatNet server!")
             return
-        body_str = "\n".join([f"Track: {track_id}, Position {position}" for track_id, position in self.available_bodies.items()])
+        body_str = "\n".join([f"Track ID: {track_id}, Position {position}" for track_id, position in self.available_bodies.items()])
         self.logger.info("Available Rigid Bodies:\n" + body_str)
+
+    async def status(self):
+        if len(self._drone_id_mapping) > 0:
+            out_str = "Streaming configured for following drones:\nNAME\tTRACK ID\n"
+            for track_id, name in self._drone_id_mapping.items():
+                self.logger.info(f"{name}\t{track_id}")
+            self.logger.info(out_str)
+        await self.log_available_bodies()
 
     def _new_frame_callback(self, data_dict):
         try:
