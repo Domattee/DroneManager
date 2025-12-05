@@ -334,11 +334,21 @@ class ControllerPlugin(Plugin):
             self._drone_name = None
             self._in_control = False
 
+    def _clamp_axis(self, lower_limit, upper_limit, raw_input, drone_position, dt):
+        # TODO: Account for actual drone velocity?
+        if raw_input > 0 and drone_position + raw_input * dt >= upper_limit:
+            clamped_input = max(0.0, (upper_limit - drone_position) / dt)
+        elif raw_input < 0 and drone_position + raw_input * dt <= lower_limit:
+            clamped_input = min(0.0, (lower_limit - drone_position) / dt)
+        else:
+            clamped_input = raw_input
+        return clamped_input
+
     async def _control_loop(self):
         """ Take controller inputs to handle motion by setting velocity setpoints.
 
         Actions are performed as soon as the button press is detected, but continuous inputs, such as sticks, are
-        updated here at self._control_frequency. """
+        updated here at self._control_frequency."""
         # TODO: Usual arm and disarm with moving stick bottom right and bottom left
         while True:
             try:
@@ -380,6 +390,9 @@ class ControllerPlugin(Plugin):
                             await self.dm.drones[self._drone_name].manual_control_position()
 
                     # --- FENCE LOGIC START ---
+                    # TODO: Should probably move this into fence, in a function that checks if motion would carry drone out of fence?
+                    # Basically: Instead of just checking waypoints, also add a function that would predict if the drone would be carried out of the fence by a given speed.
+                    # This moves the responsibility for this to the fence class, which is more future proof if we add irregular fences.
                     drone = self.dm.drones[self._drone_name]
                     if drone.fence is not None and drone.is_connected:
                         try:
@@ -416,25 +429,17 @@ class ControllerPlugin(Plugin):
                             
                             N_pos = pos_ned[0]
                             V_N = V_NED_desired_H[0]
+                            N_
                             N_lower = drone.fence.north_lower + margin
                             N_upper = drone.fence.north_upper - margin
-
-                            # Clamp N-axis
-                            if V_N > 0 and N_pos + V_N * dt >= N_upper:
-                                V_NED_clamped_H[0] = max(0.0, (N_upper - N_pos) / dt)
-                            elif V_N < 0 and N_pos + V_N * dt <= N_lower:
-                                V_NED_clamped_H[0] = min(0.0, (N_lower - N_pos) / dt)
 
                             E_pos = pos_ned[1]
                             V_E = V_NED_desired_H[1]
                             E_lower = drone.fence.east_lower + margin
                             E_upper = drone.fence.east_upper - margin
 
-                            # Clamp E-axis
-                            if V_E > 0 and E_pos + V_E * dt >= E_upper:
-                                V_NED_clamped_H[1] = max(0.0, (E_upper - E_pos) / dt)
-                            elif V_E < 0 and E_pos + V_E * dt <= E_lower:
-                                V_NED_clamped_H[1] = min(0.0, (E_lower - E_pos) / dt)
+                            V_NED_clamped_H[0] = self._clamp_axis(N_lower, N_upper, V_N, N_pos, dt)
+                            V_NED_clamped_H[1] = self._clamp_axis(E_lower, E_upper, V_E, E_pos, dt)
 
                             # 3. Clamped NED Velocity back to Body Frame Joystick Inputs
                             R_ned_to_body = R_body_to_ned.T
@@ -464,7 +469,7 @@ class ControllerPlugin(Plugin):
                                 V_D_clamped = min(0.0, (D_lower - D_pos) / dt)
                                 #if V_D_clamped == 0.0:
                                 #    self.logger.warning("Fence: Upward motion clamped (Ceiling limit).")
-                            
+
                             # Check Floor limit (Descend, V_D > 0)
                             elif V_D < 0 and D_pos + V_D * dt >= D_upper:
                                 # Clamp V_D to the speed that just reaches the floor limit
@@ -496,7 +501,8 @@ class ControllerPlugin(Plugin):
                         vertical_input = (vertical_input + 1) / 2  # Scale from -1/1 to 0/1
 
 
-                    # TODO: Enforce fence somehow
+                    # TODO: Vertical input treatment is inconsistent. Should be postive for down, but instead is positive for up.
+                    # Should invert this here and then unify the code above.
                     await self.dm.drones[self._drone_name].set_manual_control_input(forward_input, right_input, vertical_input, yaw_input)
 
                     # Also perform whatever other functions are bound to any other axis
