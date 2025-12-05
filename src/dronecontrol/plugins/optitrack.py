@@ -106,7 +106,7 @@ class OptitrackPlugin(Plugin):
             axes = ["z", "-x", "-y"]
         self.coordinate_transform = CoordinateConversion(*axes)
         self._event_loop = asyncio.get_running_loop()
-
+        self._stopping = False
         self._covariance_matrix = Covariance([math.nan])
 
     async def connect_server(self, remote: str = None, local: str = None):
@@ -182,28 +182,23 @@ class OptitrackPlugin(Plugin):
 
     def _new_frame_callback(self, data_dict):
         try:
-            body_dict = {}
-            rigid_body_list = data_dict["mocap_data"].rigid_body_data.rigid_body_list
-            for rb in rigid_body_list:
-                track_id = rb.id_num
-                position = rb.pos
-                body_dict[track_id] = position
-                rotation = rb.rot
-                if track_id in self._drone_id_mapping:
-                    callback_task = asyncio.run_coroutine_threadsafe(self._process_rigid_body(track_id, position, rotation), self._event_loop)
-                    callback_awaiter = asyncio.run_coroutine_threadsafe(coroutine_awaiter(callback_task, self.logger), self._event_loop)
-                    self._running_tasks.add(callback_task)
-                    self._running_tasks.add(callback_awaiter)
-            self.available_bodies = body_dict
+            if not self._stopping:
+                body_dict = {}
+                rigid_body_list = data_dict["mocap_data"].rigid_body_data.rigid_body_list
+                for rb in rigid_body_list:
+                    track_id = rb.id_num
+                    position = rb.pos
+                    body_dict[track_id] = position
+                    rotation = rb.rot
+                    if track_id in self._drone_id_mapping:
+                        callback_task = asyncio.run_coroutine_threadsafe(self._process_rigid_body(track_id, position, rotation), self._event_loop)
+                        callback_awaiter = asyncio.run_coroutine_threadsafe(coroutine_awaiter(callback_task, self.logger), self._event_loop)
+                        self._running_tasks.add(callback_task)
+                        self._running_tasks.add(callback_awaiter)
+                self.available_bodies = body_dict
         except Exception as e:
             self.logger.error("Exception in new frame callback, see log for details.")
             self.logger.debug(repr(e), exc_info = True)
-
-    def _rigid_body_callback(self, track_id, position, rotation):
-        callback_task = asyncio.run_coroutine_threadsafe(self._process_rigid_body(track_id, position, rotation), self._event_loop)
-        callback_awaiter = asyncio.run_coroutine_threadsafe(coroutine_awaiter(callback_task, self.logger), self._event_loop)
-        self._running_tasks.add(callback_task)
-        self._running_tasks.add(callback_awaiter)
 
     async def _process_rigid_body(self, track_id, position, rotation):
         try:
@@ -216,20 +211,20 @@ class OptitrackPlugin(Plugin):
                 conv_position, conv_rotation = self.coordinate_transform.convert_quat(position, rotation, out_sequence="xyz", degrees=False)
                 try:
                     drone = self.dm.drones[drone_name]
+                    if drone.is_connected:
+                        vis_pos_estimate = VisionPositionEstimate(0,
+                                                                PositionBody(*conv_position),
+                                                                AngleBody(*conv_rotation),
+                                                                self._covariance_matrix)
+                        if self.log_rigid_frames and self.frame_count % self.log_every == 0:
+                            self.logger.info(f"Logging every {self.log_every}th rigid body frame CONVERTED:{track_id} - {conv_position, conv_rotation}")
+                        send_task = asyncio.create_task(self._error_wrapper(drone.system.mocap.set_vision_position_estimate, vis_pos_estimate))
+                        send_task_awaiter = asyncio.create_task(coroutine_awaiter(send_task, self.logger))
+                        self._running_tasks.add(send_task)
+                        self._running_tasks.add(send_task_awaiter)
                 except KeyError:
                     self.logger.warning(f"Received tracking data for drone '{drone_name}' which is no longer connected, removing...")
                     await self.remove_drone(drone_name)
-                if drone.is_connected:
-                    vis_pos_estimate = VisionPositionEstimate(0,
-                                                            PositionBody(*conv_position),
-                                                            AngleBody(*conv_rotation),
-                                                            self._covariance_matrix)
-                    if self.log_rigid_frames and self.frame_count % self.log_every == 0:
-                        self.logger.info(f"Logging every {self.log_every}th rigid body frame CONVERTED:{track_id} - {conv_position, conv_rotation}")
-                    send_task = asyncio.create_task(self._error_wrapper(drone.system.mocap.set_vision_position_estimate, vis_pos_estimate))
-                    send_task_awaiter = asyncio.create_task(coroutine_awaiter(send_task, self.logger))
-                    self._running_tasks.add(send_task)
-                    self._running_tasks.add(send_task_awaiter)
         except UnboundLocalError:
             pass
         except Exception as e:
@@ -237,6 +232,7 @@ class OptitrackPlugin(Plugin):
             self.logger.debug(repr(e), exc_info = True)
 
     async def close(self):
+        self._stopping = True
         await super().close()
         if self.client is not None:
             self.client.shutdown()

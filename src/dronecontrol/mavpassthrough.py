@@ -64,7 +64,7 @@ class MAVPassthrough:
                                                   source_system=self.source_system,
                                                   source_component=self.source_component, dialect=self.dialect)
         self._sockets.add(self.con_gcs)
-        self.running_tasks.add(asyncio.create_task(self._send_heartbeats_gsc()))
+        self.running_tasks.add(asyncio.create_task(self._send_heartbeats(self.con_gcs, "GCS", mavutil.mavlink.MAV_TYPE_GCS, mavutil.mavlink.MAV_AUTOPILOT_INVALID)))
         await asyncio.sleep(0)
         self.logger.debug("Waiting for GCS heartbeat")
         gcs_heartbeat = self.con_gcs.wait_heartbeat(blocking=False)
@@ -75,9 +75,9 @@ class MAVPassthrough:
         self.gcs_component = gcs_heartbeat.get_srcComponent()
         self.logger.debug(f"Got GCS {self.gcs_system, self.gcs_component} heartbeat.")
         self.time_of_last_gcs = time.time_ns()
-        self.running_tasks.add(asyncio.create_task(self._send_pings_gcs()))
+        self.running_tasks.add(asyncio.create_task(self._send_pings(self.con_gcs, "GCS")))
 
-        handshake_task = asyncio.create_task(self._do_version_handshake(self.con_drone_in, "GCS"))
+        handshake_task = asyncio.create_task(self._do_version_handshake(self.con_gcs, "GCS"))
         self.running_tasks.add(handshake_task)
         await handshake_task
 
@@ -137,8 +137,8 @@ class MAVPassthrough:
             await init_con_task
 
             # Start continuously sending heartbeats and pings once we have system and component id from drone
-            self.running_tasks.add(asyncio.create_task(self._send_heartbeats_drone()))
-            self.running_tasks.add(asyncio.create_task(self._send_pings_drone()))
+            self.running_tasks.add(asyncio.create_task(self._send_heartbeats(self.con_drone_in, "drone", mavutil.mavlink.MAV_TYPE_GCS, mavutil.mavlink.MAV_AUTOPILOT_INVALID)))
+            self.running_tasks.add(asyncio.create_task(self._send_pings(self.con_drone_in, "drone")))
 
             # Do version handshake
             handshake_task = asyncio.create_task(self._do_version_handshake(self.con_drone_in, "Drone"))
@@ -425,31 +425,16 @@ class MAVPassthrough:
             except Exception as e:
                 self.logger.debug(f"Exception in the drone connection function: {repr(e)}", exc_info=True)
 
-    async def _send_pings_gcs(self):
+    async def _send_pings(self, con, name):
         while not self.should_stop:
-            self.logger.debug("Pinging GCS")
-            self.con_gcs.mav.ping_send(int(time.time() * 1e6), 0, 0, 0)
+            self.logger.debug(f"Pinging {name}")
+            con.mav.ping_send(int(time.time() * 1e6), 0, 0, 0)
             await asyncio.sleep(5)
 
-    async def _send_pings_drone(self):
+    async def _send_heartbeats(self, con, name, mav_type, mav_autopilot):
         while not self.should_stop:
-            self.logger.debug("Pinging drone")
-            self.con_drone_in.mav.ping_send(int(time.time() * 1e6), 0, 0, 0)
-            await asyncio.sleep(5)
-
-    async def _send_heartbeats_drone(self):
-        while not self.should_stop:
-            self.logger.debug("Sending heartbeat to drone")
-            self.con_drone_in.mav.heartbeat_send(mavutil.mavlink.MAV_TYPE_GCS,
-                                                 mavutil.mavlink.MAV_AUTOPILOT_INVALID, 0, 0, 0)
-            await asyncio.sleep(0.5)
-
-    async def _send_heartbeats_gsc(self):
-        while not self.should_stop:
-            self.logger.debug("Sending heartbeat to GCS")
-            self.con_gcs.mav.heartbeat_send(mavutil.mavlink.MAV_TYPE_GCS,
-                                            mavutil.mavlink.MAV_AUTOPILOT_INVALID, 0, 0, 0)
-            self.logger.debug(f"GCS connection target system {self.con_gcs.target_system}")
+            self.logger.debug(f"Sending heartbeat to {name}")
+            con.mav.heartbeat_send(mav_type, mav_autopilot, 0, 0, 0)
             await asyncio.sleep(0.5)
 
     def add_drone_message_callback(self, message_id: int, func: typing.Callable[[any], typing.Coroutine]):

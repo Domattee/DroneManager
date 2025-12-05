@@ -39,7 +39,7 @@
       "max_yaw_vel": 60,
       "max_yaw_acc": 30,
       "max_yaw_jerk": 30,
-      "log_telemetry": false,
+      "log_telemetry": true,
       "rtsp": null,
       "size": 1.0
     },
