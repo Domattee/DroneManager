@@ -518,7 +518,7 @@ class ControllerPlugin(Plugin):
                 self.logger.debug(repr(e), exc_info=True)
 
     def stick_response(self, axis: int) -> float:
-        """ Linear stick response with -5 to 5% dead zone.
+        """ Linear stick response with -10 to 10% dead zone.
 
         Axis should be the joystick axis. A negative number means that the response is inverted. """
         value = self.controller.get_axis(abs(axis))
