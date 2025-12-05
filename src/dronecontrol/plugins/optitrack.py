@@ -13,9 +13,6 @@ from dronecontrol.plugins.NatNet.NatNetClient import NatNetClient
 from dronecontrol.utils import coroutine_awaiter    
 
 
-# TODO: Check available bodies
-
-
 class CoordinateConversion:
 
     def __init__(self, n_axis: str, e_axis: str, d_axis: str):
@@ -244,20 +241,3 @@ class OptitrackPlugin(Plugin):
             self.logger.error(f"CameraError: {e._result.result_str}")
             return False
         return res
-
-
-if __name__ == "__main__":
-    test_pos = [-1, -2, 3]
-    test_attitudes = [[0, 0, 10], [10, 5, 90], [10, 0, 180]]
-    GT_test_attitudes = [[0, 0, -100]]
-
-    opti_conv = CoordinateConversion("z", "-x", "-y")
-    rot = opti_conv.rotation
-    seq = opti_conv.rotation_sequence
-
-    print("Test vector: ", test_pos, rot.apply(test_pos))
-    print("Rotation matrix: ", rot.as_quat(canonical=True))
-
-    for attitude in test_attitudes:
-        print("Init Position, Rotation: ", test_pos, attitude)
-        print("Converted Position, Rotation: ", opti_conv.convert_euler(test_pos, attitude, degrees=True))
