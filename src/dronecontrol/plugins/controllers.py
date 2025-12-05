@@ -429,7 +429,6 @@ class ControllerPlugin(Plugin):
                             
                             N_pos = pos_ned[0]
                             V_N = V_NED_desired_H[0]
-                            N_
                             N_lower = drone.fence.north_lower + margin
                             N_upper = drone.fence.north_upper - margin
 
