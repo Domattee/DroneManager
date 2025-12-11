@@ -110,6 +110,9 @@ class Mission(Plugin, abc.ABC):
     def __init__(self, dm, logger, name="YOUDIDSOMETHINGWRONG"):
         super().__init__(dm, logger, name)
         self.PREFIX = name
+
+        # CLI commands for these coroutines are generated automatically based on the signature and type hints.
+        # They must be coroutines!
         self.cli_commands = {
             "reset": self.reset,
             "status": self.status,
@@ -136,7 +139,9 @@ class Mission(Plugin, abc.ABC):
         await super().start()
 
     async def close(self):
-        """ This function must end all running tasks"""
+        """ Shutdown function for the script. It should end any running tasks and clear any resources.
+
+        By default, it cancels any tasks tracked in self._running_tasks."""
         await super().close()
 
     @abc.abstractmethod
@@ -144,26 +149,26 @@ class Mission(Plugin, abc.ABC):
         """ Resets the mission back to the initial position.
 
         Keep safety in mind when this requires moving drones."""
-        pass
+        raise NotImplementedError
 
     @abc.abstractmethod
     async def status(self):
         """ Should write information about the current status of the mission to the logger under INFO."""
-        pass
+        raise NotImplementedError
 
     @abc.abstractmethod
     async def add_drones(self, names: list[str]):
         """ Add drones to the mission. Implementations should check that the drones are capable and meet mission
         requirements."""
-        pass
+        raise NotImplementedError
 
     @abc.abstractmethod
     async def remove_drones(self, names: list[str]):
         """ Remove drones from the mission. Implementations must take measures to prevent missions from running with
         too few drones"""
-        pass
+        raise NotImplementedError
 
     @abc.abstractmethod
     async def mission_ready(self, drone: str):
         """ Check whether any given drone is ready to keep going, i.e. is still connected etc. """
-        pass
+        raise NotImplementedError
