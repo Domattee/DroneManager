@@ -32,7 +32,7 @@ Installation
 
 1. Clone this repository,
 2. Move into the root directory of the repository
-3. On Windows only: `` python windows_setup.py ``
+3. On Windows only: ``python windows_setup.py``
 4. Install with pip::
 
       pip install --upgrade pip
