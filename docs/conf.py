@@ -18,7 +18,6 @@ extensions = [
     'sphinx.ext.autosummary',
     'sphinx.ext.intersphinx',
     'sphinx.ext.napoleon',
-    'sphinx.ext.autodoc.preserve_defaults',  # Do not resolve the names of default arguments
 ]
 autodoc_mock_imports = []  # "mujoco"
 autodoc_member_order = 'bysource'
