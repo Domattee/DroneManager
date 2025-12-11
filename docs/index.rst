@@ -23,6 +23,8 @@ it. It can be used to connect to and command multiple drones using either game p
    :maxdepth: 2
    :caption: Contents:
 
+   api/index
+
 
 ============
 Installation
@@ -33,5 +35,8 @@ Installation
 3. On Windows only: `` python windows_setup.py ``
 4. Install with pip::
 
-  pip install --upgrade pip
-  pip install -e .
+   pip install --upgrade pip
+   pip install -e .
+
+.. note::
+   The additional script on windows is required to install MSVC and the MAVSDK Server binary, which isn't shipped with the installation.
