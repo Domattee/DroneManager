@@ -20,6 +20,8 @@ python:
     # Install our python package before building the docs
     - method: pip
       path: .
+      extra_requirements:
+        - docs
 
 # Optionally, but recommended,
 # declare the Python requirements required to build your documentation

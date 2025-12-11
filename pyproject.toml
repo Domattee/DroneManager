@@ -24,9 +24,15 @@ dependencies = [
     "scipy",
     "requests",
     "ruckig"]
+
 classifiers = [
     "Programming Language :: Python :: 3",
     "Operating System :: OS Independent", ]
 
 [project.scripts]
 dm = "dronecontrol.app:main"
+
+[project.optional-dependencies]
+docs = [
+    "sphinx",
+    "sphinx_rtd_theme"]

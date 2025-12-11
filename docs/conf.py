@@ -18,6 +18,7 @@ extensions = [
     'sphinx.ext.autosummary',
     'sphinx.ext.intersphinx',
     'sphinx.ext.napoleon',
+    'sphinx_rtd_theme',
 ]
 autodoc_mock_imports = []  # "mujoco"
 autodoc_member_order = 'bysource'
@@ -39,7 +40,7 @@ master_doc = 'index'
 # -- Options for HTML output -------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#options-for-html-output
 
-html_theme = 'classic'
+html_theme = 'sphinx_rtd_theme'
 html_static_path = ['_static']
 
 autosummary_generate = False
