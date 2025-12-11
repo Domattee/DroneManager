@@ -6,12 +6,34 @@
 DroneManager documentation
 ==========================
 
-Add your content using ``reStructuredText`` syntax. See the
-`reStructuredText <https://www.sphinx-doc.org/en/master/usage/restructuredtext/index.html>`_
-documentation for details.
+.. Add your content using ``reStructuredText`` syntax. See the
+   `reStructuredText <https://www.sphinx-doc.org/en/master/usage/restructuredtext/index.html>`_
+   documentation for details.
+
+DroneManager consists of two main components: The DroneManager library itself and a terminal application that uses
+it. It can be used to connect to and command multiple drones using either game pads or text controls.
+
+
+.. note::
+
+   This project is under active development.
 
 
 .. toctree::
    :maxdepth: 2
    :caption: Contents:
 
+
+============
+Installation
+============
+
+1. Clone this repository,
+2. Move into the root directory of the repository
+3. On Windows only: `` python windows_setup.py ``
+4. Install with pip::
+
+  ``
+  pip install --upgrade pip
+  pip install -e .
+  ``

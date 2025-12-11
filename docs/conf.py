@@ -13,16 +13,34 @@ release = '0.3'
 
 # -- General configuration ---------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#general-configuration
+extensions = [
+    'sphinx.ext.autodoc',
+    'sphinx.ext.autosummary',
+    'sphinx.ext.intersphinx',
+    'sphinx.ext.napoleon',
+    'sphinx.ext.autodoc.preserve_defaults',  # Do not resolve the names of default arguments
+]
+autodoc_mock_imports = []  # "mujoco"
+autodoc_member_order = 'bysource'
+# autodoc_class_signature = 'separated' # Moves the class signatures into separate init function docu.
+numpydoc_class_members_toctree = False
+automodapi_toctreedirnm = 'generated'
+automodsumm_inherited_members = True
+autodoc_preserve_defaults = True
 
-extensions = []
 
 templates_path = ['_templates']
 exclude_patterns = ['_build', 'Thumbs.db', '.DS_Store']
 
+source_suffix = '.rst'
 
+# The master toctree document.
+master_doc = 'index'
 
 # -- Options for HTML output -------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#options-for-html-output
 
-html_theme = 'alabaster'
+html_theme = 'sphinx_rtd_theme'
 html_static_path = ['_static']
+
+autosummary_generate = False
