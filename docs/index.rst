@@ -33,7 +33,5 @@ Installation
 3. On Windows only: `` python windows_setup.py ``
 4. Install with pip::
 
-  ``
   pip install --upgrade pip
   pip install -e .
-  ``
