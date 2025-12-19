@@ -37,6 +37,7 @@ def is_msvc_installed():
 
     try:
         # Query installations that include the VC Tools workload
+        print(vswhere)
         cmd = [
             vswhere,
             "-products", "*",
@@ -103,9 +104,10 @@ def msvc():
     print("MSVC not detected. Proceeding with installation...\n")
 
     with tempfile.TemporaryDirectory() as tempdir:
-        installer_path = pathlib.Path(tempdir).joinpath("vs_buildtools.exe")
+        installer_path = str(pathlib.Path(tempdir).joinpath("vs_buildtools.exe"))
         download_file(VS_URL, installer_path)
         install_msvc(installer_path)
+        # TODO: Handle error code 3010 (reboot required)
 
 
 def check_mavlink_binary():
@@ -132,6 +134,7 @@ def mavlink_binary():
             print("Moving server executable...")
             shutil.move(mav_unzipped, MAVPATH)
 
+
 def main():
     if platform.system() == "Windows":
         msvc()
@@ -139,6 +142,7 @@ def main():
         print("All done!")
     else:
         print("Not on Windows, this step is not necessary!")
+
 
 if __name__ == "__main__":
     main()
