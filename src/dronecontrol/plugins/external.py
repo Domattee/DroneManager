@@ -142,6 +142,24 @@ class UDPPlugin(Plugin):
         drone_data = {}
         for drone_name in self.dm.drones:
             drone = self.dm.drones[drone_name]
+            # Target Logic 
+            target_list = []
+            current_target = getattr(drone, 'active_destination', None)
+            if current_target is not None:
+                if hasattr(current_target, 'pos'):
+                        
+                        raw_pos = current_target.pos
+                        self.logger.warning(f"raw_pos: {raw_pos}")
+                        
+                        # Check if the position is valid (not None or empty)
+                        if raw_pos is not None:
+                            # Numpy conversion
+                            if hasattr(raw_pos, 'tolist'):
+                                target_list = raw_pos.tolist()
+                            else:
+                                target_list = list(raw_pos)
+                            
+            # fence logic
             fence_list = []
             fence_margin = .5
             if getattr(drone, 'fence', None): # Check if fence exists and is not None
@@ -165,6 +183,7 @@ class UDPPlugin(Plugin):
                 "in_air": drone.in_air,
                 "rtsp": drone.config.rtsp,
                 "fence": fence_list,
+                "target": target_list,
             }
         data = {"drones": drone_data}
         if hasattr(self.dm, "mission"):  # Check that the mission plugin is actually loaded
