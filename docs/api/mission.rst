@@ -9,7 +9,7 @@ Mission Base Class
 ------------------
 
 
-.. automodule:: dronecontrol.plugin.mission
+.. automodule:: dronecontrol.plugins.mission
    :members:
    :undoc-members:
    :show-inheritance:
