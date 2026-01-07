@@ -79,7 +79,8 @@ Bar {
             await asyncio.sleep(1/UPDATE_RATE)
 
     def compose(self):
-        """ Creates the screen object"""
+        """ Creates the screen object
+        """
         with Horizontal():
             with RadioSet(id="droneselector"):
                 yield RadioButton("None", id="button_no_drone")
@@ -560,6 +561,8 @@ class CommandScreen(Screen):
         self.query_one("#output", expect_type=Log).can_focus = False
 
     def compose(self):
+        """ Creates the screen object
+        """
         status_string = ""
         status_string += "Drone Status\n" + DroneOverview.header_string()
 

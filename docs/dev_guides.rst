@@ -40,5 +40,11 @@ Type hints go into the signature, not the docstring.
 For classes, everything goes into the class docstring, except the arguments
 for __init__, which go into the __init__ docstring.
 
+Sphinx uses the class hierarchy to try and find a docstring when a class
+overrides a member of its parent class. This can lead to errors when the
+docstring of the parent class doesn't meet the formatting standards. In
+this case, the subclass should provide its own docstring, referencing the
+parent class when necessary.
+
 For general formatting, see the sphinx documentation, they have examples
 of Google-style docstrings as well.
