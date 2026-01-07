@@ -6,4 +6,8 @@ API
 
    dronemanager
    drone
+   navigation
    plugin
+   mission
+   sensor
+   utils

@@ -21,17 +21,42 @@ Plugin Base Class
 Plugin list
 -----------
 
-.. py:currentmodule:: None
+.. automodule:: dronecontrol.plugins.camera
+   :members:
+   :undoc-members:
+   :show-inheritance:
 
-.. autosummary::
-   :toctree: _autosummary
-   :recursive:
+.. automodule:: dronecontrol.plugins.controllers
+   :members:
+   :undoc-members:
+   :show-inheritance:
 
-   dronecontrol.plugins
+.. automodule:: dronecontrol.plugins.external
+   :members:
+   :undoc-members:
+   :show-inheritance:
 
+.. automodule:: dronecontrol.plugins.gimbal
+   :members:
+   :undoc-members:
+   :show-inheritance:
 
-.. autosummary::
-   :toctree: _autosummary
-   :recursive:
+.. automodule:: dronecontrol.plugins.mission
+   :members:
+   :undoc-members:
+   :show-inheritance:
 
-   dronecontrol.sensors
+.. automodule:: dronecontrol.plugins.optitrack
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+.. automodule:: dronecontrol.plugins.scripts
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+.. automodule:: dronecontrol.plugins.sensor
+   :members:
+   :undoc-members:
+   :show-inheritance:
