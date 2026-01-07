@@ -5,7 +5,6 @@ API
    :maxdepth: 2
 
    dronemanager
-   drone
    navigation
    plugin
    mission

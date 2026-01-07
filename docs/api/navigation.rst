@@ -1,8 +1,10 @@
 Navigation
 ==========
 
-.. toctree::
-   :maxdepth: 2
+.. contents:: Table of Contents
+   :depth: 2
+   :local:
+   :backlinks: none
 
 
 TODO: Short description of core modules and overall process

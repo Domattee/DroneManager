@@ -1,8 +1,10 @@
 Missions
 ========
 
-.. toctree::
-   :maxdepth: 2
+.. contents:: Table of Contents
+   :depth: 2
+   :local:
+   :backlinks: none
 
 
 Mission Base Class
@@ -17,10 +19,17 @@ Mission Base Class
 Mission list
 ------------
 
+UAM
+^^^
+
 .. automodule:: dronecontrol.missions.uam
    :members:
    :undoc-members:
    :show-inheritance:
+
+
+Engel
+^^^^^
 
 .. automodule:: dronecontrol.missions.engel
    :members:
