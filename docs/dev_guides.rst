@@ -29,3 +29,16 @@ Example missions
 ----------------
 
 TODO: Explanation of UAM, redcross, engel
+
+Writing documentation
+---------------------
+
+We use Google-style docstrings. Most IDEs can be set up to configure
+which style of docstring stub is generated.
+Type hints go into the signature, not the docstring.
+
+For classes, everything goes into the class docstring, except the arguments
+for __init__, which go into the __init__ docstring.
+
+For general formatting, see the sphinx documentation, they have examples
+of Google-style docstrings as well.

@@ -135,7 +135,10 @@ class Fence(ABC):
 
 
 class PathGenerator(ABC):
-    """ Abstract base class for path generators."""
+    """
+    Abstract base class for path generators.
+
+    """
 
     CAN_DO_GPS = False
     WAYPOINT_TYPES = set()
@@ -144,10 +147,10 @@ class PathGenerator(ABC):
     def __init__(self, drone: "dronecontrol.drone.Drone", logger, waypoint_type):
         """
 
-        Should be called at the end of subclass constructors.
-
-        :param drone:
-        :param logger:
+        Args:
+            drone:
+            logger:
+            waypoint_type:
         """
         assert waypoint_type in self.WAYPOINT_TYPES, (f"Invalid waypoint type {waypoint_type} "
                                                       f"for path generator {self.__class__.__name__}")
