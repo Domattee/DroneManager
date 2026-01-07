@@ -43,4 +43,4 @@ master_doc = 'index'
 html_theme = 'sphinx_rtd_theme'
 html_static_path = ['_static']
 
-autosummary_generate = False
+autosummary_generate = True

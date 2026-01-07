@@ -13,6 +13,8 @@ DroneManager documentation
 DroneManager consists of two main components: The DroneManager library itself and a terminal application that uses
 it. It can be used to connect to and command multiple drones using either game pads or text controls.
 
+User guides on how to use
+
 
 .. note::
 
@@ -24,4 +26,6 @@ it. It can be used to connect to and command multiple drones using either game p
    :caption: Contents:
 
    installation
+   quick_start
+   dev_guides
    api/index
