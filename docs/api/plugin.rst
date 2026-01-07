@@ -45,6 +45,7 @@ Plugin list
    :members:
    :undoc-members:
    :show-inheritance:
+   :no-index:
 
 .. automodule:: dronecontrol.plugins.optitrack
    :members:
@@ -60,3 +61,4 @@ Plugin list
    :members:
    :undoc-members:
    :show-inheritance:
+   :no-index:

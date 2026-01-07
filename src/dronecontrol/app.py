@@ -29,19 +29,23 @@ UPDATE_RATE = 20  # How often the various screens update in Hz.
 
 
 class StatusScreen(Screen):
+    """ A screen showing detailed information for a single drone.
 
-    CSS = """
-ProgressBar {
-    width: 25;
-    height: 1;
-    layout: horizontal;
-}
+    """
 
-Bar {
-    width: 20;
-    height: 1;
-}
+    CSS = """ \
+ProgressBar {\
+    width: 25;\
+    height: 1;\
+    layout: horizontal;\
+}\
+\
+Bar {\
+    width: 20;\
+    height: 1;\
+}\
 """
+    """CSS for the status screen."""
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)

@@ -28,7 +28,6 @@ automodapi_toctreedirnm = 'generated'
 automodsumm_inherited_members = True
 autodoc_preserve_defaults = True
 
-
 templates_path = ['_templates']
 exclude_patterns = ['_build', 'Thumbs.db', '.DS_Store']
 
@@ -43,4 +42,4 @@ master_doc = 'index'
 html_theme = 'sphinx_rtd_theme'
 html_static_path = ['_static']
 
-autosummary_generate = True
+autosummary_generate = False
