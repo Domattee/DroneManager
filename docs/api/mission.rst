@@ -8,7 +8,6 @@ Missions
 Mission Base Class
 ------------------
 
-
 .. automodule:: dronecontrol.plugins.mission
    :members:
    :undoc-members:
@@ -18,8 +17,12 @@ Mission Base Class
 Mission list
 ------------
 
-.. autosummary::
-   :toctree: _autosummary
-   :recursive:
+.. automodule:: dronecontrol.missions.uam
+   :members:
+   :undoc-members:
+   :show-inheritance:
 
-   dronecontrol.missions
+.. automodule:: dronecontrol.missions.engel
+   :members:
+   :undoc-members:
+   :show-inheritance:

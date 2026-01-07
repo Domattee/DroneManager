@@ -8,7 +8,6 @@ Missions
 Sensor Base Class
 ------------------
 
-
 .. automodule:: dronecontrol.plugins.sensor
    :members:
    :undoc-members:
@@ -22,4 +21,3 @@ Sensors list
    :members:
    :undoc-members:
    :show-inheritance:
-

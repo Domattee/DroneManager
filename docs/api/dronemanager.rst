@@ -8,7 +8,6 @@ DroneManager
 DroneManager module
 -------------------
 
-
 .. automodule:: dronecontrol.dronemanager
    :members:
    :undoc-members:

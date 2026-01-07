@@ -8,9 +8,9 @@ Plugins
 TODO: Short description of purpose, how to use
 List of special plugins: missions, sensors
 
+
 Plugin Base Class
 -----------------
-
 
 .. automodule:: dronecontrol.plugin
    :members:
