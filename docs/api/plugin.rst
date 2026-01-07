@@ -23,7 +23,6 @@ Plugin list
 
 .. autosummary::
    :toctree: _autosummary
-   :template: custom-module-template.rst
    :recursive:
 
    dronecontrol.plugins
@@ -31,7 +30,6 @@ Plugin list
 
 .. autosummary::
    :toctree: _autosummary
-   :template: custom-module-template.rst
    :recursive:
 
    dronecontrol.sensors
