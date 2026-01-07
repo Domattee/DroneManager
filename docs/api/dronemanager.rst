@@ -28,11 +28,17 @@ Drone module
 Terminal interface
 ------------------
 
+App
+^^^
+
 .. automodule:: dronecontrol.app
    :members:
    :undoc-members:
    :show-inheritance:
 
+
+Custom widgets
+^^^^^^^^^^^^^^
 
 .. automodule:: dronecontrol.widgets
    :members:
