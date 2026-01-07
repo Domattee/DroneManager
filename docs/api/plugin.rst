@@ -21,6 +21,8 @@ Plugin Base Class
 Plugin list
 -----------
 
+.. py:currentmodule:: None
+
 .. autosummary::
    :toctree: _autosummary
    :recursive:
