@@ -9,6 +9,7 @@ DroneManager documentation
 DroneManager consists of two main components: The DroneManager library itself and a terminal application that uses
 it. It can be used to connect to and command multiple drones using either game pads or text controls.
 
+TODO: expand this note, point to usage guide and dev guides
 
 .. note::
 
@@ -22,4 +23,11 @@ it. It can be used to connect to and command multiple drones using either game p
    installation
    usage
    dev_guides
+   holodeck
    api/index
+
+Holodeck
+--------
+
+Holodeck is our name for a combined system with DroneManager, our own Unity plugin and VR Goggles.
+TODO: Holodeck introductory text
