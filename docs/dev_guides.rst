@@ -43,6 +43,9 @@ Creating your own plugin
 
 TODO: Example process of making a plugin, using existing as example
 
+
+.. _guide_mission:
+
 Creating your own mission
 -------------------------
 
