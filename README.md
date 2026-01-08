@@ -10,7 +10,8 @@ A package to connect to and control multiple drones.
   - [Configuration file](#configuration-file)
   - [Plugins](#plugins)
 - [Examples](#examples)
-  
+  - [Holodeck](#holodeck)
+  - [UAM](#uam-demo)
 
 ## Installation
 
@@ -133,6 +134,10 @@ from DM to console.
   the flight controller on the drones themselves be configured to use this information.
 
 ## Examples
+
+### Holodeck
+
+TODO
 
 ### UAM Demo
 
