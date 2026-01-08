@@ -6,14 +6,8 @@
 DroneManager documentation
 ==========================
 
-.. Add your content using ``reStructuredText`` syntax. See the
-   `reStructuredText <https://www.sphinx-doc.org/en/master/usage/restructuredtext/index.html>`_
-   documentation for details.
-
 DroneManager consists of two main components: The DroneManager library itself and a terminal application that uses
 it. It can be used to connect to and command multiple drones using either game pads or text controls.
-
-User guides on how to use
 
 
 .. note::
@@ -26,6 +20,6 @@ User guides on how to use
    :caption: Contents:
 
    installation
-   quick_start
+   usage
    dev_guides
    api/index

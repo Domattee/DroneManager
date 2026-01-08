@@ -7,6 +7,27 @@ Developer Guide
    :backlinks: none
 
 
+Conceptually, the DroneManager software is split into three large components.
+
+The first handles core connection and command functions for a single drone. This component contains the
+:py:mod:`Drone <dronecontrol.drone>` and :py:mod:`MAVLink <dronecontrol.mavpassthrough>` modules, as well as the
+navigation functions.
+
+The second expands this for multiple drones and makes them available to plugins. This component handles the bulk of
+the logic. The main class is :py:class:`DroneManager <dronecontrol.dronemanager.DroneManager>`, but it also contains
+all plugins and missions.
+
+The last component handles user interactions, i.e. the terminal interface. It consists of only the
+:py:mod:`App <dronecontrol.app>` and :py:mod:`<dronecontrol.widgets>` modules.
+
+TODO: GRAPH
+
+TODO:
+    - Two entry points for code: Drone or DroneManager
+    - Recommended: DroneManager
+    - New functionality: Plugins
+    - Missions to collect functions that all relate to some workflow
+
 .. note::
 
    TODO: Short bit on asyncio and its traps
@@ -30,7 +51,7 @@ TODO: Example process of making a mission, using existing as example
 Example missions
 ----------------
 
-TODO: Explanation of UAM, redcross, engel
+TODO: Explanation of UAM, holodeck functions
 
 Writing documentation
 ---------------------

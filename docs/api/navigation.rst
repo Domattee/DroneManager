@@ -7,7 +7,8 @@ Navigation
    :backlinks: none
 
 
-TODO: Short description of core modules and overall process
+TODO: Short description of core modules and overall process, identical to the dev guide, probably refer the dev guide
+back here and then add extra notes
 
 
 Core
@@ -63,6 +64,10 @@ Path Followers
 
 Fences
 ------
+
+TODO: Short guide on the various geometries.
+Fence limits, fence limits with drone size accounted for, extra safety margin based on safety level
+Key functions: "display boundary", "stick safety"
 
 .. automodule:: dronecontrol.navigation.rectlocalfence
    :members:
