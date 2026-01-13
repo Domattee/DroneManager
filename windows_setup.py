@@ -6,6 +6,7 @@ import tempfile
 import json
 import zipfile
 import shutil
+import sys
 
 
 # ChatGTP generated most of this
@@ -92,7 +93,13 @@ def install_msvc(installer_path):
 
     print("Running command:\n" + " ".join(cmd) + "\n")
 
-    subprocess.run(cmd, check=True)
+    try:
+        subprocess.run(cmd, check=True, stdout=sys.stdout, stderr=sys.stderr)
+    except subprocess.CalledProcessError as e:
+        if e.returncode == 3010:
+            print("Restart required to finish installation! Please restart the machine and then run the script again!")
+        else:
+            raise
     print("MSVC Build Tools installation completed successfully.")
 
 
