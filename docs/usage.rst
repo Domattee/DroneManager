@@ -35,22 +35,23 @@ To connect to the simulated drone with DroneManager, click on the command line a
 This creates a new drone object, assigns it the name ``tom`` and tries to connect to a MAVLink Node with the given
 connection string. You can provide any name, it will be used to identify the drone in other commands.
 
+After a short moment, you should see text pop in on the status pane showing information for our newly connected drone.
+
 .. note::
    Typing any command with ``--help`` or ``-h`` prints a help string for that command.
    Also, a reference sheet with all default commands and their options is at the :ref:`bottom of this page <com_ref>`.
 
 .. note::
    As a convenience feature, we provide a config file in which drone names and their connection string as well as other
-   parameters may be saved. When entered with a name from this config file, the connect function will use the parameters
+   parameters may be saved. When the connect command is entered with a name from this config file, we use the parameters
    from the file unless overridden in the command line.
-
-After a short moment, you should see text pop in on the status pane showing information for our newly connected drone.
 
 To arm the drone, type::
 
    arm tom
 
-You should see the arm state of the drone switch. A few moments later, the drone should automatically disarm.
+You should see the arm state of the drone in the status pane switch. A few moments later, the drone should
+automatically disarm.
 
 To take-off, arm the drone again and then type::
 
@@ -114,7 +115,7 @@ Controls:
 
 
 That's it for the core controls. However, for your research you will probably want to test some algorithms or use real
-drones in some workflow. DroneManager enables this by making these core commands and more also available
+drones in some automated workflow. DroneManager enables this by making these core commands and more also available
 programmatically.
 
 A key feature to enable repeatable work is our "mission" concept. In principle, they are just fancy scripts. They can
