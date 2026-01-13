@@ -29,8 +29,11 @@ UPDATE_RATE = 20  # How often the various screens update in Hz.
 
 
 class StatusScreen(Screen):
+    """ A screen showing detailed information for a single drone.
 
-    CSS = """
+    """
+
+    CSS = """ 
 ProgressBar {
     width: 25;
     height: 1;
@@ -42,6 +45,7 @@ Bar {
     height: 1;
 }
 """
+    """CSS for the status screen."""
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -75,6 +79,8 @@ Bar {
             await asyncio.sleep(1/UPDATE_RATE)
 
     def compose(self):
+        """ Creates the screen object
+        """
         with Horizontal():
             with RadioSet(id="droneselector"):
                 yield RadioButton("None", id="button_no_drone")
@@ -555,6 +561,8 @@ class CommandScreen(Screen):
         self.query_one("#output", expect_type=Log).can_focus = False
 
     def compose(self):
+        """ Creates the screen object
+        """
         status_string = ""
         status_string += "Drone Status\n" + DroneOverview.header_string()
 
@@ -581,11 +589,19 @@ class DroneApp(App):
     BINDINGS = {
         Binding("s", "cycle_control", "Swap Status/Control"),
     }
+    """ Key Bindings """
+
     TITLE = "DroneManager"
+    """ Window Title """
+
     MODES = {
         "control": CommandScreen,
         "status": StatusScreen,
     }
+    """ A dictionary of the available app "modes".
+    
+    An app mode is essentially a different view, we can cycle between them. See the textual documentation for more 
+    information."""
 
     def __init__(self, dm: DroneManager, logger=None):
         self.dm = dm

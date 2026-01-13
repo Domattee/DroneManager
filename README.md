@@ -2,6 +2,13 @@
 
 A package to connect to and control multiple drones.
 
+[A full API documentation and user guides are available on ReadTheDocs.](https://dronemanager.readthedocs.io)
+
+
+> [!NOTE]  
+> The documentation is currently a work in progress.
+
+
 ## Table of Contents:
 
 - [Installation](#installation)

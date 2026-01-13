@@ -6,12 +6,30 @@
 DroneManager documentation
 ==========================
 
-Add your content using ``reStructuredText`` syntax. See the
-`reStructuredText <https://www.sphinx-doc.org/en/master/usage/restructuredtext/index.html>`_
-documentation for details.
+DroneManager consists of two main components: The DroneManager library itself and a terminal application that uses
+it. It can be used to connect to and command multiple drones using either game pads or text controls.
+
+TODO: expand this note, point to usage guide and dev guides
+
+.. note::
+
+   This project is under active development.
 
 
 .. toctree::
    :maxdepth: 2
    :caption: Contents:
 
+   installation
+   usage
+   dev_guides
+   holodeck
+   api/index
+
+Holodeck
+--------
+
+Holodeck is our name for a combined system with DroneManager, our own Unity plugin and VR Goggles.
+TODO: Holodeck introductory text
+
+See the :doc:`Holodeck documentation <holodeck>` for more information.
