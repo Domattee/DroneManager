@@ -1154,24 +1154,18 @@ class DroneMAVSDK(Drone):
 
     async def move(self, offset, yaw: float | None = None, use_gps=True, tolerance=0.25):
         north, east, down = offset
-        target_x = None
-        target_y = None
-        target_z = None
-        target_lat = None
-        target_long = None
-        target_amsl = None
+        target_yaw = self.attitude[2] + yaw
         if use_gps:
             cur_lat, cur_long, cur_alt = self.position_global
             target_lat, target_long, target_amsl = relative_gps(north, east, -down, cur_lat, cur_long, cur_alt)
+            waypoint = Waypoint(WayPointType.POS_GLOBAL, gps=[target_lat, target_long, target_amsl], yaw=target_yaw)
         else:
             cur_x, cur_y, cur_z = self.position_ned
             target_x = cur_x + north
             target_y = cur_y + east
             target_z = cur_z + down
-        target_yaw = self.attitude[2] + yaw
-        return await self.fly_to(local=np.asarray([target_x, target_y, target_z]),
-                                 gps=np.asarray([target_lat, target_long, target_amsl]),
-                                 yaw=target_yaw, put_into_offboard=True, tolerance=tolerance)
+            waypoint = Waypoint(WayPointType.POS_NED, pos=[target_x, target_y, target_z], yaw=target_yaw)
+        return await self.fly_to(waypoint=waypoint, put_into_offboard=True, tolerance=tolerance)
 
     async def go_to(self, local: np.ndarray | None = None, gps: np.ndarray | None = None, yaw: float | None = None,
                      waypoint: Waypoint | None = None, tolerance=0.25,):
