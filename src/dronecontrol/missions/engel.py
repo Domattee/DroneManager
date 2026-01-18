@@ -112,6 +112,7 @@ class ENGELDataMission(Mission):
             "capture": self.do_capture,
             "save": self.save_captures_to_file,
             "load": self.load_captures_from_file,
+            "copy": self.copy,
             "merge": self.merge,
             "configure": self.configure_cam,
             "replay": self.replay_captures,
@@ -359,6 +360,29 @@ class ENGELDataMission(Mission):
                         self.logger.warning(f"File {mounted_path} on camera doesn't exist!")
         self._save_captures_to_file(self.loaded_captures, filename=self.loaded_file)
 
+    def _move(self, captures: list[ENGELCaptureInfo], target_dir: pathlib.Path):
+        for capture in captures:
+            self.logger.info(f"Processing capture {capture.capture_id}")
+            img_dir = target_dir.joinpath(str(capture.capture_id))
+            img_dir.mkdir(exist_ok=True)
+            for i, image in enumerate(capture.images):
+                self.logger.debug(f"Moving image {capture.capture_id, i}")
+                old_img_file = pathlib.Path(image.file_location)
+                image.file_location = str(img_dir.joinpath(old_img_file.name))
+                shutil.copy2(old_img_file, img_dir)
+
+    async def copy(self, capture_file: str, target_dir: str):
+        target_dir = pathlib.Path(target_dir)
+        target_dir.mkdir(exist_ok=True)
+        file_path = self._normal_dir_or_other_path(capture_file)
+        file_name = file_path.name
+        captures_to_move = self._load_captures_from_file(file_path)
+        out_file = target_dir.joinpath(file_name)
+        self.logger.info(f"Copying files from {file_path.resolve()} to {out_file.resolve()}")
+        await asyncio.get_running_loop().run_in_executor(None, self._move, captures_to_move, target_dir)
+        self._save_captures_to_file(captures_to_move, filename=out_file)
+        self.logger.info("Done!")
+
     async def merge(self, other_files: list[str], output_file: str):
         captures = []
         for other_file in other_files:
@@ -393,7 +417,7 @@ class ENGELDataMission(Mission):
             captures = [ENGELCaptureInfo.from_json_dict(capture_dict) for capture_dict in json_list]
         return captures
 
-    def _normal_dir_or_other_path(self, filestr):
+    def _normal_dir_or_other_path(self, filestr) -> pathlib.Path:
         if str(pathlib.Path(filestr).parent) == ".":
             file_path = pathlib.Path(CAPTURE_DIR).joinpath(filestr)
         else:
