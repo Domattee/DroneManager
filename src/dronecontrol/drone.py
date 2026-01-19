@@ -1095,9 +1095,6 @@ class DroneMAVSDK(Drone):
         # Check that the target is valid
         assert self.check_waypoint(target), f"Invalid target position {target}, probably due to fence."
 
-        # Save the target so External Plugin can see it 
-        self.active_destination = target
-
         use_gps = target.type == WayPointType.POS_GLOBAL
 
         if log:
@@ -1152,7 +1149,6 @@ class DroneMAVSDK(Drone):
             # Print message and stop if we have reached waypoint
             if reached:
                 self.logger.info("Reached target position!")
-                self.active_destination = None
                 return True
             await asyncio.sleep(1 / self.position_update_rate)
 

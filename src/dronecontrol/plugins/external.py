@@ -144,21 +144,11 @@ class UDPPlugin(Plugin):
             drone = self.dm.drones[drone_name]
             # Target Logic 
             target_list = []
-            current_target = getattr(drone, 'active_destination', None)
+            current_target = drone.path_generator.target_position
             if current_target is not None:
-                if hasattr(current_target, 'pos'):
-                        
-                        raw_pos = current_target.pos
-                        self.logger.warning(f"raw_pos: {raw_pos}")
-                        
-                        # Check if the position is valid (not None or empty)
-                        if raw_pos is not None:
-                            # Numpy conversion
-                            if hasattr(raw_pos, 'tolist'):
-                                target_list = raw_pos.tolist()
-                            else:
-                                target_list = list(raw_pos)
-                            
+                current_target = current_target.pos.tolist()
+            target_list.append(current_target) 
+      
             # fence logic
             fence_list = []
             fence_margin = .5
