@@ -4,11 +4,11 @@ import cv2
 import numpy as np
 from dronecontrol.plugin import Plugin
 
-class UnityPlugin(Plugin):
+class StreamPlugin(Plugin):
     """ Plugin to receive video stream from Unity via TCP. """
     
     # This prefix is used for CLI commands (e.g., 'unity start')
-    PREFIX = "unity"
+    PREFIX = "stream"
 
     def __init__(self, dm, logger, name, ip="127.0.0.1", port=5000, **kwargs):
         """
@@ -30,7 +30,7 @@ class UnityPlugin(Plugin):
 
     async def start_stream(self, ip: str = None, port: int = None):
         """ 
-        Starts the Unity Video Stream. 
+        Starts the Video Stream. 
         
         Args:
             ip: Override the default IP (optional).
@@ -45,7 +45,7 @@ class UnityPlugin(Plugin):
             return False
 
         self.running = True
-        self.logger.info(f"Starting Unity Stream Listener on {target_ip}:{target_port}...")
+        self.logger.info(f"Starting Stream Listener on {target_ip}:{target_port}...")
         
         # Run the loop as a background task so we don't block the CLI or DroneManager
         self.stream_task = asyncio.create_task(self._stream_loop(target_ip, target_port))
@@ -78,7 +78,7 @@ class UnityPlugin(Plugin):
             try:
                 # Open async TCP connection
                 reader, writer = await asyncio.open_connection(ip, port)
-                self.logger.info("Connected to Unity!")
+                self.logger.info("Connected to Stream!")
 
                 while self.running:
                     # 1. Read Length (4 bytes)
@@ -95,7 +95,7 @@ class UnityPlugin(Plugin):
 
                     if frame is not None:
                         # Display window title includes plugin name
-                        cv2.imshow(f"Unity Stream ({self.name})", frame)
+                        cv2.imshow(f"Stream ({self.name})", frame)
                     
                     # 4. Handle UI events without blocking asyncio
                     # waitKey(1) processes GUI events. We assume this runs on Main Thread.
@@ -107,7 +107,7 @@ class UnityPlugin(Plugin):
                     await asyncio.sleep(0)
 
             except (asyncio.IncompleteReadError, ConnectionRefusedError, ConnectionResetError):
-                self.logger.debug("Waiting for Unity connection...", exc_info=False)
+                self.logger.debug("Waiting for Stream connection...", exc_info=False)
                 # If connection fails, wait 2 seconds before retrying
                 await asyncio.sleep(2)
             except Exception as e:
