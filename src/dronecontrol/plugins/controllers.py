@@ -404,10 +404,22 @@ class ControllerPlugin(Plugin):
                             margin = 1.0  # Safety margin in meters
                             dt = 1.0 / self._control_frequency # Time step for prediction
                             
-                            # Store raw inputs
-                            V_Body_X = forward_input
-                            V_Body_Y = right_input
-                            V_Body_Z = vertical_input # Raw vertical input [-1.0, 1.0]
+                            # --- STEP 0: Scale Inputs to Physical Velocities (m/s) ---
+                            # We use the config limits to map the [-1, 1] stick inputs to real world speeds.
+                            
+                            # Horizontal (Symmetric)
+                            max_h_vel = drone.config.max_h_vel
+                            V_Body_X = forward_input * max_h_vel
+                            V_Body_Y = right_input * max_h_vel
+
+                            # Vertical (Asymmetric: Up vs Down limits)
+                            # Note: In NED, Negative is Up.
+                            if vertical_input < 0: # Ascending
+                                max_v_speed = drone.config.max_up_vel
+                            else: # Descending
+                                max_v_speed = drone.config.max_down_vel
+                            
+                            V_Body_Z = vertical_input * max_v_speed
 
                             # --- Horizontal Clamping (N-E Axes via Vector Rotation) ---
                             
@@ -446,6 +458,15 @@ class ControllerPlugin(Plugin):
                             
                             forward_input = V_Body_clamped_H[0]
                             right_input = V_Body_clamped_H[1]
+
+                            # --- STEP 4a: Normalize Horizontal Back to [-1, 1] ---
+                            # We divide by the max speed to get back to the normalized joystick range
+                            if max_h_vel > 0:
+                                forward_input = V_Body_clamped_H[0] / max_h_vel
+                                right_input = V_Body_clamped_H[1] / max_h_vel
+                            else:
+                                forward_input = 0.0
+                                right_input = 0.0
                             
                             # --- Vertical Clamping (1D NED Check, Consistent Logic) ---
                             
@@ -459,25 +480,25 @@ class ControllerPlugin(Plugin):
                             V_D_clamped = V_D
 
                             # Check Ceiling limit (Ascend, V_D < 0)
-                            #self.logger.info(f"V_D: {V_D}")
-                            #self.logger.info(f"D_pos: {D_pos}")
-                            #self.logger.info(f"dt: {dt}")
-                            #self.logger.info(f"D_lower: {D_lower}")
                             if V_D > 0 and D_pos + V_D * dt <= D_lower:
                                 # Clamp V_D to the speed that just reaches the ceiling limit
                                 V_D_clamped = min(0.0, (D_lower - D_pos) / dt)
-                                #if V_D_clamped == 0.0:
-                                #    self.logger.warning("Fence: Upward motion clamped (Ceiling limit).")
 
                             # Check Floor limit (Descend, V_D > 0)
                             elif V_D < 0 and D_pos + V_D * dt >= D_upper:
                                 # Clamp V_D to the speed that just reaches the floor limit
                                 V_D_clamped = max(0.0, (D_upper - D_pos) / dt)
-                                #if V_D_clamped == 0.0:
-                                #    self.logger.warning("Fence: Downward motion clamped (Floor limit).")
 
-                            # Update the final vertical input signal
-                            vertical_input = V_D_clamped
+                            # --- STEP 4b: Normalize Vertical Back to [-1, 1] ---
+                            # We need to scale back using the same limit we used to scale up
+                            if V_D_clamped < 0: # Still Ascending or clamped to stop
+                                if drone.config.max_up_vel > 0:
+                                    vertical_input = V_D_clamped / drone.config.max_up_vel
+                                else: vertical_input = 0.0
+                            else: # Descending or stopped
+                                if drone.config.max_down_vel > 0:
+                                    vertical_input = V_D_clamped / drone.config.max_down_vel
+                                else: vertical_input = 0.0
 
                         except AttributeError:
                             # Catches errors if the fence object is missing expected attributes
