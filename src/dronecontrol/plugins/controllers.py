@@ -408,16 +408,22 @@ class ControllerPlugin(Plugin):
                             # We use the config limits to map the [-1, 1] stick inputs to real world speeds.
                             
                             # Horizontal (Symmetric)
-                            max_h_vel = drone.config.max_h_vel
+                            max_h_vel = drone.drone_params.max_h_vel
+                            if max_h_vel is None:
+                                max_h_vel = drone.config.max_h_vel
                             V_Body_X = forward_input * max_h_vel
                             V_Body_Y = right_input * max_h_vel
 
                             # Vertical (Asymmetric: Up vs Down limits)
                             # Note: In NED, Negative is Up.
                             if vertical_input < 0: # Ascending
-                                max_v_speed = drone.config.max_up_vel
+                                max_v_speed = drone.drone_params.max_down_vel
+                                if max_v_speed is None:
+                                    max_v_speed = drone.config.max_up_vel
                             else: # Descending
-                                max_v_speed = drone.config.max_down_vel
+                                max_v_speed = drone.drone_params.max_up_vel
+                                if max_v_speed is None:
+                                    max_v_speed = drone.config.max_down_vel
                             
                             V_Body_Z = vertical_input * max_v_speed
 
