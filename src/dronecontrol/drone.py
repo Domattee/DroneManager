@@ -21,7 +21,7 @@ from mavsdk.offboard import PositionNedYaw, PositionGlobalYaw, VelocityNedYaw, A
     VelocityBodyYawspeed
 from mavsdk.manual_control import ManualControlError
 
-from dronecontrol.utils import dist_ned, dist_gps, relative_gps
+from dronecontrol.utils import dist_ned, dist_gps, relative_gps, coroutine_awaiter
 from dronecontrol.utils import parse_address, common_formatter, get_free_port
 from dronecontrol.utils import LOG_DIR
 from dronecontrol.mavpassthrough import MAVPassthrough
@@ -135,6 +135,15 @@ class DroneConfigs:
         return len(self.configs)
 
 
+class DroneParams:
+
+    def __init__(self, raw = None):
+        self.raw = raw
+        self.max_h_vel = None
+        self.max_up_vel = None
+        self.max_down_vel = None
+
+
 class Drone(ABC, threading.Thread):
 
     VALID_FLIGHTMODES = set()
@@ -175,6 +184,7 @@ class Drone(ABC, threading.Thread):
 
         self.is_paused = False
         self.mav_conn: MAVPassthrough | None = None
+        self.drone_params: DroneParams | None = None
         self.start()
         asyncio.create_task(self._task_scheduler())
 
@@ -308,8 +318,16 @@ class Drone(ABC, threading.Thread):
     def batteries(self) -> dict[int, Battery]:
         pass
 
+    @property
+    def parameters_loaded(self) -> bool:
+        return self.drone_params is not None
+
     @abstractmethod
     async def connect(self, drone_addr, *args, **kwargs):
+        pass
+
+    @abstractmethod
+    async def load_parameters(self):
         pass
 
     @abstractmethod
@@ -678,10 +696,34 @@ class DroneMAVSDK(Drone):
                     self.logger.debug("Connected!")
                     self.mav_conn.log_messages = log_messages
                     self.config.address = self.drone_addr
+                    param_load_task = asyncio.create_task(self.load_parameters())
+                    param_load_task_awaiter = asyncio.create_task(coroutine_awaiter(param_load_task, self.logger))
+                    self._running_tasks.append(param_load_task)
+                    self._running_tasks.append(param_load_task_awaiter)
                     return True
         except Exception as e:
             self.logger.debug(f"Exception during connection: {repr(e)}", exc_info=True)
         return False
+
+    async def load_parameters(self):
+        parameters = await self.system.param.get_all_params()
+        raw_params = {}
+        for param in parameters.int_params:
+            raw_params[param.name] = (param.value, int)
+        for param in parameters.float_params:
+            raw_params[param.name] = (param.value, float)
+        for param in parameters.custom_params:
+            raw_params[param.name] = (param.value, str)
+        drone_params = DroneParams(raw_params)
+        if self.autopilot == "PX4":
+            self.logger.info(f"{drone_params.raw['MPC_XY_VEL_MAX'], drone_params.raw['MPC_Z_VEL_MAX_DN'], drone_params.raw['MPC_Z_VEL_MAX_UP']}")
+            drone_params.max_h_vel = drone_params.raw['MPC_XY_VEL_MAX']
+            drone_params.max_up_vel = drone_params.raw['MPC_Z_VEL_MAX_UP']
+            drone_params.max_down_vel = drone_params.raw['MPC_Z_VEL_MAX_DN']
+        else:
+            self.logger.warning("Couldn't parse parameters for this autopilot, drone speeds might"
+                                "not work properly.")
+        self.drone_params = drone_params
 
     async def disconnect(self, force=False):
         self.clear_queue()
