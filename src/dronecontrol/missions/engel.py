@@ -342,7 +342,7 @@ class ENGELDataMission(Mission):
         """
         for capture in self.loaded_captures:
             # Create directory in capture folder
-            img_dir = os.path.join(CAPTURE_DIR, str(capture.capture_id))
+            img_dir = os.path.join(CAPTURE_DIR, "images", str(capture.capture_id))
             os.makedirs(img_dir, exist_ok=True)
             for image in capture.images:
                 cam_path = image.file_location
@@ -355,32 +355,34 @@ class ENGELDataMission(Mission):
                         local_img_path = pathlib.Path(img_dir).joinpath(image_file_name)
                         shutil.move(mounted_path, local_img_path)
                         # Change directory in capture
-                        image.file_location = str(local_img_path)
+                        image.file_location = local_img_path.as_posix()
                     else:
                         self.logger.warning(f"File {mounted_path} on camera doesn't exist!")
-        self._save_captures_to_file(self.loaded_captures, filename=self.loaded_file)
+        self._save_captures_to_file(self.loaded_captures, filename=self.loaded_file, make_relative=True)
 
-    def _move(self, captures: list[ENGELCaptureInfo], target_dir: pathlib.Path):
+    def _move(self, captures: list[ENGELCaptureInfo], json_dir: pathlib.Path, target_dir: pathlib.Path):
         for capture in captures:
             self.logger.info(f"Processing capture {capture.capture_id}")
-            img_dir = target_dir.joinpath(str(capture.capture_id))
-            img_dir.mkdir(exist_ok=True)
+            img_dir = target_dir.joinpath("images").joinpath(str(capture.capture_id))
+            img_dir.mkdir(exist_ok=True, parents=True)
             for i, image in enumerate(capture.images):
-                self.logger.debug(f"Moving image {capture.capture_id, i}")
                 old_img_file = pathlib.Path(image.file_location)
-                image.file_location = str(img_dir.joinpath(old_img_file.name))
+                if not old_img_file.is_absolute():
+                    old_img_file = json_dir.joinpath(image.file_location)
+                self.logger.debug(f"Moving image {capture.capture_id, i}")
+                image.file_location = img_dir.joinpath(old_img_file.name).as_posix()
                 shutil.copy2(old_img_file, img_dir)
 
     async def copy(self, capture_file: str, target_dir: str):
         target_dir = pathlib.Path(target_dir)
-        target_dir.mkdir(exist_ok=True)
+        target_dir.mkdir(exist_ok=True, parents=True)
         file_path = self._normal_dir_or_other_path(capture_file)
         file_name = file_path.name
         captures_to_move = self._load_captures_from_file(file_path)
         out_file = target_dir.joinpath(file_name)
         self.logger.info(f"Copying files from {file_path.resolve()} to {out_file.resolve()}")
-        await asyncio.get_running_loop().run_in_executor(None, self._move, captures_to_move, target_dir)
-        self._save_captures_to_file(captures_to_move, filename=out_file)
+        await asyncio.get_running_loop().run_in_executor(None, self._move, captures_to_move, file_path.parent, target_dir)
+        self._save_captures_to_file(captures_to_move, filename=out_file, make_relative=True)
         self.logger.info("Done!")
 
     async def merge(self, other_files: list[str], output_file: str):
@@ -393,7 +395,8 @@ class ENGELDataMission(Mission):
 
     # TODO: Move/copy image functions
 
-    def _save_captures_to_file(self, captures, filename: str | pathlib.Path = None, merge_existing = False):
+    def _save_captures_to_file(self, captures, filename: str | pathlib.Path = None, merge_existing = False,
+                               make_relative = False):
         """ Save all capture information to a file, images will have to be downloaded separately anyway. """
         if filename is None:
             timestamp = datetime.datetime.now(datetime.UTC)
@@ -403,6 +406,11 @@ class ENGELDataMission(Mission):
         if merge_existing and file_path.exists():
             old_captures = self._load_captures_from_file(file_path)
             captures.extend(old_captures)
+
+        if make_relative:
+            for capture in captures:
+                for image in capture.images:
+                    image.file_location = "./" + pathlib.Path(image.file_location).relative_to(file_path.parent).as_posix()
         self.logger.info(f"Saving info to file {file_path}")
         with open(file_path, "wt") as f:
             output = [capture.to_json_dict() for capture in captures]
