@@ -716,10 +716,15 @@ class DroneMAVSDK(Drone):
             raw_params[param.name] = (param.value, str)
         drone_params = DroneParams(raw_params)
         if self.autopilot == "PX4":
-            self.logger.info(f"{drone_params.raw['MPC_XY_VEL_MAX'], drone_params.raw['MPC_Z_VEL_MAX_DN'], drone_params.raw['MPC_Z_VEL_MAX_UP']}")
             drone_params.max_h_vel = drone_params.raw['MPC_XY_VEL_MAX']
             drone_params.max_up_vel = drone_params.raw['MPC_Z_VEL_MAX_UP']
             drone_params.max_down_vel = drone_params.raw['MPC_Z_VEL_MAX_DN']
+        elif self.autopilot == "Ardupilot":
+            drone_params.max_h_vel = drone_params.raw['LOIT_SPEED'] * 10  # cm/s
+            drone_params.max_up_vel = drone_params.raw['PILOT_SPEED_UP'] * 10
+            drone_params.max_down_vel = drone_params.raw['PILOT_SPEED_DN'] * 10
+            if drone_params.max_down_vel == 0:
+                drone_params.max_down_vel = drone_params.max_up_vel
         else:
             self.logger.warning("Couldn't parse parameters for this autopilot, drone speeds might"
                                 "not work properly.")
