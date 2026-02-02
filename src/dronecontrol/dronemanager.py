@@ -34,6 +34,10 @@ pane_formatter = logging.Formatter('%(asctime)s %(levelname)s %(name)s - %(messa
 
 
 class DMConfig:
+    """
+    Configuration class for DroneManager
+
+    """
 
     CORE_ENTRIES = ["drones", "mav_system_id", "mav_component_id", "plugin_settings", "default_plugins"]  # These must be present
 
@@ -84,6 +88,10 @@ class DMConfig:
 
 
 class DroneManager:
+    """
+    Core class of the library.
+
+    """
     # TODO: Handle MAVSDK crashes - Not sure at all what causes them
     # TODO: Refactor functions other than fly_to to also use the list wrapping convenience
 

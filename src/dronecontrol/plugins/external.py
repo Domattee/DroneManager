@@ -33,11 +33,12 @@ class UDPPlugin(Plugin):
     """ Communication happens over port 31659. A client will send a json message with the desired frequency and duration
     (in seconds) to this port and the server starts answering. Frequency is capped between 1/60 and 20Hz.
 
-    Example message from client:
-    {
-      "duration": 30,
-      "frequency": 5
-    }
+    Example message from client::
+
+        {
+          "duration": 30,
+          "frequency": 5
+        }
 
     """
     PREFIX = "UDP"

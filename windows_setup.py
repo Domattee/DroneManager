@@ -6,6 +6,7 @@ import tempfile
 import json
 import zipfile
 import shutil
+import sys
 
 
 # ChatGTP generated most of this
@@ -75,6 +76,7 @@ def download_file(url, dest_path):
 
 
 def install_msvc(installer_path):
+    # Returns True if a restall is required, otherwise False
     print("Starting silent MSVC Build Tools installation...\n")
 
     components = [
@@ -92,23 +94,31 @@ def install_msvc(installer_path):
 
     print("Running command:\n" + " ".join(cmd) + "\n")
 
-    subprocess.run(cmd, check=True)
+    try:
+        subprocess.run(cmd, check=True, stdout=sys.stdout, stderr=sys.stderr)
+    except subprocess.CalledProcessError as e:
+        if e.returncode == 3010:
+            print("Restart required to finish installation! Please restart the machine and then run the script again!")
+            return True
+        else:
+            raise
     print("MSVC Build Tools installation completed successfully.")
+    return False
 
 
 def msvc():
+    # Returns True if we need to restart for MSVC
     if is_msvc_installed():
         print("MSVC is already installed — skipping download and installation.")
-        return
+        return False
 
     print("MSVC not detected. Proceeding with installation...\n")
 
     with tempfile.TemporaryDirectory() as tempdir:
         installer_path = str(pathlib.Path(tempdir).joinpath("vs_buildtools.exe"))
         download_file(VS_URL, installer_path)
-        install_msvc(installer_path)
-        # TODO: Handle error code 3010 (reboot required)
-
+        need_restart = install_msvc(installer_path)
+        return need_restart
 
 def check_mavlink_binary():
     if pathlib.Path(MAVPATH).exists():
@@ -137,9 +147,10 @@ def mavlink_binary():
 
 def main():
     if platform.system() == "Windows":
-        msvc()
-        mavlink_binary()
-        print("All done!")
+        need_restart = msvc()
+        if not need_restart:
+            mavlink_binary()
+            print("All done!")
     else:
         print("Not on Windows, this step is not necessary!")
 

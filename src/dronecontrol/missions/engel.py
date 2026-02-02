@@ -3,6 +3,7 @@ Capture images and combine with weather and position info from drone, storing th
 Functions to retake the same position as in a previous image and take another image.
 """
 import asyncio
+import math
 import pathlib
 from collections.abc import Callable
 
@@ -112,6 +113,7 @@ class ENGELDataMission(Mission):
             "capture": self.do_capture,
             "save": self.save_captures_to_file,
             "load": self.load_captures_from_file,
+            "copy": self.copy,
             "merge": self.merge,
             "configure": self.configure_cam,
             "replay": self.replay_captures,
@@ -289,10 +291,11 @@ class ENGELDataMission(Mission):
         """ Function to take the position from previous captures saved to file and capture them all again."""
         # For each loaded capture: Set camera parameters, fly to position, optionally refine position, take new capture
         # Currently just prints loaded info for debug purposes
+        drone = self.dm.drones[self.drone_name]
         for capture in self.loaded_captures:
             try:
                 reference_image = capture.images[0]
-                # Use "visible" as reference image for now. TODO: Figure out if this is best, might have to do screenshots instead if comparison happens against live feed
+                # Use "visible" as reference image for now. TODO: Figure out if this is best, might have to do screenshots if comparison happens against live feed
                 for image in capture.images:
                     if "visible" in image.file_location:
                         reference_image = image
@@ -304,27 +307,48 @@ class ENGELDataMission(Mission):
                 # Have to reset gimbal position to drone-relative 0 to prevent running into gimbal limit
                 await self.gimbal.set_gimbal_mode("follow")
                 await self.gimbal.set_gimbal_angles(0.0, 0.0)
-                # TODO: Have to correct gimbal attitude not just for drone pitch but also roll, depending on relative angle between gimbal yaw and drone yaw
-                if self.dm.drones[self.drone_name].is_armed and self.dm.drones[self.drone_name].in_air:
+                if drone.is_armed and drone.in_air:
                     # Fly to position
+                    # We only try to fly if we are armed an in the air. This is convenient for ground testing.
                     await self.dm.fly_to(self.drone_name, gps=reference_image.gps, yaw=reference_image.drone_att[2])
+
+                # Wait until camera parameters are set
+                await cam_set_task
                 # Point gimbal
-                target_g_pitch = reference_image.gimbal_att[1] + reference_image.drone_att[1] - self.dm.drones[self.drone_name].attitude[1]
-                target_g_yaw = reference_image.gimbal_yaw_absolute
+                # We want to point the gimbal in an absolute direction, so we have to account for drone attitude
+                reference_dronepitch_corrected = _roll_pitch_compensation(reference_image.gimbal_att[2],
+                                                                          reference_image.drone_att[0],
+                                                                          reference_image.drone_att[1])
+                target_total_pitch = reference_image.gimbal_att[1] + reference_dronepitch_corrected
+
+                current_dronepitch_corrected = _roll_pitch_compensation(self.gimbal.pitch,
+                                                                        drone.attitude[0],
+                                                                        drone.attitude[1])
+
+                target_gimbal_pitch = target_total_pitch - current_dronepitch_corrected
+                target_gimbal_yaw = reference_image.gimbal_yaw_absolute
+                # Initial coarse adjustment with time for gimbal to move
                 await self.gimbal.set_gimbal_mode("lock")
-                await self.gimbal.set_gimbal_angles(target_g_pitch, target_g_yaw)
-                while abs(self.gimbal.pitch - target_g_pitch) < 0.25 and abs(self.gimbal.yaw_absolute - target_g_yaw) < 0.25:
-                    await asyncio.sleep(0.1)
-                    target_g_pitch = reference_image.gimbal_att[1] + reference_image.drone_att[1] - self.dm.drones[self.drone_name].attitude[1]  # Recompute pitch target for possible drone change in pitch
-                    # This doesn't reliably work for some reason. TODO: Figure out why
+                await self.gimbal.set_gimbal_angles(target_gimbal_pitch, target_gimbal_yaw)
+                await asyncio.sleep(3)
+                # Fine gimbal adjustment
+                while (abs(self.gimbal.pitch - target_gimbal_pitch) > 0.25
+                       or abs(self.gimbal.yaw_absolute - target_gimbal_yaw) > 0.25):
+                    current_dronepitch_corrected = _roll_pitch_compensation(self.gimbal.pitch,
+                                                                            drone.attitude[0],
+                                                                            drone.attitude[1])
+                    target_gimbal_pitch = target_total_pitch - current_dronepitch_corrected  # Recompute pitch target for possible drone change in pitch
+                    await self.gimbal.set_gimbal_angles(target_gimbal_pitch, target_gimbal_yaw)
+                    await asyncio.sleep(0.2)
                 # Refine position and gimbal attitude based on previous image
                 # TODO: Integrate from other repo, more eval on simulation first
-                # New capture
-                await cam_set_task
-                # Wait at least 3 seconds to make sure that gimbal is in position
-                await asyncio.sleep(3)
+
                 await self.do_capture(capture)
                 # TODO: Check for replays that didn't work
+
+                # Reset gimbal
+                await self.gimbal.set_gimbal_mode("follow")
+                await self.gimbal.set_gimbal_angles(0.0, 0.0)
             except Exception as e:
                 self.logger.warning(f"Exception with replay for capture {capture.capture_id}")
                 self.logger.debug(repr(e), exc_info=True)
@@ -341,7 +365,7 @@ class ENGELDataMission(Mission):
         """
         for capture in self.loaded_captures:
             # Create directory in capture folder
-            img_dir = os.path.join(CAPTURE_DIR, str(capture.capture_id))
+            img_dir = os.path.join(CAPTURE_DIR, "images", str(capture.capture_id))
             os.makedirs(img_dir, exist_ok=True)
             for image in capture.images:
                 cam_path = image.file_location
@@ -354,10 +378,35 @@ class ENGELDataMission(Mission):
                         local_img_path = pathlib.Path(img_dir).joinpath(image_file_name)
                         shutil.move(mounted_path, local_img_path)
                         # Change directory in capture
-                        image.file_location = str(local_img_path)
+                        image.file_location = local_img_path.as_posix()
                     else:
                         self.logger.warning(f"File {mounted_path} on camera doesn't exist!")
-        self._save_captures_to_file(self.loaded_captures, filename=self.loaded_file)
+        self._save_captures_to_file(self.loaded_captures, filename=self.loaded_file, make_relative=True)
+
+    def _move(self, captures: list[ENGELCaptureInfo], json_dir: pathlib.Path, target_dir: pathlib.Path):
+        for capture in captures:
+            self.logger.info(f"Processing capture {capture.capture_id}")
+            img_dir = target_dir.joinpath("images").joinpath(str(capture.capture_id))
+            img_dir.mkdir(exist_ok=True, parents=True)
+            for i, image in enumerate(capture.images):
+                old_img_file = pathlib.Path(image.file_location)
+                if not old_img_file.is_absolute():
+                    old_img_file = json_dir.joinpath(image.file_location)
+                self.logger.debug(f"Moving image {capture.capture_id, i}")
+                image.file_location = img_dir.joinpath(old_img_file.name).as_posix()
+                shutil.copy2(old_img_file, img_dir)
+
+    async def copy(self, capture_file: str, target_dir: str):
+        target_dir = pathlib.Path(target_dir)
+        target_dir.mkdir(exist_ok=True, parents=True)
+        file_path = self._normal_dir_or_other_path(capture_file)
+        file_name = file_path.name
+        captures_to_move = self._load_captures_from_file(file_path)
+        out_file = target_dir.joinpath(file_name)
+        self.logger.info(f"Copying files from {file_path.resolve()} to {out_file.resolve()}")
+        await asyncio.get_running_loop().run_in_executor(None, self._move, captures_to_move, file_path.parent, target_dir)
+        self._save_captures_to_file(captures_to_move, filename=out_file, make_relative=True)
+        self.logger.info("Done!")
 
     async def merge(self, other_files: list[str], output_file: str):
         captures = []
@@ -369,7 +418,8 @@ class ENGELDataMission(Mission):
 
     # TODO: Move/copy image functions
 
-    def _save_captures_to_file(self, captures, filename: str | pathlib.Path = None, merge_existing = False):
+    def _save_captures_to_file(self, captures, filename: str | pathlib.Path = None, merge_existing = False,
+                               make_relative = False):
         """ Save all capture information to a file, images will have to be downloaded separately anyway. """
         if filename is None:
             timestamp = datetime.datetime.now(datetime.UTC)
@@ -379,6 +429,11 @@ class ENGELDataMission(Mission):
         if merge_existing and file_path.exists():
             old_captures = self._load_captures_from_file(file_path)
             captures.extend(old_captures)
+
+        if make_relative:
+            for capture in captures:
+                for image in capture.images:
+                    image.file_location = "./" + pathlib.Path(image.file_location).relative_to(file_path.parent).as_posix()
         self.logger.info(f"Saving info to file {file_path}")
         with open(file_path, "wt") as f:
             output = [capture.to_json_dict() for capture in captures]
@@ -393,7 +448,7 @@ class ENGELDataMission(Mission):
             captures = [ENGELCaptureInfo.from_json_dict(capture_dict) for capture_dict in json_list]
         return captures
 
-    def _normal_dir_or_other_path(self, filestr):
+    def _normal_dir_or_other_path(self, filestr) -> pathlib.Path:
         if str(pathlib.Path(filestr).parent) == ".":
             file_path = pathlib.Path(CAPTURE_DIR).joinpath(filestr)
         else:
@@ -456,7 +511,10 @@ class ENGELDataMission(Mission):
                     rtl_pos[2] += self.rtl_height
                     self.launch_point = Waypoint(WayPointType.POS_GLOBAL, gps=rtl_pos, yaw=cur_yaw)
                     await self.gimbal.take_control()
-                    await self.gimbal.set_gimbal_mode("lock")
+                    # Set the gimbal mode to follow and have it point straight forward to prevent drone motion from
+                    # moving the gimbal into yaw limits.
+                    await self.gimbal.set_gimbal_mode("follow")
+                    await self.gimbal.set_gimbal_angles(0.0, 0.0)
                     self._gimbal_frequency = self.dm.drones[self.drone_name].position_update_rate
                     self._register_controller_inputs()
                     self.dm.controllers.set_drone(self.drone_name)
@@ -537,3 +595,6 @@ class ENGELDataMission(Mission):
                 self.logger.warning("Exception setting gimbal rates from controller!")
                 self.logger.debug(repr(e), exc_info = True)
             await asyncio.sleep(1/self._gimbal_frequency)
+
+def _roll_pitch_compensation(gimbal_yaw, drone_roll, drone_pitch):
+    return math.sin(gimbal_yaw)*drone_roll + math.cos(gimbal_yaw) * drone_pitch
