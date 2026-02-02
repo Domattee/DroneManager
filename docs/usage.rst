@@ -10,6 +10,9 @@ Usage
 Quick Start
 -----------
 
+.. note::
+  This guide assumes that you also installed the PX4 SITL environment so we can use simulated drones.
+
 A command ``dm`` is set up as part of the installation. Typing this command into a terminal will start a new
 DroneManager instance and terminal interface.
 
@@ -24,9 +27,6 @@ The interface is split into three components:
 In one terminal, activate the venv and start up DroneManager by typing ``dm``.
 In a separate terminal, start up a PX4 SITL drone by moving to the PX4 SITL root directory and typing
 ``make px4-sitl gz_x500``.
-
-.. note::
-  This guide assumes that you also installed the PX4 SITL environment so we can use simulated drones.
 
 To connect to the simulated drone with DroneManager, click on the command line at the bottom and type::
 
@@ -84,6 +84,12 @@ After landing, the drone should auto-disarm. If not, you can type ``disarm tom``
 Flying a drone with these commands by hand can be quite tedious, as you have to eye-ball distances and facings. We
 also support game pads. The ``controllers`` plugin is loaded by default. If you connect a DualShock 4 you can use it to
 fly the drone with no further text commands.
+
+.. note::
+  If you have been using WSL so far, the controller will not work out of the box. You will have to either configure WSL
+  to use USB devices, or run DM in Windows with Gazebo on WSL. We use the second method. This requires adjusting the
+  firewall to allow traffic from WSL to Windows, and you will have to adjust the IP and port in the connect command.
+  The new port is 18570, the IP can be found with ``ip addr``.
 
 Controls:
 

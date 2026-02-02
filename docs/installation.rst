@@ -32,7 +32,7 @@ following the `instructions here`_.
 .. _instructions here: https://docs.px4.io/main/en/dev_setup/dev_env_linux_ubuntu#simulation-and-nuttx-pixhawk-targets
 
 For a WSL install, we recommend NAT-style networking, with the Windows firewall configured to allow traffic from WSL.
-To connect to a running instance then works the same as for any other drone.
+Connecting to a running instance then works the same as for any other drone.
 
 PX4 SITL also supports multi drones in one environment, please refer to `their documentation`_ for details.
 
