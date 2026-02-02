@@ -143,6 +143,26 @@ class UDPPlugin(Plugin):
         drone_data = {}
         for drone_name in self.dm.drones:
             drone = self.dm.drones[drone_name]
+            # Target Logic 
+            target_list = []
+            current_target = drone.path_generator.target_position
+            if current_target is not None:
+                current_target = current_target.pos.tolist()
+            target_list.append(current_target) 
+      
+            # fence logic
+            fence_list = []
+            fence_margin = .5
+            if getattr(drone, 'fence', None): # Check if fence exists and is not None
+                 fence_list = [
+                    drone.fence.north_lower + fence_margin,
+                    drone.fence.north_upper - fence_margin,
+                    drone.fence.east_lower + fence_margin,
+                    drone.fence.east_upper - fence_margin,
+                    drone.fence.down_lower + fence_margin,
+                    drone.fence.down_upper - fence_margin,
+                    drone.fence.safety_level
+                 ]
             drone_data[drone_name] = {
                 "position": drone.position_ned.tolist(),
                 "gps": drone.position_global.tolist(),
@@ -152,7 +172,9 @@ class UDPPlugin(Plugin):
                 "conn": drone.is_connected,
                 "armed": drone.is_armed,
                 "in_air": drone.in_air,
-                "rtsp": drone.config.rtsp
+                "rtsp": drone.config.rtsp,
+                "fence": fence_list,
+                "target": target_list,
             }
         data = {"drones": drone_data}
         if hasattr(self.dm, "mission"):  # Check that the mission plugin is actually loaded

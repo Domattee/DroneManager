@@ -3,7 +3,6 @@
 """
 import asyncio
 import math
-import numpy as np
 from collections.abc import Callable
 
 import pygame
@@ -69,7 +68,7 @@ class InputMapping:
 
 class PS4Mapping(InputMapping):
 
-    thrust_axis = -1        # Left stick down
+    thrust_axis = 1         # Left stick down
     yaw_axis = 0            # Left stick right
     forward_axis = -3       # Right stick down
     right_axis = 2          # Right stick right
@@ -334,16 +333,6 @@ class ControllerPlugin(Plugin):
             self._drone_name = None
             self._in_control = False
 
-    def _clamp_axis(self, lower_limit, upper_limit, raw_input, drone_position, dt):
-        # TODO: Account for actual drone velocity?
-        if raw_input > 0 and drone_position + raw_input * dt >= upper_limit:
-            clamped_input = max(0.0, (upper_limit - drone_position) / dt)
-        elif raw_input < 0 and drone_position + raw_input * dt <= lower_limit:
-            clamped_input = min(0.0, (lower_limit - drone_position) / dt)
-        else:
-            clamped_input = raw_input
-        return clamped_input
-
     async def _control_loop(self):
         """ Take controller inputs to handle motion by setting velocity setpoints.
 
@@ -360,6 +349,7 @@ class ControllerPlugin(Plugin):
                     add_wait_task = coroutine_awaiter(add_task, self.logger)
                     self._running_tasks.add(add_task)
                     self._running_tasks.add(add_wait_task)
+                    continue
 
                 # If auto_set is True and there is exactly one controller available, use it automatically
                 if self.auto_set and self.controller is None and not self._disconnected and pygame.joystick.get_count() == 1:
@@ -367,142 +357,49 @@ class ControllerPlugin(Plugin):
                     set_wait_task = coroutine_awaiter(set_task, self.logger)
                     self._running_tasks.add(set_task)
                     self._running_tasks.add(set_wait_task)
+                    continue
 
                 # Process inputs
                 if self._in_control and self._drone_name is not None:
+                    drone = self.dm.drones[self._drone_name]
                     # drone_config = self._drone_config
-                    SAFETY_LEVEL = 0
                     vertical_input = self.stick_response(self._mapping.thrust_axis)
                     yaw_input = self.stick_response(self._mapping.yaw_axis)
                     right_input = self.stick_response(self._mapping.right_axis)
                     forward_input = self.stick_response(self._mapping.forward_axis)
 
-                    # TODO: If we are landed and disarmed, left stick down and to the right will arm
+                    # TODO: If we are landed and disarmed, left stick down and to the right should arm
                     # Should have to hold for 1 second, prevent any inputs until ... stick is centered / allow only vertical until we are in air?
                     #hold_counter_limit = self._mapping.arm_hold_duration * self._control_frequency
 
-                    # TODO: If we are landed and armed, left stick down and to the left will disarm
+                    # TODO: If we are landed and armed, left stick down and to the left should disarm
                     # Should have to hold for 1 second, block any inputs except stick down or up while landed and armed?
 
                     # If we have non-zero inputs, and we aren't in the appropriate mode, put us into appropriate mode
                     if abs(vertical_input) > 0.01 or abs(yaw_input) > 0.01 or abs(right_input) > 0.01 or abs(forward_input) > 0.01:
-                        if self.dm.drones[self._drone_name].flightmode != FlightMode.POSCTL:
-                            await self.dm.drones[self._drone_name].manual_control_position()
+                        if drone.flightmode != FlightMode.POSCTL:
+                            await drone.manual_control_position()
 
-                    # --- FENCE LOGIC START ---
-                    # TODO: Should probably move this into fence, in a function that checks if motion would carry drone out of fence?
-                    # Basically: Instead of just checking waypoints, also add a function that would predict if the drone would be carried out of the fence by a given speed.
-                    # This moves the responsibility for this to the fence class, which is more future proof if we add irregular fences.
-                    drone = self.dm.drones[self._drone_name]
-                    if drone.fence is not None and drone.is_connected:
-                        try:
-                    # --- Initialization ---
-                            fence = drone.fence
-                            SAFETY_LEVEL = fence.safety_level
-                            
-                            # Common parameters for all axes
-                            margin = 1.0  # Safety margin in meters
-                            dt = 1.0 / self._control_frequency # Time step for prediction
-                            
-                            # Store raw inputs
-                            V_Body_X = forward_input
-                            V_Body_Y = right_input
-                            V_Body_Z = vertical_input # Raw vertical input [-1.0, 1.0]
+                    # If we are connected and armed, send stick inputs to drone
+                    if drone.is_connected and drone.is_armed:
+                        if drone.fence is not None:
+                            try:
+                                forward_input, right_input, vertical_input, yaw_input = \
+                                    drone.fence.controller_safety(drone, forward_input, right_input, vertical_input,
+                                                                  yaw_input)
+                            except AttributeError as e:
+                                self.logger.warning("Fence constraints could not be applied due to missing fence attributes.")
+                                self.logger.debug(repr(e), exc_info=True)
+                            except Exception as e:
+                                self.logger.error(f"Error applying controller fence logic")
+                                self.logger.debug(repr(e), exc_info=True)
 
-                            # --- Horizontal Clamping (N-E Axes via Vector Rotation) ---
-                            
-                            yaw_deg = drone.attitude[2]
-                            yaw_rad = math.radians(yaw_deg)
-                            pos_ned = drone.position_ned[:2] # [N, E]
-                            
-                            V_Body_desired_H = np.array([V_Body_X, V_Body_Y])
-                            
-                            # 1. Body Frame Velocity to NED Frame Velocity
-                            R_body_to_ned = np.array([
-                                [math.cos(yaw_rad), -math.sin(yaw_rad)],
-                                [math.sin(yaw_rad), math.cos(yaw_rad)]
-                            ])
-                            V_NED_desired_H = R_body_to_ned @ V_Body_desired_H
-                            V_NED_clamped_H = np.copy(V_NED_desired_H)
-                            
-                            # 2. Check and Clamp N-E Axes
-                            
-                            N_pos = pos_ned[0]
-                            V_N = V_NED_desired_H[0]
-                            N_lower = drone.fence.north_lower + margin
-                            N_upper = drone.fence.north_upper - margin
-
-                            E_pos = pos_ned[1]
-                            V_E = V_NED_desired_H[1]
-                            E_lower = drone.fence.east_lower + margin
-                            E_upper = drone.fence.east_upper - margin
-
-                            V_NED_clamped_H[0] = self._clamp_axis(N_lower, N_upper, V_N, N_pos, dt)
-                            V_NED_clamped_H[1] = self._clamp_axis(E_lower, E_upper, V_E, E_pos, dt)
-
-                            # 3. Clamped NED Velocity back to Body Frame Joystick Inputs
-                            R_ned_to_body = R_body_to_ned.T
-                            V_Body_clamped_H = R_ned_to_body @ V_NED_clamped_H
-                            
-                            forward_input = V_Body_clamped_H[0]
-                            right_input = V_Body_clamped_H[1]
-                            
-                            # --- Vertical Clamping (1D NED Check, Consistent Logic) ---
-                            
-                            D_pos = drone.position_ned[2]
-                            V_D = V_Body_Z # Raw input [-1.0, 1.0] used as desired D velocity (negative = ascend)
-                            
-                            # D_lower is the ceiling (min D value), D_upper is the floor (max D value)
-                            D_lower = drone.fence.down_lower + margin 
-                            D_upper = drone.fence.down_upper - margin 
-
-                            V_D_clamped = V_D
-
-                            # Check Ceiling limit (Ascend, V_D < 0)
-                            #self.logger.info(f"V_D: {V_D}")
-                            #self.logger.info(f"D_pos: {D_pos}")
-                            #self.logger.info(f"dt: {dt}")
-                            #self.logger.info(f"D_lower: {D_lower}")
-                            if V_D > 0 and D_pos + V_D * dt <= D_lower:
-                                # Clamp V_D to the speed that just reaches the ceiling limit
-                                V_D_clamped = min(0.0, (D_lower - D_pos) / dt)
-                                #if V_D_clamped == 0.0:
-                                #    self.logger.warning("Fence: Upward motion clamped (Ceiling limit).")
-
-                            # Check Floor limit (Descend, V_D > 0)
-                            elif V_D < 0 and D_pos + V_D * dt >= D_upper:
-                                # Clamp V_D to the speed that just reaches the floor limit
-                                V_D_clamped = max(0.0, (D_upper - D_pos) / dt)
-                                #if V_D_clamped == 0.0:
-                                #    self.logger.warning("Fence: Downward motion clamped (Floor limit).")
-
-                            # Update the final vertical input signal
-                            vertical_input = V_D_clamped
-
-                        except AttributeError:
-                            # Catches errors if the fence object is missing expected attributes
-                            self.logger.warning("Fence constraints could not be applied due to missing fence attributes.")
-                        except Exception as e:
-                            self.logger.error(f"Error applying vertical fence logic: {repr(e)}")
-                    # --- FENCE LOGIC END ---
-
-                    if SAFETY_LEVEL == 4:
-                        forward_input *= 0.5
-                        right_input *= 0.5
-                        vertical_input = (vertical_input*0.5 + 1) / 2
-                        yaw_input *= 0.5
-                    elif SAFETY_LEVEL == 5:
-                        forward_input *= 0.3
-                        right_input *= 0.3
-                        yaw_input *= 0.3
-                        vertical_input = (vertical_input*0.4 + 1) / 2
-                    else:
-                        vertical_input = (vertical_input + 1) / 2  # Scale from -1/1 to 0/1
-
-
-                    # TODO: Vertical input treatment is inconsistent. Should be postive for down, but instead is positive for up.
-                    # Should invert this here and then unify the code above.
-                    await self.dm.drones[self._drone_name].set_manual_control_input(forward_input, right_input, vertical_input, yaw_input)
+                        # Scale from -1/1 to 0/1, also flip because MAVLink manual control has up as positive
+                        vertical_input = (-vertical_input + 1) / 2
+                        await self.dm.drones[self._drone_name].set_manual_control_input(forward_input,
+                                                                                        right_input,
+                                                                                        vertical_input,
+                                                                                        yaw_input)
 
                     # Also perform whatever other functions are bound to any other axis
                     for func, axes in self._mapping.extra_axis_inputs.items():

@@ -1,6 +1,6 @@
 import asyncio
 import numpy as np
-from abc import ABC, abstractmethod, abstractproperty
+from abc import ABC, abstractmethod
 from enum import Enum, auto
 
 from dronecontrol.utils import dist_ned, relative_gps, heading_ned, heading_gps, offset_from_gps
@@ -112,7 +112,8 @@ class Fence(ABC):
     """ Abstract base class for geo-fence type classes and methods.
 
     """
-    def __init__(self, *args, **kwargs):
+    def __init__(self, logger, *args, **kwargs):
+        self.logger = logger
         self.active = True
 
     @abstractmethod
@@ -121,6 +122,26 @@ class Fence(ABC):
 
         "Fits within" is taken broadly here, a fence can be inclusive, exclusive, around a dynamic obstacle, or
          anything else. As long as True is returned when the waypoint is "good" and False otherwise, it works."""
+        pass
+
+    @abstractmethod
+    def controller_safety(self, drone, forward, right, down, yaw, *args, **kwargs):
+        """ This function should adjust the controller inputs to prevent the drone from exceeding the fence.
+
+        Inputs are in the body frame of the drone. This function must be fast, expect it to be called at up to 100 Hz.
+
+        Args:
+            drone:
+            forward:
+            right:
+            down:
+            yaw:
+            *args:
+            **kwargs:
+
+        Returns:
+            The adjusted inputs as a tuple (forward, right, down, yaw)
+        """
         pass
 
     @property

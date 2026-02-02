@@ -238,7 +238,7 @@ class CommandScreen(Screen):
         fence_parser.add_argument("eu", type=float, help="Upper area limit along 'East' axis")
         fence_parser.add_argument("dl", type=float, help="Lower area limit along 'Down' axis")
         fence_parser.add_argument("du", type=float, help="Upper area limit along 'Down' axis")
-        fence_parser.add_argument("--safety", type=int, help="Sets the safety level for the fence", required=False, default=0)
+        fence_parser.add_argument("--safety", type=int, help="Sets the safety level for the fence", required=False, default=3)
 
         fly_to_parser = command_parsers.add_parser("flyto", help="Send the drone to a local coordinate.", logger = self.logger)
         fly_to_parser.add_argument("drone", type=str, help="Name of the drone")

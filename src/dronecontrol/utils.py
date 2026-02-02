@@ -226,3 +226,6 @@ async def coroutine_awaiter(task: asyncio.Future, logger):
     except Exception as e:
         logger.error(f"Encountered an exception in a coroutine! See the log for more details")
         logger.debug(e, exc_info=True)
+
+# The first inverse_haversine call is slow, so do it here
+relative_gps(1, 1, 1, 1, 1, 1)
