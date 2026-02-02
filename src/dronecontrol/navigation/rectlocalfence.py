@@ -12,8 +12,8 @@ class RectLocalFence(Fence):
     Lower limits but be smaller than upper limits.
     Safety level is used only by the controller functionality.
     """
-    def __init__(self, north_lower, north_upper, east_lower, east_upper, down_lower, down_upper, safety_level = 0):
-        super().__init__()
+    def __init__(self, logger, north_lower, north_upper, east_lower, east_upper, down_lower, down_upper, safety_level = 0):
+        super().__init__(logger)
         assert north_lower < north_upper and east_lower < east_upper and down_lower < down_upper, \
             "Lower fence limits must be less than the upper ones!"
         assert 0 <= safety_level <= 5 , "Safety Level must be between 0 and 5 and int"
@@ -36,110 +36,89 @@ class RectLocalFence(Fence):
 
     def controller_safety(self, drone, forward_input, right_input, vertical_input, yaw_input, *args, **kwargs):
         # Common parameters for all axes
-        margin = 1.0  # Safety margin in meters
-        dt = 1.0 / drone.position_update_rate  # Time step for prediction
 
-        # --- STEP 0: Scale Inputs to Physical Velocities (m/s) ---
-        # We use the config limits to map the [-1, 1] stick inputs to real world speeds.
+        max_speed_h = drone.drone_params.max_h_vel
+        max_speed_down = drone.config.max_down_vel
+        max_speed_up = drone.config.max_up_vel
 
-        # Horizontal (Symmetric)
-        max_h_vel = drone.drone_params.max_h_vel
-        if max_h_vel is None:
-            max_h_vel = drone.config.max_h_vel
-        V_Body_X = forward_input * max_h_vel
-        V_Body_Y = right_input * max_h_vel
+        speed_limit_horizontal = drone.config.max_h_vel
+        speed_limit_down = drone.config.max_down_vel
+        speed_limit_up = drone.config.max_up_vel
 
-        # Vertical (Asymmetric: Up vs Down limits)
-        # Note: In NED, Negative is Up.
-        if vertical_input < 0:  # Ascending
-            max_v_speed = drone.drone_params.max_up_vel
-            if max_v_speed is None:
-                max_v_speed = drone.config.max_up_vel
-        else:  # Descending
-            max_v_speed = drone.drone_params.max_down_vel
-            if max_v_speed is None:
-                max_v_speed = drone.config.max_down_vel
+        acceleration_horizontal = drone.config.max_h_acc / (self.safety_level + 1)
+        acceleration_vertical = drone.config.max_v_acc / (self.safety_level + 1)
 
-        V_Body_Z = vertical_input * max_v_speed
+        x, y, z = drone.position_ned #+ drone.velocity  # Add the speed to compensate for existing motion a little better
+        yaw = drone.attitude[2]
 
-        # --- Horizontal Clamping (N-E Axes via Vector Rotation) ---
+        # Vertical is easy: Just check distance and scale accordingly
 
-        yaw_deg = drone.attitude[2]
-        yaw_rad = math.radians(yaw_deg)
-        pos_ned = drone.position_ned[:2]  # [N, E]
+        def _limit_speed(distance, speed_limit, acceleration):
+            # If a distance is negative, we are on the wrong side of the fence
+            if distance < 0:
+                speed_limit = 0
+            else:
+                speed_limit = min(speed_limit, math.sqrt(2 * acceleration * (distance + 0.000001)))  # Avoid /0 error
 
-        V_Body_desired_H = np.array([V_Body_X, V_Body_Y])
+            return speed_limit
 
-        # 1. Body Frame Velocity to NED Frame Velocity
-        R_body_to_ned = np.array([
-            [math.cos(yaw_rad), -math.sin(yaw_rad)],
-            [math.sin(yaw_rad), math.cos(yaw_rad)]
-        ])
-        V_NED_desired_H = R_body_to_ned @ V_Body_desired_H
-        V_NED_clamped_H = np.copy(V_NED_desired_H)
+        speed_limit_down = _limit_speed(self.down_upper - z, speed_limit_down, acceleration_vertical)
+        speed_limit_up = _limit_speed(z- self.down_lower, speed_limit_up, acceleration_vertical)
 
-        # 2. Check and Clamp N-E Axes
+        def _adjust_input(c_input, speed, speed_limit_a, speed_limit_b, max_speed_a, max_speed_b):
+            if speed > 0 and speed > speed_limit_a:
+                c_input = c_input * speed_limit_a / max_speed_a
+            elif speed < 0 and speed < speed_limit_b:
+                c_input = c_input * speed_limit_b / max_speed_b
+            return c_input
 
-        N_pos = pos_ned[0]
-        V_N = V_NED_desired_H[0]
-        N_lower = drone.fence.north_lower + margin
-        N_upper = drone.fence.north_upper - margin
+        vertical_speed = vertical_input * max_speed_up if vertical_input < 0 else vertical_input * max_speed_down
+        vertical_input = _adjust_input(vertical_input, vertical_speed, speed_limit_down, speed_limit_up,
+                                       max_speed_down, max_speed_up)
 
-        E_pos = pos_ned[1]
-        V_E = V_NED_desired_H[1]
-        E_lower = drone.fence.east_lower + margin
-        E_upper = drone.fence.east_upper - margin
+        # for horizontal motion, determine the input heading in the fence coordinate system and then determine the
+        # distance to the fence following the line from the current position along the input heading, then scale both
+        # inputs accordingly
 
-        V_NED_clamped_H[0] = _clamp_axis(N_lower, N_upper, V_N, N_pos, dt)
-        V_NED_clamped_H[1] = _clamp_axis(E_lower, E_upper, V_E, E_pos, dt)
+        input_angle_to_drone = -math.atan2(-right_input, forward_input)
+        input_angle_to_fence = input_angle_to_drone + yaw * math.pi / 180
 
-        # 3. Clamped NED Velocity back to Body Frame Joystick Inputs
-        R_ned_to_body = R_body_to_ned.T
-        V_Body_clamped_H = R_ned_to_body @ V_NED_clamped_H
+        # Distance along line to each boundary
+        def _distance_to_edge(limit, pos, trig):
+            try:
+                distance_to_limit = (limit - pos) / trig
+            except ZeroDivisionError:
+                distance_to_limit = math.inf
+            if distance_to_limit < 0:
+                distance_to_limit = math.inf
+            return distance_to_limit
 
-        # --- STEP 4a: Normalize Horizontal Back to [-1, 1] ---
-        # We divide by the max speed to get back to the normalized joystick range
-        if max_h_vel > 0:
-            forward_input = V_Body_clamped_H[0] / max_h_vel
-            right_input = V_Body_clamped_H[1] / max_h_vel
-        else:
-            forward_input = 0.0
-            right_input = 0.0
+        distance_x_upper = _distance_to_edge(self.north_upper, x, math.cos(input_angle_to_fence))
+        distance_x_lower = _distance_to_edge(self.north_lower, x, math.cos(input_angle_to_fence))
+        distance_y_upper = _distance_to_edge(self.east_upper, y, math.sin(input_angle_to_fence))
+        distance_y_lower = _distance_to_edge(self.east_lower, y, math.sin(input_angle_to_fence))
 
-        # --- Vertical Clamping (1D NED Check, Consistent Logic) ---
+        self.logger.info(f"distances {distance_x_upper, distance_x_lower, distance_y_upper, distance_y_lower}")
 
-        D_pos = drone.position_ned[2]
-        V_D = V_Body_Z  # Raw input [-1.0, 1.0] used as desired D velocity (negative = ascend)
+        distance_horizontal = min(distance_x_upper, distance_x_lower, distance_y_lower, distance_y_upper)
 
-        # D_lower is the ceiling (min D value), D_upper is the floor (max D value)
-        D_lower = drone.fence.down_lower + margin
-        D_upper = drone.fence.down_upper - margin
+        # If both entries for an axis are positive, we are outside the boundary and trying to move in and should use
+        # the larger distance, but the minimum of the other axis as the speed limit
+        # If both entries are inf, then we are outside and trying to move further outside, and we should have speed limit 0
+        if not math.isinf(distance_x_lower) and not math.isinf(distance_x_upper):
+            distance_horizontal = min(max(distance_x_lower, distance_x_upper), distance_y_lower, distance_y_upper)
+        elif math.isinf(distance_x_lower) and math.isinf(distance_x_upper):
+            distance_horizontal = 0
+        if not math.isinf(distance_y_lower) and not math.isinf(distance_y_upper):
+            distance_horizontal = min(max(distance_y_lower, distance_y_upper), distance_x_lower, distance_x_upper)
+        elif math.isinf(distance_y_lower) and math.isinf(distance_y_upper):
+            distance_horizontal = 0
 
-        V_D_clamped = V_D
+        speed_limit_horizontal = _limit_speed(distance_horizontal, speed_limit_horizontal, acceleration_horizontal)
+        scaling_factor = speed_limit_horizontal / max_speed_h
 
-        # Check Ceiling limit (Descend, V_D < 0)
-        if V_D > 0 and D_pos + V_D * dt <= D_lower:
-            # Clamp V_D to the speed that just reaches the ceiling limit
-            V_D_clamped = min(0.0, (D_lower - D_pos) / dt)
-
-        # Check Floor limit (Ascend, V_D > 0)
-        elif V_D < 0 and D_pos + V_D * dt >= D_upper:
-            # Clamp V_D to the speed that just reaches the floor limit
-            V_D_clamped = max(0.0, (D_upper - D_pos) / dt)
-
-        vertical_input = V_D_clamped / max_v_speed
-        # --- FENCE LOGIC END ---
-
-        if self.safety_level == 4:
-            forward_input *= 0.5
-            right_input *= 0.5
-            vertical_input *= 0.5
-            yaw_input *= 0.5
-        elif self.safety_level == 5:
-            forward_input *= 0.3
-            right_input *= 0.3
-            yaw_input *= 0.3
-            vertical_input *= 0.4
+        forward_input *= scaling_factor
+        right_input *= scaling_factor
 
         return forward_input, right_input, vertical_input, yaw_input
 

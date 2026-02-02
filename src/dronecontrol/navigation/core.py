@@ -112,7 +112,8 @@ class Fence(ABC):
     """ Abstract base class for geo-fence type classes and methods.
 
     """
-    def __init__(self, *args, **kwargs):
+    def __init__(self, logger, *args, **kwargs):
+        self.logger = logger
         self.active = True
 
     @abstractmethod
@@ -124,7 +125,7 @@ class Fence(ABC):
         pass
 
     @abstractmethod
-    def controller_safety(self, drone, forward, right, vertical, yaw, *args, **kwargs):
+    def controller_safety(self, drone, forward, right, down, yaw, *args, **kwargs):
         """ This function should adjust the controller inputs to prevent the drone from exceeding the fence.
 
         Inputs are in the body frame of the drone. This function must be fast, expect it to be called at up to 100 Hz.
@@ -133,13 +134,13 @@ class Fence(ABC):
             drone:
             forward:
             right:
-            vertical:
+            down:
             yaw:
             *args:
             **kwargs:
 
         Returns:
-            The adjusted inputs as a tuple (forward, right, vertical, yaw)
+            The adjusted inputs as a tuple (forward, right, down, yaw)
         """
         pass
 

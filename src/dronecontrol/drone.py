@@ -139,9 +139,10 @@ class DroneParams:
 
     def __init__(self, raw = None):
         self.raw = raw
-        self.max_h_vel = None
-        self.max_up_vel = None
-        self.max_down_vel = None
+        self.max_h_vel = None  # m/s
+        self.max_up_vel = None  # m/s
+        self.max_down_vel = None  # m/s
+        self.max_yaw_rate = None  # degrees/s
 
 
 class Drone(ABC, threading.Thread):
@@ -416,7 +417,7 @@ class Drone(ABC, threading.Thread):
         pass
 
     def set_fence(self, fence_type: type["Fence"], *args, **kwargs):
-        self.fence = fence_type(*args, **kwargs)
+        self.fence = fence_type(self.logger, *args, **kwargs)
 
     def check_waypoint(self, waypoint: "Waypoint"):
         """ Check if a waypoint is valid and within any geofence (if such a fence is set)"""
@@ -720,10 +721,12 @@ class DroneMAVSDK(Drone):
             drone_params.max_h_vel = drone_params.raw['MPC_XY_VEL_MAX'][0]
             drone_params.max_up_vel = drone_params.raw['MPC_Z_VEL_MAX_UP'][0]
             drone_params.max_down_vel = drone_params.raw['MPC_Z_VEL_MAX_DN'][0]
+            drone_params.max_yaw_rate = drone_params.raw['MPC_MAN_Y_MAX'][0]
         elif self.autopilot == "Ardupilot":
             drone_params.max_h_vel = drone_params.raw['LOIT_SPEED'][0] * 10  # cm/s
             drone_params.max_up_vel = drone_params.raw['PILOT_SPEED_UP'][0] * 10
             drone_params.max_down_vel = drone_params.raw['PILOT_SPEED_DN'][0] * 10
+            drone_params.max_yaw_rate = drone_params.raw['PILOT_Y_RATE'][0]  # degrees per second
             if drone_params.max_down_vel == 0:
                 drone_params.max_down_vel = drone_params.max_up_vel
         else:
@@ -1204,25 +1207,20 @@ class DroneMAVSDK(Drone):
             await asyncio.sleep(1 / self.position_update_rate)
 
     async def move(self, offset, yaw: float | None = None, use_gps=True, tolerance=0.25):
+        self.logger.info("Starting move")
         north, east, down = offset
-        target_x = None
-        target_y = None
-        target_z = None
-        target_lat = None
-        target_long = None
-        target_amsl = None
+        target_yaw = self.attitude[2] + yaw
         if use_gps:
             cur_lat, cur_long, cur_alt = self.position_global
             target_lat, target_long, target_amsl = relative_gps(north, east, -down, cur_lat, cur_long, cur_alt)
+            waypoint = Waypoint(WayPointType.POS_GLOBAL, gps=[target_lat, target_long, target_amsl], yaw=target_yaw)
         else:
             cur_x, cur_y, cur_z = self.position_ned
             target_x = cur_x + north
             target_y = cur_y + east
             target_z = cur_z + down
-        target_yaw = self.attitude[2] + yaw
-        return await self.fly_to(local=np.asarray([target_x, target_y, target_z]),
-                                 gps=np.asarray([target_lat, target_long, target_amsl]),
-                                 yaw=target_yaw, put_into_offboard=True, tolerance=tolerance)
+            waypoint = Waypoint(WayPointType.POS_NED, pos=[target_x, target_y, target_z], yaw=target_yaw)
+        return await self.fly_to(waypoint=waypoint, put_into_offboard=True, tolerance=tolerance)
 
     async def go_to(self, local: np.ndarray | None = None, gps: np.ndarray | None = None, yaw: float | None = None,
                      waypoint: Waypoint | None = None, tolerance=0.25,):

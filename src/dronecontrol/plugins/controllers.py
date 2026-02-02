@@ -68,7 +68,7 @@ class InputMapping:
 
 class PS4Mapping(InputMapping):
 
-    thrust_axis = -1        # Left stick down
+    thrust_axis = 1         # Left stick down
     yaw_axis = 0            # Left stick right
     forward_axis = -3       # Right stick down
     right_axis = 2          # Right stick right
@@ -349,6 +349,7 @@ class ControllerPlugin(Plugin):
                     add_wait_task = coroutine_awaiter(add_task, self.logger)
                     self._running_tasks.add(add_task)
                     self._running_tasks.add(add_wait_task)
+                    continue
 
                 # If auto_set is True and there is exactly one controller available, use it automatically
                 if self.auto_set and self.controller is None and not self._disconnected and pygame.joystick.get_count() == 1:
@@ -356,6 +357,7 @@ class ControllerPlugin(Plugin):
                     set_wait_task = coroutine_awaiter(set_task, self.logger)
                     self._running_tasks.add(set_task)
                     self._running_tasks.add(set_wait_task)
+                    continue
 
                 # Process inputs
                 if self._in_control and self._drone_name is not None:
@@ -380,7 +382,6 @@ class ControllerPlugin(Plugin):
 
                     # If we are connected and armed, send stick inputs to drone
                     if drone.is_connected and drone.is_armed:
-                        self.logger.info(vertical_input)
                         if drone.fence is not None:
                             try:
                                 forward_input, right_input, vertical_input, yaw_input = \
@@ -393,8 +394,8 @@ class ControllerPlugin(Plugin):
                                 self.logger.error(f"Error applying controller fence logic")
                                 self.logger.debug(repr(e), exc_info=True)
 
-                        vertical_input = (vertical_input + 1) / 2  # Scale from -1/1 to 0/1
-                        self.logger.info(vertical_input)
+                        # Scale from -1/1 to 0/1, also flip because MAVLink manual control has up as positive
+                        vertical_input = (-vertical_input + 1) / 2
                         await self.dm.drones[self._drone_name].set_manual_control_input(forward_input,
                                                                                         right_input,
                                                                                         vertical_input,
