@@ -15,7 +15,7 @@ System Architecture
 ===================
 The Holodeck system is built on a **Decoupled Architecture**. This means the flight logic (the "Brain") runs in a Python environment, while the simulation and visualization (the "Body") run in Unity. They communicate via a low-latency UDP network protocol.
 
-.. image:: imgs/Holodeck-Systemdesign.png
+.. image:: imgs/Holodeck-Systemdesign.svg
    :alt: Holodeck System Overview Diagram
    :align: center
 
@@ -24,31 +24,44 @@ Data Flow & Lifecycle
 
 The integration follows a continuous loop to ensure the Digital Twin stays synchronized with the real-world drone state:
 
-1.  **Backend (Python/DroneManager):** Processes drone telemetry, mission stages, and safety fences. It packages this data into a JSON dictionary.
-2.  **Transport (UDP):** The backend streams this JSON via UDP to Unity. This is "fire-and-forget," ensuring the drone's flight is never delayed by rendering frames in Unity.
+1.  **Backend (Python/DroneManager):**
+
+    * The ``External Plugin`` allows to expose certain data for other applications by packaging drone telemetry, mission stages etc. into a JSON dictionary.
+    * The ``OptiTrack Plugin`` can grab the tracked position of drones of an OptiTrack System and update the drones telemetry accordingly.
+    * The ``Stream Plugin`` picks up the vitual camera stream from unity and renders it in an external window via open-cv.
+    * The ``Controller Plugin`` allows to control a real or simulated drone via a commercial PlayStation Controller.
+
+2.  **Transport (UDP):** 
+
+The backend streams this JSON via UDP to Unity. This is "fire-and-forget," ensuring the drone's flight is never delayed by rendering frames in Unity.
+On the otherhand Unity is able to transmit the stream of a virtual camera via TCP and JPEG images back to DroneManager for external display via Open-CV.
+
 3.  **Frontend (Unity/Holodeck):**
-    * The ``UDPReceiver`` catches the packet and parses it.
-    * The ``DroneManager`` (C#) checks if the drone exists in the scene. If not, it spawns a new one.
+
+    * The ``UDPReceiver`` catches the packet and parses it according to the DroneDataClasses struct.
+    * The ``DroneManager`` (Unity Side) checks if the drone exists in the scene. If not, it spawns a new one.
     * The ``DroneController`` updates the 3D model's position and orientation.
-    * The ``Visualizers`` update AR elements (Fences/Waypoints) based on the latest mission data.
-4.  **Feedback (Optional):** The ``CameraStreamer`` can send the virtual FPV view back to Python for Computer Vision analysis.
+    * The ``Displays`` update AR elements (Fences/Waypoints) based on the latest mission data.
+    * The ``CameraSpringArm`` attaches to the first drone and hosts the VR-Camera.
+4.  **Feedback (Optional):** 
+
+The ``CameraStreamer`` can send the virtual FPV view back to Python for Computer Vision analysis.
 
 Key Technologies
 ----------------
 
-* **Unity 3D:** Used for physics-based simulation and VR rendering.
+* **Unity 3D:** Used for simulation and VR rendering.
 * **JSON (Newtonsoft.Json):** The standard data format used to bridge the gap between Python and C#.
 * **Asynchronous Threading:** Used in Unity to handle network traffic without causing "lag" or frame drops in the VR headset.
 * **VR (XR Interaction Toolkit):** Provides the immersive interface for the pilot via the OVR Camera Rig.
 
-TODO: Image SystemOverview
 
 Scripts
 -------------------------
 
-DroneManager
+DroneManager (Unity Side)
 ^^^^^^^^^^^^^^^^^^^^^^^^^^
-The ``DroneManager`` is the central orchestrator within Unity. It acts as a bridge between the raw data received via UDP and the physical GameObjects in the scene.
+The ``DroneManager.cs`` is the central orchestrator within Unity. It acts as a bridge between the raw data received via UDP and the physical GameObjects in the scene.
 
 **Key Responsibilities:**
 

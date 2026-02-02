@@ -186,3 +186,9 @@ swap. The observing drone will stop circling and wait until the swapping drone h
 the observing drone will rtb on its own. This swapping happens indefinitely. To stop the mission, do `uam-rtb`.
 3. To fly drones from any position to their start position one-by-one you can use `uam-reset`. This should only be used 
 in Gazebo, the drones should already be at their start positions in a real demo.
+
+#### Holodeck
+
+Holodeck is an example for the integration of DroneManager with modern simulation environments like Unity. 
+It allows Users to control a real drone with a Playstation Controller via DroneManager while experiencing the virtual 
+flight in a Unity Environment with enhanced perception through VR-Glasses (e.g. Meta-Quest Pro). Read the [Tutorial](https://dronemanager.readthedocs.io/en/latest/holodeck.html) for more information
