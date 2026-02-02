@@ -7,7 +7,10 @@ Overview
 Holodeck is an example for the integration of DroneManager with modern simulation environments like Unity. 
 It allows Users to control a real drone with a Playstation Controller via DroneManager while experiencing the virtual 
 flight in a Unity Environment with enhanced perception through VR-Glasses (e.g. Meta-Quest Pro).
-This Docs Section explains how it works and how you can easily modify it or expand it for your UseCase.
+This Docs Section explains how it works and how you can easily modify it or expand it for your UseCase. You can download 
+this project on `Github`_.
+
+.. _Github: https://github.com/bakethi/Holodeck
 
 .. image:: imgs/Holodeck-SimSetup.png
    :alt: Holodeck with DroneManager and Gazebo for a full Simulation Setup in an Example Scene. The Unity Environment is running in the background and receives the drone data from DroneManager (bottom right) which is controlling a drone in Gazebo (left)
