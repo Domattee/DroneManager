@@ -130,36 +130,63 @@ Example mission
 This is a showcase demo where three drones look for a POI and start continuously observing it.
 To run it, you will need three drones, preferably running PX4, a dummy object of interest and a 7 x 3 x 3 meter area 
 where you can fly multiple drones with high precision.
-In the event we are flying with three drones, "luke", "derek" and "corran". No object recognition takes place, the 
-POI location is pre-determined.
-We ran this demo in an indoor environment with an OptiTrack system for positioning.
-The setup instructions below assume a similar setup.
+We ran this demo in an indoor environment with an OptiTrack system for positioning. Each drone was configured to
+communicate on a separate port, see :ref:`common issues <connection_issues>`. The setup instructions for real drones below assume a similar setup.
 
 If you don't have an indoor flying set up ready to go, we suggest going outside and using GPS instead. The setup will 
-have to be modified to allow for positiong errors from GPS by increasing the flight area significantly, at least triple. 
+have to be modified to allow for positioning errors from GPS by increasing the flight area significantly, at least triple.
 Relevant parameters are in the ``init`` function of the mission and include ``flight_area``, ``search_space``, 
-``start_position_x``, ``flight_altitude``, ``poi_position`` and ``holding_position``. You will also have to ensure the drones 
-share a common local coordinate system. You can do this by powering them on one by one in the center of the flight 
-area with the same heading and then moving them to their start positions.
+``start_position_x``, ``flight_altitude``, ``poi_position`` and ``holding_position``. You will also have to ensure the
+drones share a common local coordinate system. You can do this by powering them on one by one in the center of the
+flight area with the same heading and then moving them to their start positions.
 
-Setup
-^^^^^
+The mission can also be run with simulated drones, but you will again have to make sure that they share a coordinate
+system.
 
-1. Boot up dm and make sure you are in the correct Wi-Fi.
-2. Connect to all the drones: ``connect <name>`` with names "luke", "derek" or "corran"
-3. Load the mission scripts: ``mission-load uam``
-4. Add all the drones to the mission: ``uam-add <name>`` IMPORTANT! The order in which the drones are added matters. The 
-   first drone has start position (3, -1.25), the second one (3, 0) and the third (3, 1.25). If the drones are added in the 
-   wrong order, they might collide during flight as their paths can cross. With ``uam-status``, you can see the order of the 
-   drones. If drones were added in the wrong order, you can either rearrange them on the field, or remove 
-   ``uam-remove <name>`` and re-add them.
-5. Check that each drone reports the correct position. If they report 0,0, the tracking system isn't connected. 
-6. Do ``uam-set`` to change the mission state to "ready-to-go". With ``uam-unset`` you can go back to Uninitialized.
+Setup - Real drones
+^^^^^^^^^^^^^^^^^^^
+
+1. Boot up DroneManager.
+2. Place the drones at their start positions. Note that these positions are fixed in the script, and the order matters.
+   The first drone should be at (3, -1.25), the second at (3, 0) and the third at (3, 1.25).
+3. Connect to the three drones using ``connect <name> <connection-string>``. The connection string depends on how your
+   drones are configured.
+4. Load the mission scripts: ``mission-load uam``
+5. Add all the drones to the mission: ``uam-add <name>`` IMPORTANT! The order in which the drones are added matters. The
+   first drone has start position (3, -1.25), the second one (3, 0) and the third (3, 1.25). If the drones are added in
+   the wrong order, they might collide during flight as their paths can cross. With ``uam-status``, you can see the
+   order of the drones. Make sure each drone reports the correct position. If drones were added in the wrong order, you
+   can either rearrange them on the field, or remove them with ``uam-remove <name>`` and then add them again.
+6. Check that each drone reports the correct position in DroneManager, as noted above.
+7. Do ``uam-set`` to change the mission state to "ready-to-go". With ``uam-unset`` you can go back to Uninitialized.
+
+
+Setup - Gazebo
+^^^^^^^^^^^^^^
+
+The setup with simulated drones is a little convoluted, as all three drones need to share a local coordinate system and
+thus must be started at the same location.
+
+1. Boot up DroneManager
+2. Load the mission scripts: ``mission-load uam``
+3. Start a single gazebo drone using ``TODO`` and connect to it with DroneManager.
+4. Add the drone to the mission with ``uam-add <name>``.
+5. Move the drone to its start position with ``uam-reset``.
+6. Repeat steps 3 through 5 for two more drones, incrementing TODO each time. Don't disconnect or remove the drones that
+   are already set up. For each subsequent drone, all the drones will reshuffle to their new start positions in
+   sequence.
+7. Check that each drone reports the correct position in DroneManager. The first drone should be at (3, -1.25), the
+   second at (3, 0) and the third at (3, 1.25). Also check in Gazebo, that they are neatly lined up. If there is a
+   significant offset, the local coordinate systems likely diverged. Make sure each drone is initialized in gazebo at
+   the same position!
+8. Do ``uam-set`` to change the mission state to "ready-to-go". With ``uam-unset`` you can go back to Uninitialized.
+
 
 Mission
 ^^^^^^^
 
 With the drones connected and all the scripts loaded you can begin flying missions.
+
 1. For the single search pattern: Start the mission with ``uam-singlesearch``. The first drone will fly the rectangular 
    search pattern and start circling the object indefinitely once it finds it. To return it, do ``uam-rtb``.
 2. For the group search: Start the mission with ``uam-groupsearch``. All drones will launch and fly forwards to the other 
@@ -195,6 +222,8 @@ a drone on a desk, then carrying it to the take-off point, then setting up your 
 you tell the drone to return-to-base, it might very well try to land on your laptop.
 When working with real drones you should always test the actual behaviour in a safe environment before risking hardware
 (or lives!).
+
+.. _connection_issues:
 
 Connection Issues
 ^^^^^^^^^^^^^^^^^
