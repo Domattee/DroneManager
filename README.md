@@ -144,51 +144,14 @@ from DM to console.
 
 ### Holodeck
 
-TODO
+Holodeck is an example for the integration of DroneManager with modern simulation environments like Unity. 
+It allows Users to control a real drone with a Playstation Controller via DroneManager while experiencing the virtual 
+flight in a Unity Environment with enhanced perception through VR-Glasses (e.g. Meta-Quest Pro). Read the [Tutorial](https://dronemanager.readthedocs.io/en/latest/holodeck.html) for more information.
 
 ### UAM Demo
 
-This is a showcase demo where three drones look for a POI and start continuously observing it.
-To run it, you will need three drones, preferably running PX4, a dummy object of interest and a 7 x 3 x 3 meter area 
-where you can fly multiple drones with high precision.
-In the event we are flying with three drones, "luke", "derek" and "corran". No object recognition takes place, the 
-POI location is pre-determined.
-We ran this demo in an indoor environment with an OptiTrack system for positioning.
-The setup instructions below assume a similar setup.
-
-If you don't have an indoor flying set up ready to go, we suggest going outside and using GPS instead. The setup will 
-have to be modified to allow for positiong errors from GPS by increasing the flight area significantly, at least triple. 
-Relevant parameters are in the `init` function of the mission and include `flight_area`, `search_space`, 
-`start_position_x`, `flight_altitude`, `poi_position` and `holding_position`. You will also have to ensure the drones 
-share a common local coordinate system. You can do this by powering them on one by one in the center of the flight 
-area with the same heading and then moving them to their start positions.
-
-#### Setup
-1. Boot up dm and make sure you are in the correct Wi-Fi.
-2. Connect to all the drones: `connect <name>` with names "luke", "derek" or "corran"
-3. Load the mission scripts: `mission-load uam`
-4. Add all the drones to the mission: `uam-add <name>` IMPORTANT! The order in which the drones are added matters. The 
-first drone has start position (3, -1.25), the second one (3, 0) and the third (3, 1.25). If the drones are added in the 
-wrong order, they might collide during flight as their paths can cross. With `uam-status`, you can see the order of the 
-drones. If drones were added in the wrong order, you can either rearrange them on the field, or remove 
-`uam-remove <name>` and re-add them.
-5. Check that each drone reports the correct position. If they report 0,0, the tracking system isn't connected. 
-6. Do `uam-set` to change the mission state to "ready-to-go". With `uam-unset` you can go back to Uninitialized.
-
-#### Mission
-With the drones connected and all the scripts loaded you can begin flying missions.
-1. For the single search pattern: Start the mission with `uam-singlesearch`. The first drone will fly the rectangular 
-search pattern and start circling the object indefinitely once it finds it. To return it, do `uam-rtb`.
-2. For the group search: Start the mission with `uam-groupsearch`. All drones will launch and fly forwards to the other 
-end. The drone that finds the POI will stay with the POI, the other two come back, land and disarm. The observing 
-drone starts circling until its (faked) battery runs low, when one of the drones will arm, takeoff and fly to do the 
-swap. The observing drone will stop circling and wait until the swapping drone has eyes on the object, at which point 
-the observing drone will rtb on its own. This swapping happens indefinitely. To stop the mission, do `uam-rtb`.
-3. To fly drones from any position to their start position one-by-one you can use `uam-reset`. This should only be used 
-in Gazebo, the drones should already be at their start positions in a real demo.
-
-#### Holodeck
-
-Holodeck is an example for the integration of DroneManager with modern simulation environments like Unity. 
-It allows Users to control a real drone with a Playstation Controller via DroneManager while experiencing the virtual 
-flight in a Unity Environment with enhanced perception through VR-Glasses (e.g. Meta-Quest Pro). Read the [Tutorial](https://dronemanager.readthedocs.io/en/latest/holodeck.html) for more information
+This is a showcase in which multiple drones search for and continuously observe a point of interest, for example during a
+rescue mission.
+To hightlight the advantage of multiple autonomously coordinating drones, there is also a phase with only a single drone
+performing both the search and the observation phase.
+Setup instructions for both real and simulated drones are available [here](https://dronemanager.readthedocs.io/en/latest/usage.html#example-mission).
