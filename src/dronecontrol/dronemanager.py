@@ -136,12 +136,14 @@ class DroneManager:
 
     async def connect_to_drone(self,
                                name: str,
-                               mavsdk_server_address: str | None,
-                               mavsdk_server_port: int | None,
-                               drone_address: str,
-                               timeout: float,
+                               mavsdk_server_address: str | None = None,
+                               mavsdk_server_port: int | None = None,
+                               drone_address: str| None = None,
+                               timeout: float = 30,
                                telemetry_frequency: float | None = None,
                                log_messages = True):
+        if drone_address is None:
+            drone_address = self.drone_configs["default"].address
         try:
             scheme, parsed_addr, parsed_port = parse_address(string=drone_address)
         except Exception as e:

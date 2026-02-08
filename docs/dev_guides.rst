@@ -51,10 +51,6 @@ Creating your own mission
 
 TODO: Example process of making a mission, using existing as example
 
-Example missions
-----------------
-
-TODO: Explanation of UAM, holodeck functions
 
 Writing documentation
 ---------------------

@@ -31,8 +31,8 @@ following the `instructions here`_.
 
 .. _instructions here: https://docs.px4.io/main/en/dev_setup/dev_env_linux_ubuntu#simulation-and-nuttx-pixhawk-targets
 
-For a WSL install, we recommend NAT-style networking, with the Windows firewall configured to allow traffic from WSL.
-Connecting to a running instance then works the same as for any other drone.
+For a WSL install, we recommend mirrored networking, with the Windows firewall configured to allow traffic from WSL.
+Connecting between Gazebo and DroneManager then works as if both were running on the same OS.
 
 PX4 SITL also supports multi drones in one environment, please refer to `their documentation`_ for details.
 
