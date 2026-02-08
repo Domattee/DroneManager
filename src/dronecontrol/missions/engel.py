@@ -316,25 +316,28 @@ class ENGELDataMission(Mission):
                 await cam_set_task
                 # Point gimbal
                 # We want to point the gimbal in an absolute direction, so we have to account for drone attitude
-                reference_dronepitch_corrected = _roll_pitch_compensation(reference_image.gimbal_att[2],
+                reference_dronepitch_corrected = _roll_pitch_compensation(reference_image.gimbal_att[2]*math.pi/180,
                                                                           reference_image.drone_att[0],
                                                                           reference_image.drone_att[1])
                 target_total_pitch = reference_image.gimbal_att[1] + reference_dronepitch_corrected
 
-                current_dronepitch_corrected = _roll_pitch_compensation(self.gimbal.pitch,
+                # Initial coarse adjustment with time for gimbal to move
+                # Pitch contribution of drone at the same gimbal yaw as original picture
+                # The gimbal yaw might change a little over time, but good enough for first pass
+                current_dronepitch_corrected = _roll_pitch_compensation(reference_image.gimbal_att[2]*math.pi/180,
                                                                         drone.attitude[0],
                                                                         drone.attitude[1])
 
                 target_gimbal_pitch = target_total_pitch - current_dronepitch_corrected
                 target_gimbal_yaw = reference_image.gimbal_yaw_absolute
-                # Initial coarse adjustment with time for gimbal to move
+
                 await self.gimbal.set_gimbal_mode("lock")
                 await self.gimbal.set_gimbal_angles(target_gimbal_pitch, target_gimbal_yaw)
                 await asyncio.sleep(3)
                 # Fine gimbal adjustment
                 while (abs(self.gimbal.pitch - target_gimbal_pitch) > 0.25
                        or abs(self.gimbal.yaw_absolute - target_gimbal_yaw) > 0.25):
-                    current_dronepitch_corrected = _roll_pitch_compensation(self.gimbal.pitch,
+                    current_dronepitch_corrected = _roll_pitch_compensation(self.gimbal.yaw*math.pi/180,
                                                                             drone.attitude[0],
                                                                             drone.attitude[1])
                     target_gimbal_pitch = target_total_pitch - current_dronepitch_corrected  # Recompute pitch target for possible drone change in pitch
