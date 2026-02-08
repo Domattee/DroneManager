@@ -70,9 +70,10 @@ class InputWithHistory(Input):
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
         self.history = []
-        self.history_cursor = 0     # Shows where in the history we are
+        self.history_cursor = -1     # Shows where in the history we are
         self.rolling_zero = 0       # Current "0" index. If we had more entries, these get overwritten.
         self.history_max_length = 50
+        self._submitted_historical = False
 
     # Behaviour: Depends on if we are already using history.
     # A new submission is added to the history
@@ -86,14 +87,14 @@ class InputWithHistory(Input):
 
     @property
     def _current_history_cursor(self):
-        return (self.rolling_zero - self.history_cursor) % min(len(self.history), self.history_max_length)
+        return (self.rolling_zero - (self.history_cursor+1)) % min(len(self.history), self.history_max_length)
 
     def _increase_history_cursor(self):
-        if self.history_cursor < self.history_max_length and self.history_cursor < len(self.history):
+        if self.history_cursor < self.history_max_length - 1 and self.history_cursor < len(self.history)-1:
             self.history_cursor += 1
 
     def _decrease_history_cursor(self):
-        if self.history_cursor > 1:
+        if self.history_cursor >= 0:
             self.history_cursor -= 1
 
     def _increase_history_rolling_pos(self):
@@ -101,14 +102,21 @@ class InputWithHistory(Input):
 
     def action_history_prev(self) -> None:
         if self.history:
+            self._submitted_historical = False
             self._increase_history_cursor()
             self.value = self.history[self._current_history_cursor]
 
     def action_history_rec(self) -> None:
         if self.history:
-            self._decrease_history_cursor()
-            self.value = self.history[self._current_history_cursor]
-        if self.history_cursor == 1:
+            if not self._submitted_historical:
+                self._decrease_history_cursor()
+            else:
+                self._submitted_historical = False
+            if self.history_cursor == -1:
+                self.value = ""
+            else:
+                self.value = self.history[self._current_history_cursor]
+        else:
             self.value = ""
 
     def add_to_history(self, item) -> None:
@@ -118,13 +126,22 @@ class InputWithHistory(Input):
             self.history[self.rolling_zero] = item
             self._increase_history_rolling_pos()
         else:
-            self. history.append(item)
+            self.history.append(item)
 
     async def action_submit(self) -> None:
-        self.add_to_history(self.value)
-        # TODO: Fancy history maintaining, i.e. do not reset cursor if we enter a historic prompt without changing it.
-        self.history_cursor = 0
-        await super().action_submit()
+        submitted_value = self.value
+        await super().action_submit() # Submit the action
+        # If we are at some point in our input history and the submission is identical to that history, keep our
+        # position in the history. When pressing up we get the same command again, but pressing down gets us the next
+        # command in the sequence, rather than two without this special behaviour.
+        if self.history_cursor != -1 and submitted_value == self.history[self._current_history_cursor]:
+            self.add_to_history(submitted_value)  # Store the action in the history
+            self._submitted_historical = True
+        # Otherwise reset our position in the history
+        else:
+            self._submitted_historical = False
+            self.add_to_history(submitted_value)
+            self.history_cursor = -1
 
 
 class DroneOverview(Static):

@@ -205,6 +205,11 @@ class CommandScreen(Screen):
         disconnect_parser.add_argument("-f", "--force", action="store_true",
                                        help="If this flag is set, ignore any potential checks and force the disconnect.")
 
+        param_parser = command_parsers.add_parser("params", help="Prints parameters for a drone", logger=self.logger)
+        param_parser.add_argument("drone", type=str, help="Name of the drone")
+        param_parser.add_argument("--raw", action="store_true",
+                                  help="Print raw parameters instead. Very long!")
+
         arm_parser = command_parsers.add_parser("arm", help="Arm the named drone(s).", logger = self.logger)
         arm_parser.add_argument("drones", type=str, nargs="+", help="Drone(s) to arm")
         arm_parser.add_argument("-s", "--schedule", action="store_true",
@@ -436,6 +441,20 @@ class CommandScreen(Screen):
                                                                        args.server_port, address, args.timeout,
                                                                        telemetry_frequency=args.frequency,
                                                                        log_messages=log_messages))
+                elif command == "params":
+                    if args.drone not in self.dm.drones:
+                        self.logger.warning(f"No drone named {args.drone}")
+                        return
+                    params = self.dm.drones[args.drone].drone_params
+                    out_str = f"Parameters for drone {args.drone}:\n"
+                    if args.raw:
+                        out_str += "\n\t".join([f"{name}: {tup[0]}" for name, tup in params.raw.items()])
+                    else:
+                        out_str += (f"\tMaximum horizontal speed: {params.max_h_vel}\n"
+                                   f"\tMaximum upwards speed: {params.max_up_vel}\n"
+                                   f"\tMaximum down speed: {params.max_down_vel}\n"
+                                   f"\tMaximum yaw rate: {params.max_yaw_rate}")
+                    self.logger.info(out_str)
                 elif command == "disconnect":
                     tmp = asyncio.create_task(self.dm.disconnect(args.drones, force=args.force))
                 elif command == "arm":

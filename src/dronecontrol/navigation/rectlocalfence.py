@@ -98,8 +98,6 @@ class RectLocalFence(Fence):
         distance_y_upper = _distance_to_edge(self.east_upper, y, math.sin(input_angle_to_fence))
         distance_y_lower = _distance_to_edge(self.east_lower, y, math.sin(input_angle_to_fence))
 
-        self.logger.info(f"distances {distance_x_upper, distance_x_lower, distance_y_upper, distance_y_lower}")
-
         distance_horizontal = min(distance_x_upper, distance_x_lower, distance_y_lower, distance_y_upper)
 
         # If both entries for an axis are positive, we are outside the boundary and trying to move in and should use
