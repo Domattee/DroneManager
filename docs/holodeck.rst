@@ -16,6 +16,13 @@ this project on `Github`_.
    :alt: Holodeck with DroneManager and Gazebo for a full Simulation Setup in an Example Scene. The Unity Environment is running in the background and receives the drone data from DroneManager (bottom right) which is controlling a drone in Gazebo (left)
    :align: center
 
+
+.. contents:: Table of Contents
+   :depth: 2
+   :local:
+   :backlinks: none
+
+
 System Architecture
 ===================
 The Holodeck system is built on a **Decoupled Architecture**. This means the flight logic (the "Brain") runs in a Python environment, while the simulation and visualization (the "Body") run in Unity. They communicate via a low-latency UDP network protocol.
