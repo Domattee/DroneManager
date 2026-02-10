@@ -3,9 +3,13 @@ Capture images and combine with weather and position info from drone, storing th
 Functions to retake the same position as in a previous image and take another image.
 """
 import asyncio
+import logging
 import math
 import pathlib
 from collections.abc import Callable
+import socket
+import threading
+from queue import Queue
 
 import numpy as np
 import json
@@ -119,6 +123,8 @@ class ENGELDataMission(Mission):
             "replay": self.replay_captures,
             "transfer": self.transfer,
             "done": self.done,
+            "test-start": self.correction_test,
+            "test-stop": self.stop_test,
         }
         self.cli_commands.update(mission_cli_commands)
         self.weather_sensor = None
@@ -599,5 +605,240 @@ class ENGELDataMission(Mission):
                 self.logger.debug(repr(e), exc_info = True)
             await asyncio.sleep(1/self._gimbal_frequency)
 
+    async def correction_test(self):
+        self.correction_algo = MsgHandler()
+        self.correction_algo.message_callback = self.correction_callback
+
+    async def stop_test(self):
+        await self.correction_algo.close()
+
 def _roll_pitch_compensation(gimbal_yaw, drone_roll, drone_pitch):
     return math.sin(gimbal_yaw)*drone_roll + math.cos(gimbal_yaw) * drone_pitch
+
+
+class ReceiveMsg:
+    def __init__(self):
+        self.message_queue = Queue()
+        self.server_socket = None
+        self.client_socket = None
+        self.server_running = False
+        self.client_connected = False
+        self.lock = threading.Lock()
+        self.logger = logging.getLogger("Manager.CorrectionAlgorithm")
+
+    def start_server(self, port=5000, host='0.0.0.0'):
+        """Start a server on the specified port to receive messages from clients."""
+        try:
+            self.server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            self.server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            self.server_socket.bind((host, port))
+            self.server_socket.listen(1)
+            self.server_running = True
+            self.logger.info(f"Server started on {host}:{port}")
+
+            # Start accepting connections in a separate thread
+            threading.Thread(target=self._accept_connections, daemon=True).start()
+        except Exception as e:
+            self.logger.error(f"Error starting server: {e}")
+            self.logger.debug(f"{repr(e)}", exc_info=True)
+
+    def _accept_connections(self):
+        """Accept incoming client connections and receive messages."""
+        while self.server_running:
+            try:
+                client_conn, client_addr = self.server_socket.accept()
+                self.logger.info(f"Client connected from {client_addr}")
+                threading.Thread(
+                    target=self._receive_from_client,
+                    args=(client_conn, client_addr),
+                    daemon=True
+                ).start()
+            except Exception as e:
+                if self.server_running:
+                    self.logger.error(f"Error accepting connection: {e}")
+                    self.logger.debug(f"{repr(e)}", exc_info=True)
+
+    def _receive_from_client(self, client_conn, client_addr):
+        """Receive messages from a connected client and add them to the queue."""
+        try:
+            while self.server_running:
+                message = client_conn.recv(1024).decode('utf-8')
+                if message:
+                    with self.lock:
+                        self.message_queue.put(message)
+                    self.logger.info(f"Message from {client_addr}: {message}")
+                else:
+                    break
+        except Exception as e:
+            self.logger.error(f"Error receiving from client {client_addr}: {e}")
+            self.logger.debug(f"{repr(e)}", exc_info=True)
+        finally:
+            client_conn.close()
+
+    def connect_to_server(self, ip, port):
+        """Connect to a server with the specified IP and port."""
+        try:
+            self.client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            self.client_socket.connect((ip, port))
+            self.client_connected = True
+            self.logger.info(f"Connected to server at {ip}:{port}")
+        except Exception as e:
+            self.logger.error(f"Error connecting to server: {e}")
+            self.logger.debug(f"{repr(e)}", exc_info=True)
+            self.client_connected = False
+
+    def print_from_queue(self):
+        """Print the next message from the queue without removing it."""
+        try:
+            if not self.message_queue.empty():
+                message = self.message_queue.queue[0]  # Peek at the message
+                self.logger.info(f"Queue message: {message}")
+                return message
+            else:
+                self.logger.info("Queue is empty")
+                return None
+        except Exception as e:
+            self.logger.error(f"Error accessing queue: {e}")
+            self.logger.debug(f"{repr(e)}", exc_info=True)
+            return message
+
+    def send_to_server(self, message):
+        """Send a message to the connected server and dequeue the message."""
+        if not self.client_connected or self.client_socket is None:
+            self.logger.info("Not connected to a server")
+            return False
+
+        try:
+            self.client_socket.sendall(message.encode('utf-8'))
+            self.logger.info(f"Sent to server: {message}")
+
+            # Dequeue the message after sending
+            if not self.message_queue.empty():
+                dequeued = self.message_queue.get()
+                self.logger.info(f"Dequeued message: {dequeued}")
+
+            return True
+        except Exception as e:
+            self.logger.error(f"Error sending to server: {e}")
+            self.logger.debug(f"{repr(e)}", exc_info=True)
+            return False
+
+    def get_from_queue(self):
+        """Get and remove the next message from the queue."""
+        try:
+            if not self.message_queue.empty():
+                return self.message_queue.get()
+            else:
+                return None
+        except Exception as e:
+            self.logger.error(f"Error getting from queue: {e}")
+            self.logger.debug(f"{repr(e)}", exc_info=True)
+            return None
+
+    def stop_server(self):
+        """Stop the server."""
+        self.server_running = False
+        if self.server_socket:
+            self.server_socket.close()
+        self.logger.info("Server stopped")
+
+    def disconnect_from_server(self):
+        """Disconnect from the connected server."""
+        self.client_connected = False
+        if self.client_socket:
+            self.client_socket.close()
+        self.logger.info("Disconnected from server")
+
+    def queue_size(self):
+        """Return the current size of the message queue."""
+        return self.message_queue.qsize()
+
+    def parse_motion_command(self, message):
+        """Parse motion command message into rotation, translation, and target components.
+
+        Expected format: rotation_x,rotation_y,rotation_z,translation_x,translation_y,translation_z,target
+        Where target: 0 = gimbal, 1 = drone
+
+        Returns: dict with keys 'rotation', 'translation', 'target' or None if parsing fails
+        """
+        try:
+            # Clean the message (remove newlines and extra whitespace)
+            message = message.strip()
+
+            # Split by comma
+            values = message.split(',')
+
+            if len(values) < 7:
+                self.logger.warning(f"Error: Expected at least 7 values, got {len(values)}")
+                return None
+
+            # Parse rotation (first 3 values)
+            rotation = {
+                'x': float(values[0]),
+                'y': float(values[1]),
+                'z': float(values[2])
+            }
+
+            # Parse translation (next 3 values)
+            translation = {
+                'x': float(values[3]),
+                'y': float(values[4]),
+                'z': float(values[5])
+            }
+
+            # Parse target flag (last value)
+            target_flag = int(values[6])
+            target = 'drone' if target_flag == 1 else 'gimbal'
+
+            result = {
+                'rotation': rotation,
+                'translation': translation,
+                'target': target,
+                'target_flag': target_flag
+            }
+
+            return result
+        except (ValueError, IndexError) as e:
+            self.logger.error(f"Error parsing motion command: {e}")
+            self.logger.debug(f"{repr(e)}", exc_info=True)
+            return None
+
+
+class MsgHandler:
+    def __init__(self):
+        self.server_ip = '10.116.88.38'
+        self.client_ip = "127.0.0.1"
+        self.server_port = 9001
+        self.client_port = 9010
+        self.threads = []  # Track all threads
+        # Start a server
+        self.running = True
+        self.msg_handler = ReceiveMsg()
+        self.message_callback = None
+        self.handler_task = asyncio.get_running_loop().run_in_executor(None, self.__start_handler)
+
+    def __start_handler(self):
+        # Connect as client to another server
+        self.msg_handler.connect_to_server(self.server_ip, self.server_port)
+
+        # Start server
+        self.msg_handler.start_server(port=self.client_port, host=self.client_ip)
+        while self.running:
+            message = self.msg_handler.get_from_queue()  # Get and remove
+            if message:
+                self.msg_handler.send_to_server(message)
+                if self.message_callback is not None:
+                    self.message_callback(message)
+
+    def get_msg(self):
+        # Send messages and dequeue
+        msg = self.msg_handler.print_from_queue()  # View next message
+        if msg is not None:
+            result = self.msg_handler.parse_motion_command(msg)
+            return result
+        else:
+            return None
+
+    async def close(self):
+        self.running = False
+        await self.handler_task
