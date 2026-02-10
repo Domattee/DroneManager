@@ -95,3 +95,12 @@ Sensor
    :undoc-members:
    :show-inheritance:
    :no-index:
+
+
+Stream
+^^^^^^
+
+.. automodule:: dronecontrol.plugins.stream
+   :members:
+   :undoc-members:
+   :show-inheritance:

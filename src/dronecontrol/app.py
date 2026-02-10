@@ -510,9 +510,9 @@ class CommandScreen(Screen):
                 elif command == "exit" or command in self._exit_aliases:
                     exit_task = asyncio.create_task(self.exit())
                 elif command in self.dynamic_commands:
-                    self.logger.debug(f"Performing plugin action {command}")
                     func_arguments = vars(args).copy()
                     func_arguments.pop("command")
+                    self.logger.debug(f"Performing plugin action {command} {func_arguments}")
                     tmp = asyncio.create_task(self.dynamic_commands[command](**func_arguments))
                 self.running_tasks.add(tmp)
                 self._awaiter_tasks.add(asyncio.create_task(coroutine_awaiter(tmp, self.logger)))

@@ -1,5 +1,7 @@
 import asyncio
 import struct
+from collections.abc import Callable
+
 import cv2
 import numpy as np
 from dronecontrol.plugin import Plugin
@@ -21,10 +23,13 @@ class StreamPlugin(Plugin):
         self.default_port = int(port)
         self.running = False
         self.stream_task = None
+        self.display_stream = False
+        self.callbacks: set[Callable] = set()
         
         # Register CLI commands
         self.cli_commands = {
             "start": self.start_stream,
+            "display": self.display,
             "stop": self.stop_stream
         }
 
@@ -65,10 +70,19 @@ class StreamPlugin(Plugin):
         self.logger.info("Stream stopped.")
         return True
 
+    async def display(self):
+        self.display_stream = not self.display_stream
+
     async def close(self):
         """ cleanup when plugin is unloaded """
         await self.stop_stream()
         await super().close()
+
+    def add_callback(self, callback_function: Callable):
+        self.callbacks.add(callback_function)
+
+    def remove_callback(self, callback_function: Callable):
+        self.callbacks.remove(callback_function)
 
     async def _stream_loop(self, ip, port):
         """ The main async receiving loop. """
@@ -93,9 +107,12 @@ class StreamPlugin(Plugin):
                     nparr = np.frombuffer(image_data, np.uint8)
                     frame = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
 
-                    if frame is not None:
+                    if frame is not None and self.display_stream:
                         # Display window title includes plugin name
                         cv2.imshow(f"Stream ({self.name})", frame)
+
+                    for callback in self.callbacks:
+                        callback(frame)
                     
                     # 4. Handle UI events without blocking asyncio
                     # waitKey(1) processes GUI events. We assume this runs on Main Thread.
