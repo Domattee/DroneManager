@@ -71,10 +71,11 @@ class StreamPlugin(Plugin):
         return True
 
     async def display(self):
+        """ Toggles the display of the stream. """
         self.display_stream = not self.display_stream
 
     async def close(self):
-        """ cleanup when plugin is unloaded """
+        """ Cleanup when plugin is unloaded."""
         await self.stop_stream()
         await super().close()
 
