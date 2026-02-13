@@ -155,11 +155,19 @@ class ENGELDataMission(Mission):
         self._control_gimbal_pitch = True  # If false, control gimbal yaw instead
         self._gimbal_frequency = 20  # Default frequency until we get an actual drone
 
+        # Position refinement stuff
+        self.correction_algo = None
+        self.refining = False
+        self.translation_shift = None
+        self.rotation_shift = None
+        self.rotation_target = None
+
     async def close(self):
         for button, func in self._added_controller_buttons.items():
             PS4Mapping.remove_method_from_button(button, func)
         for func in self._added_controller_axis_methods:
             PS4Mapping.remove_axis_method(func)
+        await self.stop_test()
         await super().close()
 
     async def connect(self):
@@ -351,6 +359,15 @@ class ENGELDataMission(Mission):
                     await asyncio.sleep(0.2)
                 # Refine position and gimbal attitude based on previous image
                 # TODO: Integrate from other repo, more eval on simulation first
+                # TODO: Process: While the other algorithm is running, grab updates from there and use whatever the
+                #  latest value is here
+                while self.refining:
+                    _, pitch_rate, yaw_rate = self.rotation_shift
+                    await self.gimbal.set_gimbal_rates(pitch_rate, yaw_rate)
+                    #await self.dm.move(self.drone_name,
+                    #                   offset=self.translation_shift*drone.position_update_rate,
+                    #                   use_gps=False,
+                    #                   tolerance=0.05)
 
                 await self.do_capture(capture)
                 # TODO: Check for replays that didn't work
@@ -425,8 +442,6 @@ class ENGELDataMission(Mission):
         out_file = self._normal_dir_or_other_path(output_file)
         self._save_captures_to_file(captures, out_file)
 
-    # TODO: Move/copy image functions
-
     def _save_captures_to_file(self, captures, filename: str | pathlib.Path = None, merge_existing = False,
                                make_relative = False):
         """ Save all capture information to a file, images will have to be downloaded separately anyway. """
@@ -494,11 +509,11 @@ class ENGELDataMission(Mission):
 
     def _register_controller_inputs(self):
         PS4Mapping.add_method_to_button(3, self._do_capture_controller)  # Do capture on Triangle
-        self._added_controller_buttons[3] = self._do_capture_controller
         PS4Mapping.add_method_to_button(2, self._swap_gimbal_axis)
-        self._added_controller_buttons[2] = self._swap_gimbal_axis
         PS4Mapping.add_axis_method(self._get_gimbal_rate, [4, 5])
         self._added_controller_axis_methods.add(self._get_gimbal_rate)
+        self._added_controller_buttons[3] = self._do_capture_controller
+        self._added_controller_buttons[2] = self._swap_gimbal_axis
 
     async def add_drones(self, names: list[str]):
         """ Adds camera and gimbal objects and stores current position for rtl"""
@@ -605,12 +620,25 @@ class ENGELDataMission(Mission):
                 self.logger.debug(repr(e), exc_info = True)
             await asyncio.sleep(1/self._gimbal_frequency)
 
-    async def correction_test(self):
-        self.correction_algo = MsgHandler()
+    def correction_callback(self, parsed_message):
+        if parsed_message:
+            rotation = parsed_message["rotation"]  # roll pitch yaw in degrees per second
+            translation = parsed_message["translation"]  # x y z in cm / s
+            rotation_target = parsed_message["target"]
+            self.logger.info(parsed_message)
+            self.translation_shift = translation / 100
+            self.rotation_target = rotation_target
+            self.rotation_shift = rotation
+
+    async def correction_test(self, server_ip: str | None = None):
+        self.correction_algo = MsgHandler(server_ip=server_ip)
         self.correction_algo.message_callback = self.correction_callback
 
     async def stop_test(self):
-        await self.correction_algo.close()
+        if hasattr(self, "correction_algo"):
+            if self.correction_algo.running:
+                await self.correction_algo.close()
+                self.logger.info("Stopped servers")
 
 def _roll_pitch_compensation(gimbal_yaw, drone_roll, drone_pitch):
     return math.sin(gimbal_yaw)*drone_roll + math.cos(gimbal_yaw) * drone_pitch
@@ -773,18 +801,10 @@ class ReceiveMsg:
                 return None
 
             # Parse rotation (first 3 values)
-            rotation = {
-                'x': float(values[0]),
-                'y': float(values[1]),
-                'z': float(values[2])
-            }
+            rotation = np.asarray([float(values[0]), float(values[1]), float(values[2])])
 
             # Parse translation (next 3 values)
-            translation = {
-                'x': float(values[3]),
-                'y': float(values[4]),
-                'z': float(values[5])
-            }
+            translation = np.asarray([float(values[3]), float(values[4]), float(values[5])])
 
             # Parse target flag (last value)
             target_flag = int(values[6])
@@ -805,9 +825,9 @@ class ReceiveMsg:
 
 
 class MsgHandler:
-    def __init__(self):
-        self.server_ip = '10.116.88.38'
-        self.client_ip = "127.0.0.1"
+    def __init__(self, server_ip = None):
+        self.server_ip = '192.168.0.2' if server_ip is None else server_ip
+        self.client_ip = ""
         self.server_port = 9001
         self.client_port = 9010
         self.threads = []  # Track all threads
@@ -828,7 +848,7 @@ class MsgHandler:
             if message:
                 self.msg_handler.send_to_server(message)
                 if self.message_callback is not None:
-                    self.message_callback(message)
+                    self.message_callback(self.msg_handler.parse_motion_command(message))
 
     def get_msg(self):
         # Send messages and dequeue
