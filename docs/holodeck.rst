@@ -66,10 +66,18 @@ Once the project is open, verify the following in the **Package Manager** (Windo
 
 * **Newtonsoft Json.NET:** If not present, click the "+" icon, select "Add package by name," and enter ``com.unity.nuget.newtonsoft-json``.
 * **XR Interaction Toolkit:** (Optional) Required for VR functionality. Ensure this is installed and the "Oculus" or "OpenXR" provider is enabled in **Project Settings > XR Plug-in Management**.
+* **Meta XR All-in-One SDK:** Click the "+" icon, select "Add package by name," and enter ``com.meta.xr.sdk.all``.
+
 
 4. Dependencies for creating your own digital clone
 ---------------------------------------------------
 TODO: How to install the Gaussian Splatting Plugin 
+* **Gaussian Splatting:** Click the "+" icon, select "Add package by name," and enter ``org.nesnausk.gaussian-splatting``.
+* **Git Installation:** Alternatively, you can install the plugin directly from the `Aras-P repository <https://github.com/aras-p/UnityGaussianSplatting>`_ by selecting "Add package from git URL..." and entering:
+  ``https://github.com/aras-p/UnityGaussianSplatting.git``
+
+* **Requirements:** The plugin requires **Unity 2022.3** or newer and a GPU that supports **DirectX 12** or **Vulkan**. Ensure these are enabled in your **Project Settings > Player > Other Settings**.
+
 
 
 Usage
@@ -96,7 +104,60 @@ you may want to create a custom Digital Twin of your specific flight environment
 
 3. Gaussian Splatting 
 ---------------------
-TODO: Diah's instructions
+
+To create a high-fidelity digital twin of your environment, you need to capture spatial data using a mobile device (e.g., iPhone 15 Pro) equipped with LiDAR and CMOS sensors.
+
+1. **Download Scanning Apps:** 
+   * Install applications like **Scaniverse** or **Luma AI** from the App Store or Play Store.
+2. **Capture the Environment:** 
+   * Scan the entire room, ensuring every corner, edge, and surface is covered. Maintain high overlap between movements to ensure the Gaussian Splatting algorithm has enough depth information to reconstruct fine details.
+3. **Export Data:** Export the processed scan as a **.ply** file. This file acts as the dense point cloud required for the Unity plugin.
+
+For a reference of what a successful capture looks like, see this `Luma AI Sample <https://lumalabs.ai/capture/EAB8973D-2C21-4830-9766-16A0344B2540>`_.
+
+3.1 Import the Gaussian Splatting into Unity Scene
+-------------------------------------------
+To load the Gaussian Splatting into your Unity scene, follow these steps:
+
+```restructuredtext
+1. **Initialize and Import Assets:**
+   * Navigate to **Tools > Gaussian Splatting** to initialize the plugin after installation.
+   * Create GaussianAssetSplats.
+```
+   %Image1gs here
+2. **Import the .ply file:** Drag and drop the exported .ply file into the **Assets** folder of your Unity project.
+3. **Assign the .ply file:**
+   * Create or load Scene of GSTestScene
+   * In the **Inspector** window, locate the **Gaussian Splatting Renderer** component.
+   * Click the circle icon next to the **PLY File** field.
+   * Select your imported .ply file from the list.
+      %Image2gs here
+4. **Adjust Settings:**
+   * **Scale:** Ensure the scale of the object matches your environment. If the scan appears too small or too large, adjust the **Scale** values in the Transform component of the Gaussian Splatting object.
+   * **Position:** Position the object at the origin (0, 0, 0) or at the desired location for your digital twin.
+
+
+3.2 Generating k-DOP Colliders
+--------------------------
+
+To enable real-time collision avoidance and path planning, follow these steps to extract geometric boundaries from Gaussian primitives:
+ %Image3kdop here
+1. **Analyze Splat Distribution:** Use the GPU-accelerated algorithm to analyze the covariance and opacity (:math:`\alpha`) of the splat distribution.
+2. **Synthesize Safety Shell:** Generate a 14-DOP (Discrete Oriented Polytope) "safety shell" that serves as a lightweight, tight-fitting spatial proxy.
+3. **Export Asset:** Utilize the standardized export module to encapsulate both the high-fidelity 3DGS data and the generated k-DOP colliders into a single Prefab FBX asset.
+
+
+3.3. Alternative to modify environment with building Prefab
+
+-----------------------------------------------------------
+
+For scenarios where automated generation is not ideal, you can manually enhance the environment using pre-configured assets:
+ %Image4prefabs
+1. **Locate Assets:** Open the ``Assets/Prefabs`` folder in the Unity Project window.
+2. **Add Colliders:** Drag and drop the desired pre-made mesh objects into the **Hierarchy** or **Scene** view.
+3. **Manual Positioning:** Use Unity's transform tools to manually align these meshes with the Gaussian Splatting visualization to represent physical obstacles.
+4. **Physics Integration:** These prefabs are pre-equipped with mesh colliders, ensuring they are correctly interpreted by the simulation's physics engine and pathfinding algorithms.
+
 
 Running the Simulation
 ======================
