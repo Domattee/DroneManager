@@ -79,7 +79,6 @@ Once the project is open, verify the following in the **Package Manager** (Windo
 * **Requirements:** The plugin requires **Unity 2022.3** or newer and a GPU that supports **DirectX 12** or **Vulkan**. Ensure these are enabled in your **Project Settings > Player > Other Settings**.
 
 
-
 Usage
 *****
 
@@ -220,8 +219,8 @@ Key Technologies
 * **VR (XR Interaction Toolkit):** Provides the immersive interface for the pilot via the OVR Camera Rig.
 
 
-Scripts
--------
+Unity Scripts
+*************
 
 DroneManager & Controller
 =========================
