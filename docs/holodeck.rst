@@ -178,6 +178,9 @@ Once the scene is set up, follow this execution order:
 System Architecture
 *******************
 
+Overview
+========
+
 The Holodeck system is built on a **Decoupled Architecture**. This means the flight logic (the "Brain") runs in a Python environment, while the simulation and visualization (the "Body") run in Unity. They communicate via a low-latency UDP network protocol.
 
 .. image:: imgs/Holodeck-Systemdesign_alt.svg
