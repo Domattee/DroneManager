@@ -29,7 +29,6 @@ TODO: expand this note, point to usage guide and dev guides
 Holodeck
 --------
 
-Holodeck is our name for a combined system with DroneManager, our own Unity plugin and VR Goggles.
-TODO: Holodeck introductory text
+Holodeck is an example for the integration of DroneManager with modern simulation environments like Unity. It allows Users to control a real (or simulated) drone with a Playstation Controller via DroneManager while experiencing the virtual flight in a Unity Environment with enhanced perception through VR-Glasses (e.g. Meta-Quest Pro).
 
 See the :doc:`Holodeck documentation <holodeck>` for more information.
