@@ -66,6 +66,9 @@ Once the project is open, verify the following in the **Package Manager** (Windo
 
 * **Newtonsoft Json.NET:** If not present, click the "+" icon, select "Add package by name," and enter ``com.unity.nuget.newtonsoft-json``.
 * **XR Interaction Toolkit:** (Optional) Required for VR functionality. Ensure this is installed and the "Oculus" or "OpenXR" provider is enabled in **Project Settings > XR Plug-in Management**.
+
+4. Dependencies for creating your own digital clone
+---------------------------------------------------
 TODO: How to install the Gaussian Splatting Plugin 
 
 
