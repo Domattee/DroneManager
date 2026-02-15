@@ -66,6 +66,7 @@ Once the project is open, verify the following in the **Package Manager** (Windo
 
 * **Newtonsoft Json.NET:** If not present, click the "+" icon, select "Add package by name," and enter ``com.unity.nuget.newtonsoft-json``.
 * **XR Interaction Toolkit:** (Optional) Required for VR functionality. Ensure this is installed and the "Oculus" or "OpenXR" provider is enabled in **Project Settings > XR Plug-in Management**.
+TODO: How to install the Gaussian Splatting Plugin 
 
 
 Usage
@@ -90,7 +91,9 @@ you may want to create a custom Digital Twin of your specific flight environment
 * **Configure Ports:** In the ``UDPReceiver`` on the ``DroneManager`` empty GameObject in the inspector, set the ``serverIp`` and ``serverPort`` to match your Python backend.
 * Delete the default "Main Camera." Otherwise the VRCamera does not know which one to pick as main.
 
-
+3. Gaussian Splatting 
+---------------------
+TODO: Diah's instructions
 
 Running the Simulation
 ======================
