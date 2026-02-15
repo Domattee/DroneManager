@@ -22,8 +22,9 @@ this project on `Github`_.
    :local:
    :backlinks: none
 
+
 Installation
-*******************************
+************
 
 This guide covers the steps required to set up the Unity simulation environment. 
 
@@ -71,11 +72,10 @@ Once the project is open, verify the following in the **Package Manager** (Windo
 
 4. Dependencies for creating your own digital clone
 ---------------------------------------------------
-TODO: How to install the Gaussian Splatting Plugin 
+
 * **Gaussian Splatting:** Click the "+" icon, select "Add package by name," and enter ``org.nesnausk.gaussian-splatting``.
 * **Git Installation:** Alternatively, you can install the plugin directly from the `Aras-P repository <https://github.com/aras-p/UnityGaussianSplatting>`_ by selecting "Add package from git URL..." and entering:
   ``https://github.com/aras-p/UnityGaussianSplatting.git``
-
 * **Requirements:** The plugin requires **Unity 2022.3** or newer and a GPU that supports **DirectX 12** or **Vulkan**. Ensure these are enabled in your **Project Settings > Player > Other Settings**.
 
 
@@ -97,6 +97,7 @@ you may want to create a custom Digital Twin of your specific flight environment
 
 2. Core Logic Integration
 -------------------------
+
 * **Manager Object:** Drag the ``Prefabs/DroneManager`` as an empty GameObject in your scene.
 * **VRCamera:** Drag and drop the ``Prefabs/OVRCamera Rig Variant`` into your scene
 * **Configure Ports:** In the ``UDPReceiver`` on the ``DroneManager`` empty GameObject in the inspector, set the ``serverIp`` and ``serverPort`` to match your Python backend.
@@ -116,14 +117,13 @@ To create a high-fidelity digital twin of your environment, you need to capture 
 For a reference of what a successful capture looks like, see this `Luma AI Sample <https://lumalabs.ai/capture/EAB8973D-2C21-4830-9766-16A0344B2540>`_.
 
 3.1 Import the Gaussian Splatting into Unity Scene
--------------------------------------------
+--------------------------------------------------
+
 To load the Gaussian Splatting into your Unity scene, follow these steps:
 
-```restructuredtext
 1. **Initialize and Import Assets:**
    * Navigate to **Tools > Gaussian Splatting** to initialize the plugin after installation.
    * Create GaussianAssetSplats.
-```
    %Image1gs here
 2. **Import the .ply file:** Drag and drop the exported .ply file into the **Assets** folder of your Unity project.
 3. **Assign the .ply file:**
@@ -142,17 +142,18 @@ To load the Gaussian Splatting into your Unity scene, follow these steps:
 
 To enable real-time collision avoidance and path planning, follow these steps to extract geometric boundaries from Gaussian primitives:
  %Image3kdop here
+
 1. **Analyze Splat Distribution:** Use the GPU-accelerated algorithm to analyze the covariance and opacity (:math:`\alpha`) of the splat distribution.
 2. **Synthesize Safety Shell:** Generate a 14-DOP (Discrete Oriented Polytope) "safety shell" that serves as a lightweight, tight-fitting spatial proxy.
 3. **Export Asset:** Utilize the standardized export module to encapsulate both the high-fidelity 3DGS data and the generated k-DOP colliders into a single Prefab FBX asset.
 
 
 3.3. Alternative to modify environment with building Prefab
-
 -----------------------------------------------------------
 
 For scenarios where automated generation is not ideal, you can manually enhance the environment using pre-configured assets:
- %Image4prefabs
+%Image4prefabs
+
 1. **Locate Assets:** Open the ``Assets/Prefabs`` folder in the Unity Project window.
 2. **Add Colliders:** Drag and drop the desired pre-made mesh objects into the **Hierarchy** or **Scene** view.
 3. **Manual Positioning:** Use Unity's transform tools to manually align these meshes with the Gaussian Splatting visualization to represent physical obstacles.
@@ -555,6 +556,7 @@ The ``target`` field is marked ``[HideInInspector]`` because it is assigned dyna
 
 Technical Details
 -----------------
+
 **Execution Order (LateUpdate)**
 The camera logic is explicitly placed in ``LateUpdate()``. This is critical for preventing visual jitter.
 1.  **Update():** The Drone calculates physics and moves.
@@ -569,11 +571,13 @@ The **CameraStreamer** (Unity) and **StreamPlugin** (Python) work together to pr
 
 Architecture
 ------------
+
 * **Unity (Server):** The ``CameraStreamer`` script opens a TCP listener port. It captures frames from a specific camera, compresses them to JPEG, and waits for a connection.
 * **Python (Client):** The ``StreamPlugin`` connects to Unity, decodes the stream, and exposes the raw NumPy frames to other plugins or displays them via OpenCV.
 
 Unity Component Configuration
 -----------------------------
+
 Attach the ``CameraStreamer`` script to any GameObject.
 
 .. list-table::
@@ -601,6 +605,7 @@ Attach the ``CameraStreamer`` script to any GameObject.
 
 Network Protocol
 ----------------
+
 The stream uses a simple length-prefixed binary protocol. Every frame is sent as a discrete packet:
 
 1.  **Header (4 Bytes):** An unsigned integer (Little Endian ``<I``) representing the size of the image payload in bytes.
@@ -619,6 +624,7 @@ The stream uses a simple length-prefixed binary protocol. Every frame is sent as
 
 Python Plugin Usage
 -------------------
+
 The ``StreamPlugin`` provides both a Command Line Interface (CLI) for debugging and a Python API for integration.
 
 **CLI Commands:**
@@ -644,6 +650,7 @@ To process frames in your own algorithm (e.g., Object Detection), register a cal
 
 Technical Details
 -----------------
+
 **The "Render Swap" Technique**
 To capture the camera without rendering it to the user's main screen, ``CameraStreamer`` uses a ``RenderTexture`` swap:
 1.  At the end of the frame (``WaitForEndOfFrame``), it briefly sets the camera's target to a hidden ``RenderTexture``.
@@ -674,6 +681,7 @@ This script is typically attached to the Drone prefab but operates independently
 
 Data Contract (Input Protocol)
 ------------------------------
+
 The ``UpdateFence`` method expects a ``List<float>`` containing exactly 6 elements. These correspond to the **North-East-Down (NED)** coordinate system used by MAVLink/PX4.
 
 .. list-table::
@@ -711,6 +719,7 @@ The ``UpdateFence`` method expects a ``List<float>`` containing exactly 6 elemen
 
 Coordinate Transformation (NED to Unity)
 ----------------------------------------
+
 Unity uses a **Left-Handed, Y-Up** system, while standard drone telemetry uses **NED (North-East-Down)**. The script handles this conversion automatically:
 
 1.  **North (Z-Axis):** Mapped directly. Center = :math:`(N_{min} + N_{max}) / 2`.
@@ -723,6 +732,7 @@ Unity uses a **Left-Handed, Y-Up** system, while standard drone telemetry uses *
 
 Lifecycle & Hierarchy
 ---------------------
+
 To ensure the fence remains a static reference point while the drone flies inside it, the script employs a **Detachment Pattern**:
 
 1.  **Instantiation:** The Drone Prefab spawns with the ``FenceDisplay`` and ``FenceCube`` attached.
@@ -758,6 +768,7 @@ This script is usually attached to the Drone prefab.
 
 Data Contract (Input Protocol)
 ------------------------------
+
 The ``UpdateTarget`` method expects a ``List<float>`` containing exactly 3 elements, representing the target in the local NED frame.
 
 .. list-table::
