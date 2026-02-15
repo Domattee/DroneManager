@@ -130,15 +130,14 @@ To load the Gaussian Splatting into your Unity scene, follow these steps:
    * Create or load Scene of GSTestScene
    * In the **Inspector** window, locate the **Gaussian Splatting Renderer** component.
    * Click the circle icon next to the **PLY File** field.
-   * Select your imported .ply file from the list.
-      %Image2gs here
+   * Select your imported .ply file from the list. %Image2gs here
 4. **Adjust Settings:**
    * **Scale:** Ensure the scale of the object matches your environment. If the scan appears too small or too large, adjust the **Scale** values in the Transform component of the Gaussian Splatting object.
    * **Position:** Position the object at the origin (0, 0, 0) or at the desired location for your digital twin.
 
 
 3.2 Generating k-DOP Colliders
---------------------------
+------------------------------
 
 To enable real-time collision avoidance and path planning, follow these steps to extract geometric boundaries from Gaussian primitives:
  %Image3kdop here
