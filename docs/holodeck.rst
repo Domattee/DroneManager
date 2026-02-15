@@ -661,7 +661,7 @@ To ensure the fence remains a static reference point while the drone flies insid
 1.  **Instantiation:** The Drone Prefab spawns with the ``FenceDisplay`` and ``FenceCube`` attached.
 2.  **Start():** The script calls ``fenceCube.transform.SetParent(null)``. This moves the Cube out of the Drone's hierarchy and into the Scene Root.
 3.  **Runtime:** The drone moves freely. The Fence stays fixed at the calculated coordinates.
-4.  **OnDestroy():** When the drone is disconnected or destroyed, the script explicitly locates and ``Destroy()``s the detached FenceCube to prevent "orphan" objects cluttering the scene.
+4.  **OnDestroy():** When the drone is disconnected or destroyed, the script explicitly locates and ``Destroy()`` the detached FenceCube to prevent "orphan" objects cluttering the scene.
 
 TargetDisplay
 =============
