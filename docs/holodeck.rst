@@ -23,6 +23,7 @@ this project on `Github`_.
    :align: center
 
 
+
 Installation
 ************
 
@@ -43,6 +44,7 @@ Before setting up the Unity project, ensure you have the following installed:
     * **OpenJDK**
 * **Visual Studio 2022:** Must be installed with the **"Game development with Unity"** workload (includes C# and required Unity integration tools).
 * **Git:** Required to clone the repository and manage any submodules.
+
 
 Setting Up the Unity Project
 ============================
@@ -174,7 +176,7 @@ Once the scene is set up, follow this execution order:
 
 
 System Architecture
-===================
+*******************
 
 The Holodeck system is built on a **Decoupled Architecture**. This means the flight logic (the "Brain") runs in a Python environment, while the simulation and visualization (the "Body") run in Unity. They communicate via a low-latency UDP network protocol.
 
@@ -196,8 +198,8 @@ The integration follows a continuous loop to ensure the Digital Twin stays synch
 
 2.  **Transport (UDP):** 
 
-The backend streams this JSON via UDP to Unity. This is "fire-and-forget," ensuring the drone's flight is never delayed by rendering frames in Unity.
-On the otherhand Unity is able to transmit the stream of a virtual camera via TCP and JPEG images back to DroneManager for external display via Open-CV.
+    The backend streams this JSON via UDP to Unity. This is "fire-and-forget," ensuring the drone's flight is never delayed by rendering frames in Unity.
+    On the otherhand Unity is able to transmit the stream of a virtual camera via TCP and JPEG images back to DroneManager for external display via Open-CV.
 
 3.  **Frontend (Unity/Holodeck):**
 
@@ -206,9 +208,10 @@ On the otherhand Unity is able to transmit the stream of a virtual camera via TC
     * The ``DroneController`` updates the 3D model's position and orientation.
     * The ``Displays`` update AR elements (Fences/Waypoints) based on the latest mission data.
     * The ``CameraSpringArm`` attaches to the first drone and hosts the VR-Camera.
+
 4.  **Feedback (Optional):** 
 
-The ``CameraStreamer`` can send the virtual FPV view back to Python for Computer Vision analysis.
+    The ``CameraStreamer`` can send the virtual FPV view back to Python for Computer Vision analysis.
 
 Key Technologies
 ----------------
@@ -220,15 +223,15 @@ Key Technologies
 
 
 Unity Scripts
-*************
+=============
 
 DroneManager & Controller
-=========================
+-------------------------
 
 The **DroneManager** acts as the central orchestrator, managing the lifecycle of drone GameObjects based on the UDP stream. The **DroneController** acts as the local agent, handling the physical movement and smoothing for a specific drone.
 
 DroneManager: Architecture
---------------------------
+^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 The ``DroneManager`` does not control flight physics; it synchronizes the Unity Scene state with the Python backend state.
 
@@ -252,7 +255,7 @@ The manager enforces a "First-Pilot" rule for VR comfort.
 * **Result:** The VR player immediately enters "Chase Mode" behind the first connected drone.
 
 Manager Configuration
----------------------
+^^^^^^^^^^^^^^^^^^^^^
 
 Attach this script to your persistent **NetworkManager** object.
 
@@ -271,7 +274,7 @@ Attach this script to your persistent **NetworkManager** object.
      - Reference to the main VR camera rig. If left empty, the script attempts to find it via ``FindObjectOfType``.
 
 DroneController: Movement Logic
--------------------------------
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 The ``DroneController`` handles the raw coordinate transformation and smoothing.
 
@@ -288,7 +291,7 @@ Since UDP updates (~20Hz) are slower than the VR Frame Rate (~90Hz), raw positio
 * **Rotation:** Uses ``Quaternion.Slerp`` to find the shortest arc between angles.
 
 Prefab Requirements
--------------------
+^^^^^^^^^^^^^^^^^^^
 
 For the system to function correctly, the **Drone Prefab** assigned to the Manager must have the following component structure:
 
@@ -301,7 +304,7 @@ For the system to function correctly, the **Drone Prefab** assigned to the Manag
     * (Optional) Virtual Camera for ``CameraStreamer``
 
 Code Snippet: Data Propagation
-------------------------------
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 This snippet from ``DroneManager.cs`` illustrates how data is unpacked and routed to the visualizers.
 
@@ -321,12 +324,12 @@ This snippet from ``DroneManager.cs`` illustrates how data is unpacked and route
    }
 
 DroneDataClasses
-================
+----------------
 
 The ``DroneDataClasses.cs`` file defines the schema for the UDP telemetry stream. These classes serve as the deserialization target for the **Newtonsoft.Json** library, mapping the incoming JSON string from the Python backend to C# objects.
 
-Data Contract (JSON Structure)
-------------------------------
+Data schema (JSON Structure)
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 The system expects a JSON payload structured as a dictionary of drones and (optionally) missions. Below is the expected format, including the nested target list and fence boundaries:
 
@@ -359,10 +362,10 @@ The system expects a JSON payload structured as a dictionary of drones and (opti
    }
 
 Class Definitions
------------------
+^^^^^^^^^^^^^^^^^
 
 RootData
-^^^^^^^^
+""""""""
 
 The entry point for the JSON payload.
 
@@ -370,7 +373,7 @@ The entry point for the JSON payload.
 * **missions** (``Dictionary<string, MissionData>``): A collection of active mission states.
 
 DroneData
-^^^^^^^^^
+"""""""""
 
 Contains real-time telemetry and state for a single agent.
 
@@ -410,7 +413,7 @@ Contains real-time telemetry and state for a single agent.
      - Connection status (True if MAVLink heartbeat is active).
 
 MissionData
-^^^^^^^^^^^
+"""""""""""
 
 Shared state information for multi-agent coordination.
 
@@ -420,12 +423,12 @@ Shared state information for multi-agent coordination.
 * **additional_info** (``Dictionary``): Dynamic fields populated by ``mission.additional_info`` in Python (e.g., battery levels).
 
 UDPReceiver
-===========
+-----------
 
 The ``UDPReceiver`` acts as the primary networking gateway for the Unity client. It manages a threaded UDP socket to receive high-frequency telemetry from the DroneManager backend without blocking the main Unity rendering loop.
 
 Component Configuration
------------------------
+^^^^^^^^^^^^^^^^^^^^^^^
 
 Attach this script to a persistent GameObject in the scene (e.g., "DroneManager"). The following fields are configurable in the Unity Inspector:
 
@@ -450,7 +453,7 @@ Attach this script to a persistent GameObject in the scene (e.g., "DroneManager"
      - The interval (in seconds) to resend the handshake/subscription request to the server.
 
 Handshake Protocol (Client -> Server)
--------------------------------------
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 Upon startup and at every ``Request Interval``, the receiver sends a JSON payload to the Python backend to subscribe to the data stream.
 
@@ -467,7 +470,7 @@ Upon startup and at every ``Request Interval``, the receiver sends a JSON payloa
 * **frequency**: The requested update rate (Hz) for the UDP stream.
 
 Accessing Data (API)
---------------------
+^^^^^^^^^^^^^^^^^^^^
 
 The receiver exposes the latest telemetry via a thread-safe static reference. Other scripts can access this data directly without needing a reference to the GameObject.
 
@@ -487,7 +490,7 @@ The receiver exposes the latest telemetry via a thread-safe static reference. Ot
    }
 
 Architecture & Threading
-------------------------
+^^^^^^^^^^^^^^^^^^^^^^^^
 
 To ensure smooth frame rates in VR, the networking logic is decoupled from the rendering loop.
 
@@ -498,12 +501,12 @@ To ensure smooth frame rates in VR, the networking logic is decoupled from the r
     * Manages the "Keep-Alive" timer to resend the handshake.
 
 CameraSpringArm
-===============
+---------------
 
 The ``CameraSpringArm`` script implements a dynamic camera mount that smoothly tracks a target while maintaining a relative rotational offset. It mimics the behavior of a physical spring-arm (or "selfie stick") attached to the drone, damping high-frequency vibrations to produce a cinematic flight feel.
 
 Component Configuration
------------------------
+^^^^^^^^^^^^^^^^^^^^^^^
 
 The behavior of the arm is tuned via the Unity Inspector.
 
@@ -526,7 +529,7 @@ The behavior of the arm is tuned via the Unity Inspector.
      - The spherical interpolation (Slerp) speed. Determines how quickly the camera rotates to face the target.
 
 Camera Modes (Recipes)
-----------------------
+^^^^^^^^^^^^^^^^^^^^^^
 
 You can achieve drastically different visual styles by tweaking the parameters above.
 
@@ -546,7 +549,7 @@ You can achieve drastically different visual styles by tweaking the parameters a
    * **Effect:** A map-like view looking directly down at the drone.
 
 Script Integration
-------------------
+^^^^^^^^^^^^^^^^^^
 
 The ``target`` field is marked ``[HideInInspector]`` because it is assigned dynamically at runtime when a drone is spawned.
 
@@ -568,7 +571,7 @@ The ``target`` field is marked ``[HideInInspector]`` because it is assigned dyna
    }
 
 Technical Details
------------------
+^^^^^^^^^^^^^^^^^
 
 **Execution Order (LateUpdate)**
 The camera logic is explicitly placed in ``LateUpdate()``. This is critical for preventing visual jitter.
@@ -578,18 +581,18 @@ The camera logic is explicitly placed in ``LateUpdate()``. This is critical for 
 If the camera moved in ``Update()``, it might calculate its position before the drone has finished moving for the frame, resulting in a stuttering or "vibrating" visual artifact.
 
 CameraStreamer & StreamPlugin
-=============================
+-----------------------------
 
 The **CameraStreamer** (Unity) and **StreamPlugin** (Python) work together to provide a low-latency video feed from the simulation to the backend. Unlike the UDP telemetry, this connection utilizes **TCP** to ensure frame integrity for Computer Vision (CV) applications.
 
 Architecture
-------------
+^^^^^^^^^^^^
 
 * **Unity (Server):** The ``CameraStreamer`` script opens a TCP listener port. It captures frames from a specific camera, compresses them to JPEG, and waits for a connection.
 * **Python (Client):** The ``StreamPlugin`` connects to Unity, decodes the stream, and exposes the raw NumPy frames to other plugins or displays them via OpenCV.
 
 Unity Component Configuration
------------------------------
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 Attach the ``CameraStreamer`` script to any GameObject.
 
@@ -617,7 +620,7 @@ Attach the ``CameraStreamer`` script to any GameObject.
      - The target FPS. **Note:** High frame rates (>30) on high resolutions will significantly impact Unity's physics engine.
 
 Network Protocol
-----------------
+^^^^^^^^^^^^^^^^
 
 The stream uses a simple length-prefixed binary protocol. Every frame is sent as a discrete packet:
 
@@ -636,7 +639,7 @@ The stream uses a simple length-prefixed binary protocol. Every frame is sent as
    image_data = await reader.readexactly(length)
 
 Python Plugin Usage
--------------------
+^^^^^^^^^^^^^^^^^^^
 
 The ``StreamPlugin`` provides both a Command Line Interface (CLI) for debugging and a Python API for integration.
 
@@ -662,7 +665,7 @@ To process frames in your own algorithm (e.g., Object Detection), register a cal
        stream_plugin.add_callback(my_cv_algorithm)
 
 Technical Details
------------------
+^^^^^^^^^^^^^^^^^
 
 **The "Render Swap" Technique**
 To capture the camera without rendering it to the user's main screen, ``CameraStreamer`` uses a ``RenderTexture`` swap:
@@ -672,12 +675,12 @@ To capture the camera without rendering it to the user's main screen, ``CameraSt
 This allows the "Drone Camera" to see a completely different perspective than the VR player.
 
 FenceDisplay
-============
+------------
 
 The ``FenceDisplay`` script visualizes the safety geofence defined in the backend. It dynamically resizes a Unity primitive (Cube) to match the spatial boundaries, creating a "Safe Flight Volume" visible to the pilot.
 
 Component Configuration
------------------------
+^^^^^^^^^^^^^^^^^^^^^^^
 
 This script is typically attached to the Drone prefab but operates independently in world space.
 
@@ -692,8 +695,8 @@ This script is typically attached to the Drone prefab but operates independently
      - ``GameObject``
      - A reference to a child Cube object. **Requirement:** This object must use a transparent material (e.g., standard shader with Alpha < 0.3) to prevent obscuring the pilot's view.
 
-Data Contract (Input Protocol)
-------------------------------
+Data schema (Input Protocol)
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 The ``UpdateFence`` method expects a ``List<float>`` containing exactly 6 elements. These correspond to the **North-East-Down (NED)** coordinate system used by MAVLink/PX4.
 
@@ -731,7 +734,7 @@ The ``UpdateFence`` method expects a ``List<float>`` containing exactly 6 elemen
      - The **Lowest** altitude (converted to positive Up).
 
 Coordinate Transformation (NED to Unity)
-----------------------------------------
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 Unity uses a **Left-Handed, Y-Up** system, while standard drone telemetry uses **NED (North-East-Down)**. The script handles this conversion automatically:
 
@@ -744,7 +747,7 @@ Unity uses a **Left-Handed, Y-Up** system, while standard drone telemetry uses *
        Position_{Y} = - \frac{(D_{min} + D_{max})}{2}
 
 Lifecycle & Hierarchy
----------------------
+^^^^^^^^^^^^^^^^^^^^^
 
 To ensure the fence remains a static reference point while the drone flies inside it, the script employs a **Detachment Pattern**:
 
@@ -754,12 +757,12 @@ To ensure the fence remains a static reference point while the drone flies insid
 4.  **OnDestroy():** When the drone is disconnected or destroyed, the script explicitly locates and ``Destroy()`` the detached FenceCube to prevent "orphan" objects cluttering the scene.
 
 TargetDisplay
-=============
+-------------
 
 The ``TargetDisplay`` script renders the active navigation waypoint (setpoint) in the 3D world. It acts as an Augmented Reality (AR) overlay, drawing a sphere at the destination coordinates and (optionally) a line connecting the drone to that target, providing immediate visual feedback on the autonomous path planning.
 
 Component Configuration
------------------------
+^^^^^^^^^^^^^^^^^^^^^^^
 
 This script is usually attached to the Drone prefab.
 
@@ -780,7 +783,7 @@ This script is usually attached to the Drone prefab.
        **Requirement:** Ensure ``Use World Space`` is checked in the LineRenderer component settings.
 
 Data Contract (Input Protocol)
-------------------------------
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 The ``UpdateTarget`` method expects a ``List<float>`` containing exactly 3 elements, representing the target in the local NED frame.
 
@@ -807,7 +810,7 @@ The ``UpdateTarget`` method expects a ``List<float>`` containing exactly 3 eleme
 
 
 Visual Logic & Lifecycle
-------------------------
+^^^^^^^^^^^^^^^^^^^^^^^^
 
 **1. World-Space Detachment**
 To prevent the target marker from moving wildly as the drone tilts and banks, the script performs a "Detachment" operation in ``Start()``:
