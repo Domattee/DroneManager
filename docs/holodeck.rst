@@ -1,8 +1,14 @@
 Holodeck
-#############
+########
+
+.. contents:: Table of Contents
+   :depth: 2
+   :local:
+   :backlinks: none
+
 
 Overview
-***********
+********
 
 Holodeck is an example for the integration of DroneManager with modern simulation environments like Unity. 
 It allows Users to control a real drone with a Playstation Controller via DroneManager while experiencing the virtual 
@@ -15,12 +21,6 @@ this project on `Github`_.
 .. image:: imgs/Holodeck-SimSetup-v2.png
    :alt: Holodeck with DroneManager and Gazebo for a full Simulation Setup in an Example Scene. The Unity Environment is running in the background and receives the drone data from DroneManager (bottom right) which is controlling a drone in Gazebo (left)
    :align: center
-
-
-.. contents:: Table of Contents
-   :depth: 2
-   :local:
-   :backlinks: none
 
 
 Installation
@@ -81,7 +81,7 @@ Once the project is open, verify the following in the **Package Manager** (Windo
 
 
 Usage
-*******************************
+*****
 
 Setting Up a Custom Holodeck Scene
 ==================================
@@ -91,6 +91,7 @@ you may want to create a custom Digital Twin of your specific flight environment
 
 1. Scene Preparation
 --------------------
+
 * Create a new Unity Scene.
 * Ensure your environment scale is **1:1** (1 Unity unit = 1 Meter) to match the real-world GPS/Local coordinates.
 * Add your scan or any other assets.
@@ -175,6 +176,7 @@ Once the scene is set up, follow this execution order:
 
 System Architecture
 ===================
+
 The Holodeck system is built on a **Decoupled Architecture**. This means the flight logic (the "Brain") runs in a Python environment, while the simulation and visualization (the "Body") run in Unity. They communicate via a low-latency UDP network protocol.
 
 .. image:: imgs/Holodeck-Systemdesign_alt.svg
@@ -219,7 +221,7 @@ Key Technologies
 
 
 Scripts
--------------------------
+-------
 
 DroneManager & Controller
 =========================
@@ -228,6 +230,7 @@ The **DroneManager** acts as the central orchestrator, managing the lifecycle of
 
 DroneManager: Architecture
 --------------------------
+
 The ``DroneManager`` does not control flight physics; it synchronizes the Unity Scene state with the Python backend state.
 
 **1. Lifecycle Reconciliation (The Update Loop)**
@@ -251,6 +254,7 @@ The manager enforces a "First-Pilot" rule for VR comfort.
 
 Manager Configuration
 ---------------------
+
 Attach this script to your persistent **NetworkManager** object.
 
 .. list-table::
@@ -269,6 +273,7 @@ Attach this script to your persistent **NetworkManager** object.
 
 DroneController: Movement Logic
 -------------------------------
+
 The ``DroneController`` handles the raw coordinate transformation and smoothing.
 
 **Coordinate Transformation**
@@ -285,6 +290,7 @@ Since UDP updates (~20Hz) are slower than the VR Frame Rate (~90Hz), raw positio
 
 Prefab Requirements
 -------------------
+
 For the system to function correctly, the **Drone Prefab** assigned to the Manager must have the following component structure:
 
 1.  **Root Object:**
@@ -297,6 +303,7 @@ For the system to function correctly, the **Drone Prefab** assigned to the Manag
 
 Code Snippet: Data Propagation
 ------------------------------
+
 This snippet from ``DroneManager.cs`` illustrates how data is unpacked and routed to the visualizers.
 
 .. code-block:: csharp
@@ -357,6 +364,7 @@ Class Definitions
 
 RootData
 ^^^^^^^^
+
 The entry point for the JSON payload.
 
 * **drones** (``Dictionary<string, DroneData>``): A collection of active drones. The dictionary key corresponds to the unique drone ID (e.g., "veryrealdrone").
@@ -364,6 +372,7 @@ The entry point for the JSON payload.
 
 DroneData
 ^^^^^^^^^
+
 Contains real-time telemetry and state for a single agent.
 
 .. list-table::
@@ -403,6 +412,7 @@ Contains real-time telemetry and state for a single agent.
 
 MissionData
 ^^^^^^^^^^^
+
 Shared state information for multi-agent coordination.
 
 * **flightarea** (``List<float>``): Boundary definitions for the mission zone.
@@ -442,6 +452,7 @@ Attach this script to a persistent GameObject in the scene (e.g., "DroneManager"
 
 Handshake Protocol (Client -> Server)
 -------------------------------------
+
 Upon startup and at every ``Request Interval``, the receiver sends a JSON payload to the Python backend to subscribe to the data stream.
 
 **Payload Structure:**
@@ -458,6 +469,7 @@ Upon startup and at every ``Request Interval``, the receiver sends a JSON payloa
 
 Accessing Data (API)
 --------------------
+
 The receiver exposes the latest telemetry via a thread-safe static reference. Other scripts can access this data directly without needing a reference to the GameObject.
 
 **Example Usage:**
@@ -477,6 +489,7 @@ The receiver exposes the latest telemetry via a thread-safe static reference. Ot
 
 Architecture & Threading
 ------------------------
+
 To ensure smooth frame rates in VR, the networking logic is decoupled from the rendering loop.
 
 1.  **Background Thread:** Continuously calls ``client.Receive()`` (blocking operation). Raw bytes are buffered into a string.
@@ -515,6 +528,7 @@ The behavior of the arm is tuned via the Unity Inspector.
 
 Camera Modes (Recipes)
 ----------------------
+
 You can achieve drastically different visual styles by tweaking the parameters above.
 
 **1. Cinematic Chase (Third-Person)**
@@ -534,6 +548,7 @@ You can achieve drastically different visual styles by tweaking the parameters a
 
 Script Integration
 ------------------
+
 The ``target`` field is marked ``[HideInInspector]`` because it is assigned dynamically at runtime when a drone is spawned.
 
 **Assigning a Target:**
@@ -790,7 +805,6 @@ The ``UpdateTarget`` method expects a ``List<float>`` containing exactly 3 eleme
      - Down
      - **-Y**
      - Vertical distance (Inverted). A negative value here means "Up" in Unity.
-
 
 
 Visual Logic & Lifecycle
