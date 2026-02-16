@@ -39,13 +39,16 @@ class DMConfig:
 
     """
 
-    CORE_ENTRIES = ["drones", "mav_system_id", "mav_component_id", "plugin_settings", "default_plugins"]  # These must be present
+    CORE_ENTRIES = ["drones", "mav_system_id", "mav_component_id", "plugin_settings", "default_plugins", "testing"]
+    # These must be present
 
     def __init__(self, drone_configs: DroneConfigs, mav_system_id: int = 246, mav_component_id: int = 190,
-                 default_plugins: list[str] | None = None, plugin_settings: dict[str, dict[str, typing.Any]] | None = None, **kwargs):
+                 default_plugins: list[str] | None = None, testing: bool = False,
+                 plugin_settings: dict[str, dict[str, typing.Any]] | None = None, **kwargs):
         self.drone_configs: DroneConfigs = drone_configs
         self.mav_system_id: int = mav_system_id
         self.mav_component_id: int = mav_component_id
+        self.testing = testing
         if default_plugins is None:
             default_plugins = []
         self.default_plugins = default_plugins
@@ -69,6 +72,7 @@ class DMConfig:
             configs = DroneConfigs(configs)
             mav_sys_id = json_obj["mav_system_id"]
             mav_comp_id = json_obj["mav_component_id"]
+            testing = json_obj["testing"]
             if "plugin_settings" in json_obj:
                 plugin_settings = json_obj["plugin_settings"]
             if "default_plugins" in json_obj:
@@ -77,7 +81,8 @@ class DMConfig:
             for key in json_obj:
                 if key not in cls.CORE_ENTRIES:
                     extra_entries[key] = json_obj[key]
-        return cls(configs, mav_system_id=mav_sys_id, mav_component_id=mav_comp_id, plugin_settings=plugin_settings, default_plugins=default_plugins, **extra_entries)
+        return cls(configs, mav_system_id=mav_sys_id, mav_component_id=mav_comp_id, plugin_settings=plugin_settings,
+                   default_plugins=default_plugins, testing=testing, **extra_entries)
 
     def to_file(self, filepath: str):
         with open(filepath, "wt") as f:

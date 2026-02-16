@@ -1,6 +1,7 @@
 {
   "mav_system_id": 246,
   "mav_component_id": 190,
+  "testing": true,
   "default_plugins": [
     "mission",
     "controllers",
