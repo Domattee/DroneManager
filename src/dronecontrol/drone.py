@@ -6,7 +6,7 @@ import os.path
 import threading
 import platform
 import time
-from subprocess import Popen, DEVNULL
+from subprocess import Popen, PIPE, STDOUT
 from abc import ABC, abstractmethod
 from typing import Coroutine
 
@@ -657,8 +657,17 @@ class DroneMAVSDK(Drone):
             if self.server_addr is None and platform.system() == "Windows":
                 try:
                     self.logger.debug(f"On windows, using local server file {_mav_server_file}")
-                    self._server_process = Popen(f"{_mav_server_file} -p {self.server_port} {mavsdk_passthrough_string}",
-                                                 stdout=DEVNULL, stderr=DEVNULL)
+                    self._server_process = Popen(f"{_mav_server_file} -p {self.server_port} "
+                                                 f"{mavsdk_passthrough_string}", stdout=PIPE, stderr=STDOUT)
+                    # TODO: Come up with some way of capturing the output that actually works
+                    # Things tried:
+                    # - Asyncio subprocess and async for loops over output - Didn't consistently get console output,
+                    #   randomly broke the program such that connections stopped working entirely
+                    # - Using a separate thread that polled the output - Didn't consistently get console output, issue
+                    #   is buffering on the subprocess side that seem unavoidable with this approach
+                    # - Redirecting our stdout - Didn't work at all for the mavsdk server output and was very
+                    #   inconsistent for other outputs. Seems like each script might need to do its own redirecting,
+                    #   which is obviously not practical.
                     self.server_addr = "127.0.0.1"
                 except FileNotFoundError:
                     self.logger.error("Missing the MAVSDK server binary! This must be downloaded manually on Windows, "
