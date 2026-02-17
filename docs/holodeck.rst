@@ -100,9 +100,9 @@ you may want to create a custom Digital Twin of your specific flight environment
 2. Core Logic Integration
 -------------------------
 
-* **Manager Object:** Drag the ``Prefabs/DroneManager`` as an empty GameObject in your scene.
+* **Orchestrator Object:** Drag the ``Prefabs/DroneOrchestrator`` as an empty GameObject in your scene.
 * **VRCamera:** Drag and drop the ``Prefabs/OVRCamera Rig Variant`` into your scene
-* **Configure Ports:** In the ``UDPReceiver`` on the ``DroneManager`` empty GameObject in the inspector, set the ``serverIp`` and ``serverPort`` to match your Python backend.
+* **Configure Ports:** In the ``UDPReceiver`` on the ``DroneOrchestrator`` empty GameObject in the inspector, set the ``serverIp`` and ``serverPort`` to match your Python backend.
 * Delete the default "Main Camera." Otherwise the VRCamera does not know which one to pick as main.
 
 3. Gaussian Splatting 
@@ -169,7 +169,7 @@ Once the scene is set up, follow this execution order:
 1.  **Start the Backend:** Run your DroneManager Python script. It will begin listening for a connection request.
 2.  **Enter Play Mode:** Press **Play** in the Unity Editor.
 3.  **Handshake:** The ``UDPReceiver`` will automatically send a start request. Once received, the Python backend will begin streaming telemetry.
-4.  **Verification:** The DroneManager shoud spawn the corresponding drone in your scene. MetaQuest VR headsets will automatically pickup a UnityScene and load into the cam. Make sure to have it setup correctly. This was the most unreliable component on our side. Read the Meta Setup Guide carefully for your chosen hardware.
+4.  **Verification:** The DroneOrchestrator should spawn the corresponding drone in your scene. MetaQuest VR headsets will automatically pickup a UnityScene and load into the cam. Make sure to have it setup correctly. This was the most unreliable component on our side. Read the Meta Setup Guide carefully for your chosen hardware.
 
 .. tip::
    If you want to quickly test your setup without creating a scene from scratch, open ``Assets/Scenes/TestLevel-1``. It contains a fully functional configuration with a demo environment and all script references already linked.
@@ -183,7 +183,7 @@ Overview
 
 The Holodeck system is built on a **Decoupled Architecture**. This means the flight logic (the "Brain") runs in a Python environment, while the simulation and visualization (the "Body") run in Unity. They communicate via a low-latency UDP network protocol.
 
-.. image:: imgs/Holodeck-Systemdesign_alt.svg
+.. image:: imgs/Holodeck-Systemdesign.svg
    :alt: Holodeck System Overview Diagram
    :align: center
 
@@ -207,7 +207,7 @@ The integration follows a continuous loop to ensure the Digital Twin stays synch
 3.  **Frontend (Unity/Holodeck):**
 
     * The ``UDPReceiver`` catches the packet and parses it according to the DroneDataClasses struct.
-    * The ``DroneManager`` (Unity Side) checks if the drone exists in the scene. If not, it spawns a new one.
+    * The ``DroneOrchestrator`` (Unity Side) checks if the drone exists in the scene. If not, it spawns a new one.
     * The ``DroneController`` updates the 3D model's position and orientation.
     * The ``Displays`` update AR elements (Fences/Waypoints) based on the latest mission data.
     * The ``CameraSpringArm`` attaches to the first drone and hosts the VR-Camera.
@@ -228,39 +228,39 @@ Key Technologies
 Unity Scripts
 =============
 
-DroneManager & Controller
+DroneOrchestrator & Controller
 -------------------------
 
-The **DroneManager** acts as the central orchestrator, managing the lifecycle of drone GameObjects based on the UDP stream. The **DroneController** acts as the local agent, handling the physical movement and smoothing for a specific drone.
+The **DroneOrchestrator** acts as the central manager, controlling the lifecycle of drone GameObjects based on the UDP stream. The **DroneController** acts as the local agent, handling the physical movement and smoothing for a specific drone.
 
-DroneManager: Architecture
+DroneOrchestrator: Architecture
 ^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-The ``DroneManager`` does not control flight physics; it synchronizes the Unity Scene state with the Python backend state.
+The ``DroneOrchestrator`` does not control flight physics; it synchronizes the Unity Scene state with the Python backend state.
 
 **1. Lifecycle Reconciliation (The Update Loop)**
-Every frame, the manager compares the incoming JSON dictionary against its internal ``managedDrones`` dictionary:
+Every frame, the Orchestrator compares the incoming JSON dictionary against its internal ``managedDrones`` dictionary:
 
 * **Spawn:** If a Drone ID exists in the JSON but not in Unity, it instantiates the ``DronePrefab``.
 * **Update:** If an ID exists in both, it passes the data to the ``DroneController``.
 * **Despawn:** If an ID exists in Unity but is missing from the JSON (disconnection), it destroys the GameObject.
 
 **2. Data Routing**
-The manager acts as a data router. It unpacks the ``DroneData`` object and forwards specific components to the relevant scripts on the drone:
+The Orchestrator acts as a data router. It unpacks the ``DroneData`` object and forwards specific components to the relevant scripts on the drone:
 
 * **Telemetry:** Sent to ``DroneController.UpdateData()``.
 * **Geofence:** Extracted from ``data.fence`` and sent to ``FenceDisplay.UpdateFence()``.
 * **Waypoints:** Extracted from ``data.target[0]`` (Nested List) and sent to ``TargetDisplay.UpdateTarget()``.
 
 **3. Automatic Camera Attachment**
-The manager enforces a "First-Pilot" rule for VR comfort.
+The Orchestrator enforces a "First-Pilot" rule for VR comfort.
 * **Logic:** The **first** drone spawned is automatically assigned as the target for the ``CameraSpringArm``.
 * **Result:** The VR player immediately enters "Chase Mode" behind the first connected drone.
 
-Manager Configuration
+Orchestrator Configuration
 ^^^^^^^^^^^^^^^^^^^^^
 
-Attach this script to your persistent **NetworkManager** object.
+Attach this script to your persistent prefered GameObject or use the DroneOrchestrator Prefab.
 
 .. list-table::
    :widths: 20 15 65
@@ -296,7 +296,7 @@ Since UDP updates (~20Hz) are slower than the VR Frame Rate (~90Hz), raw positio
 Prefab Requirements
 ^^^^^^^^^^^^^^^^^^^
 
-For the system to function correctly, the **Drone Prefab** assigned to the Manager must have the following component structure:
+For the system to function correctly, the **Drone Prefab** assigned to the Orchestrator must have the following component structure:
 
 1.  **Root Object:**
     * ``DroneController`` (Required for movement)
@@ -309,7 +309,7 @@ For the system to function correctly, the **Drone Prefab** assigned to the Manag
 Code Snippet: Data Propagation
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-This snippet from ``DroneManager.cs`` illustrates how data is unpacked and routed to the visualizers.
+This snippet from ``DroneOrchestrator.cs`` illustrates how data is unpacked and routed to the visualizers.
 
 .. code-block:: csharp
 
@@ -428,12 +428,12 @@ Shared state information for multi-agent coordination.
 UDPReceiver
 -----------
 
-The ``UDPReceiver`` acts as the primary networking gateway for the Unity client. It manages a threaded UDP socket to receive high-frequency telemetry from the DroneManager backend without blocking the main Unity rendering loop.
+The ``UDPReceiver`` acts as the primary networking gateway for the Unity client. It manages a threaded UDP socket to receive high-frequency telemetry from the DroneOrchestrator backend without blocking the main Unity rendering loop.
 
 Component Configuration
 ^^^^^^^^^^^^^^^^^^^^^^^
 
-Attach this script to a persistent GameObject in the scene (e.g., "DroneManager"). The following fields are configurable in the Unity Inspector:
+Attach this script to a persistent GameObject in the scene (e.g., "DroneOrchestrator"). The following fields are configurable in the Unity Inspector:
 
 .. list-table::
    :widths: 20 15 65
@@ -444,7 +444,7 @@ Attach this script to a persistent GameObject in the scene (e.g., "DroneManager"
      - Description
    * - **Server IP**
      - ``127.0.0.1``
-     - The IP address of the machine running the Python DroneManager.
+     - The IP address of the machine running the Python-based DroneManager.
    * - **Server Port**
      - ``31659``
      - The port the Python backend is listening on.
@@ -560,7 +560,7 @@ The ``target`` field is marked ``[HideInInspector]`` because it is assigned dyna
 
 .. code-block:: csharp
 
-   // Inside DroneManager.cs or similar spawner script
+   // Inside DroneOrchestrator.cs or similar spawner script
    public void SpawnDrone(GameObject dronePrefab)
    {
        GameObject newDrone = Instantiate(dronePrefab);
