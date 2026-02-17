@@ -110,10 +110,9 @@ you may want to create a custom Digital Twin of your specific flight environment
 
 To create a high-fidelity digital twin of your environment, you need to capture spatial data using a mobile device (e.g., iPhone 15 Pro) equipped with LiDAR and CMOS sensors.
 
-1. **Download Scanning Apps:** 
-   * Install applications like **Scaniverse** or **Luma AI** from the App Store or Play Store.
-2. **Capture the Environment:** 
-   * Scan the entire room, ensuring every corner, edge, and surface is covered. Maintain high overlap between movements to ensure the Gaussian Splatting algorithm has enough depth information to reconstruct fine details.
+1. **Download Scanning Apps:**  Install applications like **Scaniverse** or **Luma AI** from the App Store or Play Store.
+
+2. **Capture the Environment:** Scan the entire room, ensuring every corner, edge, and surface is covered. Maintain high overlap between movements to ensure the Gaussian Splatting algorithm has enough depth information to reconstruct fine details.
 3. **Export Data:** Export the processed scan as a **.ply** file. This file acts as the dense point cloud required for the Unity plugin.
 
 For a reference of what a successful capture looks like, see this `Luma AI Sample <https://lumalabs.ai/capture/EAB8973D-2C21-4830-9766-16A0344B2540>`_.
@@ -124,16 +123,20 @@ For a reference of what a successful capture looks like, see this `Luma AI Sampl
 To load the Gaussian Splatting into your Unity scene, follow these steps:
 
 1. **Initialize and Import Assets:**
+
    * Navigate to **Tools > Gaussian Splatting** to initialize the plugin after installation.
-   * Create GaussianAssetSplats.
-   %Image1gs here
+   * Create GaussianAssetSplats. %Image1gs here
+
 2. **Import the .ply file:** Drag and drop the exported .ply file into the **Assets** folder of your Unity project.
 3. **Assign the .ply file:**
+
    * Create or load Scene of GSTestScene
    * In the **Inspector** window, locate the **Gaussian Splatting Renderer** component.
    * Click the circle icon next to the **PLY File** field.
    * Select your imported .ply file from the list. %Image2gs here
+
 4. **Adjust Settings:**
+
    * **Scale:** Ensure the scale of the object matches your environment. If the scan appears too small or too large, adjust the **Scale** values in the Transform component of the Gaussian Splatting object.
    * **Position:** Position the object at the origin (0, 0, 0) or at the desired location for your digital twin.
 
