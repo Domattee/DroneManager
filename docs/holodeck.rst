@@ -229,12 +229,12 @@ Unity Scripts
 =============
 
 DroneOrchestrator & Controller
--------------------------
+-----------------------------------
 
 The **DroneOrchestrator** acts as the central manager, controlling the lifecycle of drone GameObjects based on the UDP stream. The **DroneController** acts as the local agent, handling the physical movement and smoothing for a specific drone.
 
 DroneOrchestrator: Architecture
-^^^^^^^^^^^^^^^^^^^^^^^^^^
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 The ``DroneOrchestrator`` does not control flight physics; it synchronizes the Unity Scene state with the Python backend state.
 
@@ -258,7 +258,7 @@ The Orchestrator enforces a "First-Pilot" rule for VR comfort.
 * **Result:** The VR player immediately enters "Chase Mode" behind the first connected drone.
 
 Orchestrator Configuration
-^^^^^^^^^^^^^^^^^^^^^
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 Attach this script to your persistent prefered GameObject or use the DroneOrchestrator Prefab.
 
