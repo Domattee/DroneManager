@@ -25,11 +25,11 @@ Drone module
    :show-inheritance:
 
 
-Terminal interface
-------------------
+User Interface
+--------------
 
-App
-^^^
+Terminal app
+^^^^^^^^^^^^
 
 .. automodule:: dronemanager.app
    :members:
