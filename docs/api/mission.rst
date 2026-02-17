@@ -10,7 +10,7 @@ Missions
 Mission Base Class
 ------------------
 
-.. automodule:: dronecontrol.plugins.mission
+.. automodule:: dronemanager.plugins.mission
    :members:
    :undoc-members:
    :show-inheritance:
@@ -22,7 +22,7 @@ Mission list
 UAM
 ^^^
 
-.. automodule:: dronecontrol.missions.uam
+.. automodule:: dronemanager.missions.uam
    :members:
    :undoc-members:
    :show-inheritance:
@@ -31,7 +31,7 @@ UAM
 Engel
 ^^^^^
 
-.. automodule:: dronecontrol.missions.engel
+.. automodule:: dronemanager.missions.engel
    :members:
    :undoc-members:
    :show-inheritance:

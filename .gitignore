@@ -60,4 +60,4 @@ logs/
 .cache/
 
 # MAVSDK server executable on windows
-src/dronecontrol/mavsdk_server_bin.exe
+src/dronemanager/mavsdk_server_bin.exe

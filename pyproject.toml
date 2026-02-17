@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "DroneManager"
-version = "0.3"
+version = "0.4"
 authors = [
     {name="Dominik Mattern", email="dominik.mattern@thi.de"},
     {name="Babak Salamat", email="babak.salamat@thi.de"},
@@ -30,7 +30,7 @@ classifiers = [
     "Operating System :: OS Independent", ]
 
 [project.scripts]
-dm = "dronecontrol.app:main"
+dm = "dronemanager.app:main"
 
 [project.optional-dependencies]
 docs = [

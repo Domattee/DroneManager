@@ -1,7 +1,7 @@
 Utility functions
 =================
 
-.. automodule:: dronecontrol.utils
+.. automodule:: dronemanager.utils
    :members:
    :undoc-members:
    :show-inheritance:

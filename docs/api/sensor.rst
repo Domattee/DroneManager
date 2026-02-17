@@ -10,7 +10,7 @@ Sensors
 Sensor Base Class
 ------------------
 
-.. automodule:: dronecontrol.plugins.sensor
+.. automodule:: dronemanager.plugins.sensor
    :members:
    :undoc-members:
    :show-inheritance:
@@ -22,7 +22,7 @@ Sensors list
 Ecowitt
 ^^^^^^^
 
-.. automodule:: dronecontrol.sensors.ecowitt
+.. automodule:: dronemanager.sensors.ecowitt
    :members:
    :undoc-members:
    :show-inheritance:
