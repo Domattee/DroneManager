@@ -4,7 +4,7 @@ import inspect
 import os
 import shlex
 
-from dronemanager.dronemanager import DroneManager
+from dronemanager.core import DroneManager
 from dronemanager.drone import Drone, DroneMAVSDK
 from dronemanager.utils import common_formatter, check_cli_command_signatures, coroutine_awaiter
 

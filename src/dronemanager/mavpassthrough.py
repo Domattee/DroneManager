@@ -84,7 +84,6 @@ class MAVPassthrough:
 
         self.running_tasks.add(asyncio.create_task(asyncio.to_thread(self._listen_gcs)))
 
-
     def connect_drone(self, loc, appendix, scheme="udp"):
         if scheme == "udp":
             self.running_tasks.add(asyncio.create_task(self._connect_drone_udp(loc, appendix)))
@@ -147,7 +146,7 @@ class MAVPassthrough:
             await handshake_task
 
              # Start listening and transferring messages
-            self.running_tasks.add(asyncio.create_task(asyncio.to_thread(self._listen_drone)))
+            self.running_tasks.add(asyncio.create_task(self._listen_drone()))
         except Exception as e:
             self.logger.debug(f"Error during connection to drone: {repr(e)}", exc_info=True)
 
@@ -340,8 +339,8 @@ class MAVPassthrough:
     def _listen_gcs(self):
         self.logger.debug("Starting to listen to GCS")
         while not self.should_stop:
-            if self.con_gcs is not None:
-                while not self.should_stop:
+            try:
+                if self.con_gcs is not None:
                     # Receive and log all messages from the GCS
                     msg = self.con_gcs.recv_match(blocking=True)
                     if self.log_messages:
@@ -359,17 +358,21 @@ class MAVPassthrough:
                                                   f"{repr(e)}", exc_info=True)
                         self.con_drone_in.mav.srcSystem = self.source_system
                         self.con_drone_in.mav.srcComponent = self.source_component
-            else:
-                time.sleep(1)
+                else:
+                    time.sleep(1)
+            except Exception as e:
+                self.logger.debug(f"Exception in the drone connection function: {repr(e)}", exc_info=True)
 
-    def _listen_drone(self):
+    async def _listen_drone(self):
         self.logger.debug("Starting to listen to drone")
         while not self.should_stop:
             try:
                 if self.con_drone_in is not None:
-                    while not self.should_stop:
-                        # Receive and log all messages from the GCS
-                        msg = self.con_drone_in.recv_match(blocking=True)
+                    # Receive and log all messages from the GCS
+                    msg = self.con_drone_in.recv_match(blocking=False)
+                    if msg is None:
+                        await asyncio.sleep(0.001)
+                    else:
                         if self.log_messages:
                             self.logger.debug(f"Message from Drone {msg.get_srcSystem(), msg.get_srcComponent()}, "
                                               f"{msg.to_dict()}")
@@ -390,10 +393,10 @@ class MAVPassthrough:
                                     for coro in callbacks:
                                         self.logger.debug(f"Doing callback {coro} for message "
                                                           f"with ID {msg.get_msgId()}")
-                                        task = asyncio.run_coroutine_threadsafe(coro(msg), self._loop)
+                                        task = asyncio.create_task(coro(msg))
                                         self.running_tasks.add(task)
-                                        self.running_tasks.add(asyncio.run_coroutine_threadsafe(coroutine_awaiter(task,
-                                                                                                     self.logger), self._loop))
+                                        self.running_tasks.add(asyncio.create_task(coroutine_awaiter(task,
+                                                                                                     self.logger)))
                                 # Check acks
                                 if msg_id == 77:
                                     msg_tuple = (msg.command, msg.get_srcSystem(), msg.get_srcComponent(),
@@ -416,7 +419,7 @@ class MAVPassthrough:
                             self.con_gcs.mav.srcSystem = self.source_system
                             self.con_gcs.mav.srcComponent = self.source_component
                 else:
-                    time.sleep(1)
+                    await asyncio.sleep(1)
             except Exception as e:
                 self.logger.debug(f"Exception in the drone connection function: {repr(e)}", exc_info=True)
 
