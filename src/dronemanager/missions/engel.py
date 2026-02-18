@@ -288,10 +288,13 @@ class ENGELDataMission(Mission):
                 await self.camera.set_parameter(name, value)
 
     async def replay_captures(self):
+        await self.drones[self.drone_name].execute_task(self._replay_captures())
+
+    async def _replay_captures(self):
         """ Function to take the position from previous captures saved to file and capture them all again."""
         # For each loaded capture: Set camera parameters, fly to position, optionally refine position, take new capture
         # Currently just prints loaded info for debug purposes
-        drone = self.dm.drones[self.drone_name]
+        drone = self.drones[self.drone_name]
         for capture in self.loaded_captures:
             try:
                 reference_image = capture.images[0]
@@ -475,16 +478,19 @@ class ENGELDataMission(Mission):
         self.loaded_file = None
 
     async def done(self):
+        await self.drones[self.drone_name].execute_task(self._done())
+
+    async def _done(self):
         """ Save any captures, reset and fly back to base and land"""
         await self.save_captures_to_file()
         await self.reset()
-        await self.dm.fly_to(self.drone_name, waypoint=self.dm.drones[self.drone_name].return_position)
+        await self.dm.fly_to(self.drone_name, waypoint=self.drones[self.drone_name].return_position)
         await self.dm.land(self.drone_name)
         await self.dm.disarm(self.drone_name)
 
     async def status(self):
         """ Print information, such as how many captures we have taken"""
-        self.logger.info(f"Drones {self.drones}. {len(self.captures)} current, {len(self.loaded_captures)} old captures.")
+        self.logger.info(f"Drone {self.drones}. {len(self.captures)} current, {len(self.loaded_captures)} old captures.")
 
     def _register_controller_inputs(self):
         PS4Mapping.add_method_to_button(3, self._do_capture_controller)  # Do capture on Triangle

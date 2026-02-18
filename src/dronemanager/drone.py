@@ -1326,11 +1326,15 @@ class DroneMAVSDK(Drone):
         return True
 
     async def manual_control_position(self):
+        self.clear_queue()
+        self.cancel_action()
         await self.path_follower.deactivate()
         result = await self._error_wrapper(self.system.manual_control.start_position_control, ManualControlError)
         return result
 
     async def manual_control_altitude(self):
+        self.clear_queue()
+        self.cancel_action()
         await self.path_follower.deactivate()
         result = await self._error_wrapper(self.system.manual_control.start_altitude_control, ManualControlError)
         return result
