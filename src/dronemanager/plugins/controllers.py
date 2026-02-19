@@ -384,7 +384,7 @@ class ControllerPlugin(Plugin):
                                                                                              self.logger)))
 
                     # If we are connected and armed, send stick inputs to drone
-                    if drone.is_connected and drone.is_armed:
+                    if drone.is_connected:
                         if drone.fence is not None:
                             try:
                                 forward_input, right_input, vertical_input, yaw_input = \

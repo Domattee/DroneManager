@@ -6,7 +6,7 @@ import os.path
 import threading
 import platform
 import time
-from subprocess import Popen, PIPE, STDOUT
+from subprocess import Popen, PIPE, STDOUT, DEVNULL
 from abc import ABC, abstractmethod
 from typing import Coroutine
 
@@ -658,7 +658,7 @@ class DroneMAVSDK(Drone):
                 try:
                     self.logger.debug(f"On windows, using local server file {_mav_server_file}")
                     self._server_process = Popen(f"{_mav_server_file} -p {self.server_port} "
-                                                 f"{mavsdk_passthrough_string}", stdout=PIPE, stderr=STDOUT)
+                                                 f"{mavsdk_passthrough_string}", stdout=DEVNULL, stderr=DEVNULL)
                     # TODO: Come up with some way of capturing the output that actually works
                     # Things tried:
                     # - Asyncio subprocess and async for loops over output - Didn't consistently get console output,

@@ -114,14 +114,11 @@ class RectLocalFence(Fence):
 
         speed_limit_horizontal = _limit_speed(distance_horizontal, speed_limit_horizontal, acceleration_horizontal)
         scaling_factor = speed_limit_horizontal / max_speed_h
-        scaling_thresh = drone.config.max_h_vel / max_speed_h
-        if scaling_factor > scaling_thresh / 2:
-            scaling_factor = math.sqrt(scaling_factor)  # Improves drone behaviour due to non linear speed response
 
-        forward_input *= scaling_factor
+        forward_input *= scaling_factor 
         right_input *= scaling_factor
 
-        self.logger.info(f"{scaling_factor, speed_limit_horizontal, drone.config.max_h_vel, distance_horizontal, acceleration_horizontal}")
+        #self.logger.info(f"{scaling_factor, speed_limit_horizontal, drone.config.max_h_vel, distance_horizontal, acceleration_horizontal}")
 
         return forward_input, right_input, vertical_input, yaw_input
 
