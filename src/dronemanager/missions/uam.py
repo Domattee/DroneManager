@@ -601,6 +601,7 @@ class UAMMission(Mission):
                 await self._launch_drone(drone, self.flight_altitude)
                 await self._drone_rtb(drone, self.start_positions_y[drone], self.flight_altitude)
         self.current_stage = UAMStages.Start
+        return True
 
     async def _launch_drone(self, drone, altitude):
         armed = await self.dm.arm([drone])
@@ -657,6 +658,7 @@ class UAMMission(Mission):
             except KeyError:
                 self.logger.error(f"No drone named {name}")
         self._init_variables()
+        return True
 
     async def remove_drones(self, names: list[str]):
         for name in names:
@@ -671,5 +673,6 @@ class UAMMission(Mission):
         # Can't rearm
         return self.dm.drones[drone].is_connected
 
+    @property
     def battery_levels(self):
         return {drone: battery.level for drone, battery in self.batteries.items()}

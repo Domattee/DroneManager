@@ -3,6 +3,7 @@
 Currently only features a basic UDP server which sends data on connected drones and running missions in a json format.
 """
 import asyncio
+import select
 import threading
 import socket
 import errno
@@ -70,14 +71,17 @@ class UDPPlugin(Plugin):
     async def close(self):
         await super().close()
         self._stop_threads = True
-        self.socket.close()
 
     def _listen_for_clients(self, stop):
         self.logger.debug("Listening for clients...")
         while not stop():
             try:
                 try:
-                    msg, addr = self.socket.recvfrom(1024)
+                    rlist, _ , _ = select.select([self.socket], [], [], 1)
+                    if len(rlist) == 1:
+                        msg, addr = self.socket.recvfrom(1024)
+                    else:
+                        continue
                 except socket.error as e:
                     if e.errno in [errno.EAGAIN, errno.EWOULDBLOCK, errno.ECONNREFUSED]:
                         continue
@@ -115,7 +119,6 @@ class UDPPlugin(Plugin):
                 self.logger.warning("Exception listening for incoming UDP!")
                 self.logger.debug(repr(e), exc_info=True)
                 self.logger.debug("Dummy")
-        return 0
 
     async def _client_sender(self, client: UDPClient):
         """ Send data to the client.
@@ -152,15 +155,14 @@ class UDPPlugin(Plugin):
       
             # fence logic
             fence_list = []
-            fence_margin = .5
             if getattr(drone, 'fence', None): # Check if fence exists and is not None
                  fence_list = [
-                    drone.fence.north_lower + fence_margin,
-                    drone.fence.north_upper - fence_margin,
-                    drone.fence.east_lower + fence_margin,
-                    drone.fence.east_upper - fence_margin,
-                    drone.fence.down_lower + fence_margin,
-                    drone.fence.down_upper - fence_margin,
+                    drone.fence.north_lower,
+                    drone.fence.north_upper,
+                    drone.fence.east_lower,
+                    drone.fence.east_upper,
+                    drone.fence.down_lower,
+                    drone.fence.down_upper,
                     drone.fence.safety_level
                  ]
             drone_data[drone_name] = {

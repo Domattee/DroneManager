@@ -125,10 +125,8 @@ class Mission(Plugin, abc.ABC):
         self.flight_area: FlightArea | None = None  # For missions with a defined flight area
         self.drones = collections.OrderedDict()  # The drones participating in the mission
 
-        # A dictionary with any other information that might be useful for other parts of the library. For example,
-        # adding a function here means the external plugin will send it automatically over udp. The dictionary key
-        # will be used to identify the information, while the value should be a function that returns the desired
-        # information.
+        # A dictionary with any other information that might be useful for other parts of the library. The external
+        # plugin automatically shares the information here.
         self.additional_info = {}
 
     async def start(self):

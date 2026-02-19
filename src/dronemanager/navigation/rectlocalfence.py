@@ -115,8 +115,10 @@ class RectLocalFence(Fence):
         speed_limit_horizontal = _limit_speed(distance_horizontal, speed_limit_horizontal, acceleration_horizontal)
         scaling_factor = speed_limit_horizontal / max_speed_h
 
-        forward_input *= scaling_factor
+        forward_input *= scaling_factor 
         right_input *= scaling_factor
+
+        #self.logger.info(f"{scaling_factor, speed_limit_horizontal, drone.config.max_h_vel, distance_horizontal, acceleration_horizontal}")
 
         return forward_input, right_input, vertical_input, yaw_input
 
