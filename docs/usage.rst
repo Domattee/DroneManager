@@ -10,6 +10,9 @@ Usage
 Quick Start
 -----------
 
+.. note::
+  This guide assumes that you also installed the PX4 SITL environment so we can use simulated drones.
+
 A command ``dm`` is set up as part of the installation. Typing this command into a terminal will start a new
 DroneManager instance and terminal interface.
 
@@ -25,12 +28,9 @@ In one terminal, activate the venv and start up DroneManager by typing ``dm``.
 In a separate terminal, start up a PX4 SITL drone by moving to the PX4 SITL root directory and typing
 ``make px4-sitl gz_x500``.
 
-.. note::
-  This guide assumes that you also installed the PX4 SITL environment so we can use simulated drones.
-
 To connect to the simulated drone with DroneManager, click on the command line at the bottom and type::
 
-   connect tom udp://127.0.0.1:14540
+   connect tom
 
 This creates a new drone object, assigns it the name ``tom`` and tries to connect to a MAVLink Node with the given
 connection string. You can provide any name, it will be used to identify the drone in other commands.
@@ -85,6 +85,12 @@ Flying a drone with these commands by hand can be quite tedious, as you have to 
 also support game pads. The ``controllers`` plugin is loaded by default. If you connect a DualShock 4 you can use it to
 fly the drone with no further text commands.
 
+.. note::
+  If you have been using WSL so far, the controller will not work out of the box. You will have to either configure WSL
+  to use USB devices, or run DM in Windows with Gazebo on WSL. We use the second method. This requires adjusting the
+  firewall to allow traffic from WSL to Windows, and depending on the network configuration of your WSL (NAT or mirrored)
+  you might have to provide the connection string with the IP of the WSL instance.
+
 Controls:
 
 +-----------------------+-----------------------+
@@ -123,6 +129,37 @@ automatically generate commands for the terminal interface, while still allowing
 In the next section, we take a look at an example mission with multiple drones.
 
 See :ref:`the mission guide <guide_mission>` for more information on setting up your own.
+
+Script usage
+------------
+
+DroneManager can also be used without the terminal interface. For example, the following code will create a DM
+instance, connects to a drone and performs some basic maneuvers::
+
+    import asyncio
+    from dronemanager.dronemanager import DroneManager
+    from dronemanager.drone import DroneMAVSDK
+
+    async def main():
+        drone_type = DroneMAVSDK
+        dm = DroneManager(drone_type, log_to_console=True)
+        await dm.connect_to_drone("tom")
+        await asyncio.sleep(1)  # Small grace period to allow parameters to load
+        await dm.arm("tom")
+        await dm.takeoff("tom", altitude=3)
+        await dm.fly_to("tom", local=[10, 0, -3], yaw=0)
+        await dm.move("tom", offset=[-10, 0, 0], yaw=0)
+        await dm.land("tom")
+        while dm.drones["tom"].in_air:  # PX4 sometimes takes a little bit to recognize that we have landed
+            await asyncio.sleep(0.5)
+        await dm.disarm("tom")
+        await dm.close()
+
+    asyncio.run(main())
+
+
+All the CLI commands are also available as functions. Plugins can be loaded and are accessible as attributes of the DM
+instance under the name of the plugin.
 
 Example mission
 ---------------
@@ -197,16 +234,11 @@ With the drones connected and all the scripts loaded you can begin flying missio
 3. To fly drones from any position to their start position one-by-one you can use ``uam-reset``. This should only be used 
    in Gazebo, the drones should already be at their start positions in a real demo.
 
+
 Configuration file
 ------------------
 
 TODO: Config file
-
-
-Drone parameters
-----------------
-
-TODO: Short guide to Parameters
 
 
 Common Issues
@@ -255,11 +287,6 @@ With an external visual tracking system for positioning, the tracking system mig
 convention, while the drone expects forward, right and down.
 With visual odometry instead of an absolute system, the axes might be aligned with the orientation of the drone at
 boot-up.
-
-Offboard mode
-^^^^^^^^^^^^^
-
-TODO: All of it
 
 
 .. _com_ref:

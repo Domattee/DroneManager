@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "DroneManager"
-version = "0.3"
+version = "0.4"
 authors = [
     {name="Dominik Mattern", email="dominik.mattern@thi.de"},
     {name="Babak Salamat", email="babak.salamat@thi.de"},
@@ -13,7 +13,7 @@ description = "Package to connect to and control multiple drones, either program
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
-    "numpy",
+    "numpy<2",
     "textual==2.1.2",
     "rich",
     "mavsdk==3.0.1",
@@ -23,14 +23,14 @@ dependencies = [
     "haversine",
     "scipy",
     "requests",
-    "ruckig"]
-
+    "ruckig",
+    "opencv-python"]
 classifiers = [
     "Programming Language :: Python :: 3",
     "Operating System :: OS Independent", ]
 
 [project.scripts]
-dm = "dronecontrol.app:main"
+dm = "dronemanager.app:main"
 
 [project.optional-dependencies]
 docs = [

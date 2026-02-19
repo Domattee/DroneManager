@@ -1,4 +1,4 @@
-# DroneControl
+# DroneManager
 
 A package to connect to and control multiple drones.
 

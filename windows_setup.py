@@ -13,7 +13,7 @@ import sys
 MAV_URL = "https://github.com/mavlink/MAVSDK/releases/download/v3.0.0/mavsdk-windows-x64-release.zip"
 VS_URL = "https://aka.ms/vs/17/release/vs_BuildTools.exe"
 
-MAVPATH = "src/dronecontrol/mavsdk_server_bin.exe"
+MAVPATH = "src/dronemanager/mavsdk_server_bin.exe"
 VSWHERE_PATHS = [
     "C:/Program Files (x86)/Microsoft Visual Studio/Installer/vswhere.exe",
     "C:/Program Files/Microsoft Visual Studio/Installer/vswhere.exe"

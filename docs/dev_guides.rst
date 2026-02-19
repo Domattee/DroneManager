@@ -10,15 +10,15 @@ Developer Guide
 Conceptually, the DroneManager software is split into three large components.
 
 The first handles core connection and command functions for a single drone. This component contains the
-:py:mod:`Drone <dronecontrol.drone>` and :py:mod:`MAVLink <dronecontrol.mavpassthrough>` modules, as well as the
+:py:mod:`Drone <dronemanager.drone>` and :py:mod:`MAVLink <dronemanager.mavpassthrough>` modules, as well as the
 navigation functions.
 
 The second expands this for multiple drones and makes them available to plugins. This component handles the bulk of
-the logic. The main class is :py:class:`DroneManager <dronecontrol.dronemanager.DroneManager>`, but it also contains
+the logic. The main class is :py:class:`DroneManager <dronemanager.dronemanager.DroneManager>`, but it also contains
 all plugins and missions.
 
 The last component handles user interactions, i.e. the terminal interface. It consists of only the
-:py:mod:`App <dronecontrol.app>` and :py:mod:`<dronecontrol.widgets>` modules.
+:py:mod:`App <dronemanager.app>` and :py:mod:`<dronecontrol.widgets>` modules.
 
 TODO: GRAPH
 
@@ -33,17 +33,6 @@ TODO:
    TODO: Short bit on asyncio and its traps
 
 
-Navigation function guide
--------------------------
-
-TODO: Explanation of the navigation system and how the components interact
-
-Creating your own plugin
-------------------------
-
-TODO: Example process of making a plugin, using existing as example
-
-
 .. _guide_mission:
 
 Creating your own mission
@@ -51,10 +40,18 @@ Creating your own mission
 
 TODO: Example process of making a mission, using existing as example
 
-Example missions
-----------------
 
-TODO: Explanation of UAM, holodeck functions
+Creating your own plugin
+------------------------
+
+TODO: Example process of making a plugin, using existing as example
+
+
+Navigation function guide
+-------------------------
+
+TODO: Explanation of the navigation system and how the components interact
+
 
 Writing documentation
 ---------------------

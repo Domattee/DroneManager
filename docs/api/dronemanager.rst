@@ -10,7 +10,7 @@ DroneManager
 DroneManager module
 -------------------
 
-.. automodule:: dronecontrol.dronemanager
+.. automodule:: dronemanager.dronemanager
    :members:
    :undoc-members:
    :show-inheritance:
@@ -19,7 +19,7 @@ DroneManager module
 Drone module
 ------------
 
-.. automodule:: dronecontrol.drone
+.. automodule:: dronemanager.drone
    :members:
    :undoc-members:
    :show-inheritance:
@@ -31,7 +31,7 @@ Terminal interface
 App
 ^^^
 
-.. automodule:: dronecontrol.app
+.. automodule:: dronemanager.app
    :members:
    :undoc-members:
    :show-inheritance:
@@ -40,7 +40,7 @@ App
 Custom widgets
 ^^^^^^^^^^^^^^
 
-.. automodule:: dronecontrol.widgets
+.. automodule:: dronemanager.widgets
    :members:
    :undoc-members:
    :show-inheritance:
@@ -49,7 +49,7 @@ Custom widgets
 MAVLink connection
 ------------------
 
-.. automodule:: dronecontrol.mavpassthrough
+.. automodule:: dronemanager.mavpassthrough
    :members:
    :undoc-members:
    :show-inheritance:

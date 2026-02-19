@@ -14,7 +14,7 @@ List of special plugins: missions, sensors
 Plugin Base Class
 -----------------
 
-.. automodule:: dronecontrol.plugin
+.. automodule:: dronemanager.plugin
    :members:
    :undoc-members:
    :show-inheritance:
@@ -26,7 +26,7 @@ Plugin list
 Camera
 ^^^^^^
 
-.. automodule:: dronecontrol.plugins.camera
+.. automodule:: dronemanager.plugins.camera
    :members:
    :undoc-members:
    :show-inheritance:
@@ -35,7 +35,7 @@ Camera
 Controllers
 ^^^^^^^^^^^
 
-.. automodule:: dronecontrol.plugins.controllers
+.. automodule:: dronemanager.plugins.controllers
    :members:
    :undoc-members:
    :show-inheritance:
@@ -44,7 +44,7 @@ Controllers
 External
 ^^^^^^^^
 
-.. automodule:: dronecontrol.plugins.external
+.. automodule:: dronemanager.plugins.external
    :members:
    :undoc-members:
    :show-inheritance:
@@ -53,7 +53,7 @@ External
 Gimbal
 ^^^^^^
 
-.. automodule:: dronecontrol.plugins.gimbal
+.. automodule:: dronemanager.plugins.gimbal
    :members:
    :undoc-members:
    :show-inheritance:
@@ -62,7 +62,7 @@ Gimbal
 Mission
 ^^^^^^^
 
-.. automodule:: dronecontrol.plugins.mission
+.. automodule:: dronemanager.plugins.mission
    :members:
    :undoc-members:
    :show-inheritance:
@@ -72,7 +72,7 @@ Mission
 Optitrack
 ^^^^^^^^^
 
-.. automodule:: dronecontrol.plugins.optitrack
+.. automodule:: dronemanager.plugins.optitrack
    :members:
    :undoc-members:
    :show-inheritance:
@@ -81,7 +81,7 @@ Optitrack
 Scripts
 ^^^^^^^
 
-.. automodule:: dronecontrol.plugins.scripts
+.. automodule:: dronemanager.plugins.scripts
    :members:
    :undoc-members:
    :show-inheritance:
@@ -90,8 +90,17 @@ Scripts
 Sensor
 ^^^^^^
 
-.. automodule:: dronecontrol.plugins.sensor
+.. automodule:: dronemanager.plugins.sensor
    :members:
    :undoc-members:
    :show-inheritance:
    :no-index:
+
+
+Stream
+^^^^^^
+
+.. automodule:: dronemanager.plugins.stream
+   :members:
+   :undoc-members:
+   :show-inheritance:
