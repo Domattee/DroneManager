@@ -26,6 +26,7 @@ pane_formatter = logging.Formatter('%(asctime)s %(levelname)s %(name)s - %(messa
 
 
 UPDATE_RATE = 20  # How often the various screens update in Hz.
+BENCHMARKING = False
 
 
 class StatusScreen(Screen):
@@ -588,7 +589,7 @@ class CommandScreen(Screen):
         yield Header()
         yield Vertical(
             Horizontal(
-                Log(id="output", classes="text"),
+                Log(id="output", classes="text", max_lines=1000),
                 Vertical(
                     VerticalScroll(
                         Static(id="status_header", content=status_string),
@@ -657,12 +658,55 @@ class DroneApp(App):
 
 
 def main():
-    drone_type = DroneMAVSDK
-    drone_manager = DroneManager(drone_type, log_to_console=False)
-    app = DroneApp(drone_manager, logger=drone_manager.logger)
-    app.run()
+    if BENCHMARKING:
+        from multiprocessing import Event, Process
+        import psutil
+        import time
 
-    logging.shutdown()
+        def check_cpu(pid, stopping: Event):
+            dt = 0.1
+            usages = []
+            # logger = logging.getLogger("manager")
+            counter = 0
+            p = psutil.Process(pid=pid)
+            while not stopping.is_set():
+                cpu_frame = 0
+                mem_frame = 0
+                try:
+                    mem_frame += p.memory_full_info().uss / 1e6
+                    cpu_frame += p.cpu_percent()
+                except psutil.NoSuchProcess:
+                    continue
+                timer = counter * dt
+                usages.append((timer, cpu_frame, mem_frame))
+                time.sleep(dt)
+                counter += 1
+                # if counter % 100 == 0:
+                #    print("\t".join([f"{pid}:{max(usages[pid][1])}:{max(usages[pid][2])}" for pid in usages]))
+            with open("resources_usage.csv", mode="wt", encoding="utf8") as f:
+                f.write("time, cpu, mem\n")
+                for item in usages:
+                    f.write(f"{item[0]}, {item[1]}, {item[2]}\n")
+            print("avg cpu", sum([usages[i][1] for i in range(len(usages))]) / len(usages),
+                  "avg mem", sum([usages[i][2] for i in range(len(usages))]) / len(usages))
+
+        this_pid = os.getpid()
+        stop_cpu_checker = Event()
+        profile_process = Process(target=check_cpu, args=(this_pid, stop_cpu_checker))
+        profile_process.start()
+        drone_type = DroneMAVSDK
+        drone_manager = DroneManager(drone_type, log_to_console=False)
+        app = DroneApp(drone_manager, logger=drone_manager.logger)
+        app.run()
+        logging.shutdown()
+        stop_cpu_checker.set()
+        profile_process.join()
+    else:
+        drone_type = DroneMAVSDK
+        drone_manager = DroneManager(drone_type, log_to_console=False)
+        app = DroneApp(drone_manager, logger=drone_manager.logger)
+        app.run()
+        logging.shutdown()
 
 
 if __name__ == "__main__":

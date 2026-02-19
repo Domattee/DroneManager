@@ -14,6 +14,8 @@ from dronemanager.utils import common_formatter, coroutine_awaiter, LOG_DIR
 # TODO: Routing between multiple GCS so we can have my app and QGroundControl connected at the same time
 # TODO: Implement sending as drone/drone components
 # TODO: Some kind of generic message matching method for callbacks to use
+# TODO: This module also suffers from a memory leak due to pymavlink. The amount of leakage, about 200MB per hour, is
+#  quite small compared to the duration of most missions but still.
 
 
 class MAVPassthrough:
@@ -82,7 +84,7 @@ class MAVPassthrough:
         self.running_tasks.add(handshake_task)
         await handshake_task
 
-        self.running_tasks.add(asyncio.create_task(asyncio.to_thread(self._listen_gcs)))
+        self.running_tasks.add(asyncio.create_task(self._listen_gcs()))
 
     def connect_drone(self, loc, appendix, scheme="udp"):
         if scheme == "udp":
@@ -336,30 +338,31 @@ class MAVPassthrough:
             return False
         return True
 
-    def _listen_gcs(self):
+    async def _listen_gcs(self):
         self.logger.debug("Starting to listen to GCS")
         while not self.should_stop:
             try:
                 if self.con_gcs is not None:
-                    # Receive and log all messages from the GCS
-                    msg = self.con_gcs.recv_match(blocking=True)
-                    if self.log_messages:
-                        self.logger.debug(f"Message from GCS {msg.get_srcSystem(), msg.get_srcComponent()}, "
-                                          f"{msg.to_dict()}")
-                    self.time_of_last_gcs = time.time_ns()
-                    if self.con_drone_in is not None and self.connected_to_gcs():  # Send onward to the drone
-                        self.con_drone_in.mav.srcSystem = msg.get_srcSystem()
-                        self.con_drone_in.mav.srcComponent = msg.get_srcComponent()
-                        if self._process_message_for_return(msg):
-                            try:
-                                self.con_drone_in.mav.send(msg)
-                            except Exception as e:
-                                self.logger.debug(f"Encountered an exception sending message to drone: "
-                                                  f"{repr(e)}", exc_info=True)
-                        self.con_drone_in.mav.srcSystem = self.source_system
-                        self.con_drone_in.mav.srcComponent = self.source_component
+                    if await asyncio.get_running_loop().run_in_executor(None, self.con_gcs.select, 1):
+                        # Receive and log all messages from the GCS
+                        msg = self.con_gcs.recv_match(blocking=False)
+                        if self.log_messages:
+                            self.logger.debug(f"Message from GCS {msg.get_srcSystem(), msg.get_srcComponent()}, "
+                                              f"{msg.to_dict()}")
+                        self.time_of_last_gcs = time.time_ns()
+                        if self.con_drone_in is not None and self.connected_to_gcs():  # Send onward to the drone
+                            self.con_drone_in.mav.srcSystem = msg.get_srcSystem()
+                            self.con_drone_in.mav.srcComponent = msg.get_srcComponent()
+                            if self._process_message_for_return(msg):
+                                try:
+                                    self.con_drone_in.mav.send(msg)
+                                except Exception as e:
+                                    self.logger.debug(f"Encountered an exception sending message to drone: "
+                                                      f"{repr(e)}", exc_info=True)
+                            self.con_drone_in.mav.srcSystem = self.source_system
+                            self.con_drone_in.mav.srcComponent = self.source_component
                 else:
-                    time.sleep(1)
+                    await asyncio.sleep(1)
             except Exception as e:
                 self.logger.debug(f"Exception in the drone connection function: {repr(e)}", exc_info=True)
 
@@ -368,11 +371,9 @@ class MAVPassthrough:
         while not self.should_stop:
             try:
                 if self.con_drone_in is not None:
-                    # Receive and log all messages from the GCS
-                    msg = self.con_drone_in.recv_match(blocking=False)
-                    if msg is None:
-                        await asyncio.sleep(0.001)
-                    else:
+                    if await asyncio.get_running_loop().run_in_executor(None, self.con_drone_in.select, 1):
+                        # Receive and log all messages from the GCS
+                        msg = self.con_drone_in.recv_match(blocking=False)
                         if self.log_messages:
                             self.logger.debug(f"Message from Drone {msg.get_srcSystem(), msg.get_srcComponent()}, "
                                               f"{msg.to_dict()}")
@@ -448,9 +449,9 @@ class MAVPassthrough:
     async def stop(self):
         self.logger.debug("Stopping")
         self.should_stop = True
-        for socket in self._sockets:
+        for sock in self._sockets:
             try:
-                socket.close()
+                sock.close()
             except TypeError:
                 pass
         for task in self.running_tasks:
