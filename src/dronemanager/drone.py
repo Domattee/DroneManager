@@ -540,7 +540,7 @@ class DroneMAVSDK(Drone):
         self._attitude: np.ndarray = np.zeros((3,))         # Roll, pitch and yaw, with positives right up and right.
         self._heading: float = math.nan
         self._batteries: dict[int, Battery] = {}
-        self._running_tasks = []
+        self._running_tasks = set()
 
         # How often (per second) we request position information from the drone. The same interval is used by path
         # planning algorithms for their time resolution.
@@ -677,10 +677,11 @@ class DroneMAVSDK(Drone):
                                  sysid=system_id, compid=component_id)
 
             connected = asyncio.create_task(self.system.connect(system_address=mavsdk_passthrough_string))
-            self._running_tasks.append(connected)
+            self._running_tasks.add(connected)
 
             # Create passthrough
             if self.mav_conn:
+                self.mav_conn.log_messages = log_telemetry
                 # Wait to try and make sure that the mavsdk server has started before booting up passthrough
                 await asyncio.sleep(0.5)
                 self.logger.debug(
@@ -704,12 +705,11 @@ class DroneMAVSDK(Drone):
                     await self._configure_message_rates()
                     await self._schedule_update_tasks()
                     self.logger.debug("Connected!")
-                    self.mav_conn.log_messages = log_telemetry
                     self.config.address = self.drone_addr
                     param_load_task = asyncio.create_task(self.load_parameters())
                     param_load_task_awaiter = asyncio.create_task(coroutine_awaiter(param_load_task, self.logger))
-                    self._running_tasks.append(param_load_task)
-                    self._running_tasks.append(param_load_task_awaiter)
+                    self._running_tasks.add(param_load_task)
+                    self._running_tasks.add(param_load_task_awaiter)
                     return True
         except Exception as e:
             self.logger.debug(f"Exception during connection: {repr(e)}", exc_info=True)
@@ -759,17 +759,17 @@ class DroneMAVSDK(Drone):
             return False
 
     async def _schedule_update_tasks(self) -> None:
-        self._running_tasks.append(asyncio.create_task(self._connect_check()))
-        self._running_tasks.append(asyncio.create_task(self._arm_check()))
-        self._running_tasks.append(asyncio.create_task(self._flightmode_check()))
-        self._running_tasks.append(asyncio.create_task(self._inair_check()))
-        self._running_tasks.append(asyncio.create_task(self._gps_check()))
-        self._running_tasks.append(asyncio.create_task(self._g_pos_check()))
-        self._running_tasks.append(asyncio.create_task(self._vel_rpos_check()))
-        self._running_tasks.append(asyncio.create_task(self._att_check()))
-        self._running_tasks.append(asyncio.create_task(self._battery_check()))
-        self._running_tasks.append(asyncio.create_task(self._status_check()))
-        self._running_tasks.append(asyncio.create_task(self._ensure_message_rates()))
+        self._running_tasks.add(asyncio.create_task(self._connect_check()))
+        self._running_tasks.add(asyncio.create_task(self._arm_check()))
+        self._running_tasks.add(asyncio.create_task(self._flightmode_check()))
+        self._running_tasks.add(asyncio.create_task(self._inair_check()))
+        self._running_tasks.add(asyncio.create_task(self._gps_check()))
+        self._running_tasks.add(asyncio.create_task(self._g_pos_check()))
+        self._running_tasks.add(asyncio.create_task(self._vel_rpos_check()))
+        self._running_tasks.add(asyncio.create_task(self._att_check()))
+        self._running_tasks.add(asyncio.create_task(self._battery_check()))
+        self._running_tasks.add(asyncio.create_task(self._status_check()))
+        self._running_tasks.add(asyncio.create_task(self._ensure_message_rates()))
 
     async def _configure_message_rates(self) -> None:
         if self.is_connected:

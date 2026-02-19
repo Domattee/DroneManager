@@ -379,8 +379,8 @@ class ControllerPlugin(Plugin):
                     if abs(vertical_input) > 0.01 or abs(yaw_input) > 0.01 or abs(right_input) > 0.01 or abs(forward_input) > 0.01:
                         if drone.flightmode != FlightMode.POSCTL:
                             swap_to_manual_task = asyncio.create_task(drone.manual_control_position())
-                            self._running_tasks.append(swap_to_manual_task)
-                            self._running_tasks.append(asyncio.create_task(coroutine_awaiter(swap_to_manual_task,
+                            self._running_tasks.add(swap_to_manual_task)
+                            self._running_tasks.add(asyncio.create_task(coroutine_awaiter(swap_to_manual_task,
                                                                                              self.logger)))
 
                     # If we are connected and armed, send stick inputs to drone

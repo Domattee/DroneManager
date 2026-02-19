@@ -14,6 +14,8 @@ from dronemanager.utils import common_formatter, coroutine_awaiter, LOG_DIR
 # TODO: Routing between multiple GCS so we can have my app and QGroundControl connected at the same time
 # TODO: Implement sending as drone/drone components
 # TODO: Some kind of generic message matching method for callbacks to use
+# TODO: This module also suffers from a memory leak due to pymavlink. The amount of leakage, about 200MB per hour, is
+#  quite small compared to the duration of most missions but still.
 
 
 class MAVPassthrough:
@@ -82,7 +84,6 @@ class MAVPassthrough:
         await handshake_task
 
         self.running_tasks.add(asyncio.create_task(self._listen_gcs()))
-
 
     def connect_drone(self, loc, appendix, scheme="udp"):
         if scheme == "udp":
@@ -339,13 +340,11 @@ class MAVPassthrough:
     async def _listen_gcs(self):
         self.logger.debug("Starting to listen to GCS")
         while not self.should_stop:
-            if self.con_gcs is not None:
-                while not self.should_stop:
-                    # Receive and log all messages from the GCS
-                    msg = self.con_gcs.recv_match(blocking=False)
-                    if msg is None:
-                        await asyncio.sleep(0.001)
-                    else:
+            try:
+                if self.con_gcs is not None:
+                    if await asyncio.get_running_loop().run_in_executor(None, self.con_gcs.select, 1):
+                        # Receive and log all messages from the GCS
+                        msg = self.con_gcs.recv_match(blocking=False)
                         if self.log_messages:
                             self.logger.debug(f"Message from GCS {msg.get_srcSystem(), msg.get_srcComponent()}, "
                                               f"{msg.to_dict()}")
@@ -361,65 +360,64 @@ class MAVPassthrough:
                                                       f"{repr(e)}", exc_info=True)
                             self.con_drone_in.mav.srcSystem = self.source_system
                             self.con_drone_in.mav.srcComponent = self.source_component
-            else:
-                await asyncio.sleep(1)
+                else:
+                    await asyncio.sleep(1)
+            except Exception as e:
+                self.logger.debug(f"Exception in the drone connection function: {repr(e)}", exc_info=True)
 
     async def _listen_drone(self):
         self.logger.debug("Starting to listen to drone")
         while not self.should_stop:
             try:
                 if self.con_drone_in is not None:
-                    while not self.should_stop:
+                    if await asyncio.get_running_loop().run_in_executor(None, self.con_drone_in.select, 1):
                         # Receive and log all messages from the GCS
                         msg = self.con_drone_in.recv_match(blocking=False)
-                        if msg is None:
-                            await asyncio.sleep(0.001)
-                        else:
-                            if self.log_messages:
-                                self.logger.debug(f"Message from Drone {msg.get_srcSystem(), msg.get_srcComponent()}, "
-                                                  f"{msg.to_dict()}")
-                            self.time_of_last_drone = time.time_ns()
-                            if self.con_gcs is not None and self.connected_to_drone():
-                                self.con_gcs.mav.srcSystem = msg.get_srcSystem()
-                                self.con_gcs.mav.srcComponent = msg.get_srcComponent()
-                                if self._process_message_for_return(msg):
-                                    try:
-                                        self.con_gcs.mav.send(msg)
-                                    except Exception as e:
-                                        self.logger.debug(f"Encountered an exception sending message to GCS: {repr(e)}",
-                                                          exc_info=True)
-                                    # Do callbacks
-                                    msg_id = msg.get_msgId()
-                                    if msg_id in self._drone_receive_callbacks:
-                                        callbacks = list(self._drone_receive_callbacks[msg.get_msgId()])
-                                        for coro in callbacks:
-                                            self.logger.debug(f"Doing callback {coro} for message "
-                                                              f"with ID {msg.get_msgId()}")
-                                            task = asyncio.create_task(coro(msg))
-                                            self.running_tasks.add(task)
-                                            self.running_tasks.add(asyncio.create_task(coroutine_awaiter(task,
-                                                                                                         self.logger)))
-                                    # Check acks
-                                    if msg_id == 77:
-                                        msg_tuple = (msg.command, msg.get_srcSystem(), msg.get_srcComponent(),
-                                                     msg.target_system, msg.target_component)
-                                        if msg_tuple in self._ack_waiters:
-                                            futs = self._ack_waiters[msg_tuple]
-                                            if len(futs) > 0:
-                                                fut = futs.pop(0)
-                                                if msg.result == 0:
-                                                    fut.set_result(True)
-                                                else:
-                                                    fut.set_result(False)
-                                    # Check other msgs
-                                    else:
-                                        msg_tuple = (msg.get_msgId(), msg.get_srcSystem(), msg.get_srcComponent())
-                                        if msg_tuple in self._msg_waiters:
-                                            futs = self._msg_waiters.pop(msg_tuple)
-                                            for fut in futs:
-                                                fut.set_result(msg)
-                                self.con_gcs.mav.srcSystem = self.source_system
-                                self.con_gcs.mav.srcComponent = self.source_component
+                        if self.log_messages:
+                            self.logger.debug(f"Message from Drone {msg.get_srcSystem(), msg.get_srcComponent()}, "
+                                              f"{msg.to_dict()}")
+                        self.time_of_last_drone = time.time_ns()
+                        if self.con_gcs is not None and self.connected_to_drone():
+                            self.con_gcs.mav.srcSystem = msg.get_srcSystem()
+                            self.con_gcs.mav.srcComponent = msg.get_srcComponent()
+                            if self._process_message_for_return(msg):
+                                try:
+                                    self.con_gcs.mav.send(msg)
+                                except Exception as e:
+                                    self.logger.debug(f"Encountered an exception sending message to GCS: {repr(e)}",
+                                                      exc_info=True)
+                                # Do callbacks
+                                msg_id = msg.get_msgId()
+                                if msg_id in self._drone_receive_callbacks:
+                                    callbacks = list(self._drone_receive_callbacks[msg.get_msgId()])
+                                    for coro in callbacks:
+                                        self.logger.debug(f"Doing callback {coro} for message "
+                                                          f"with ID {msg.get_msgId()}")
+                                        task = asyncio.create_task(coro(msg))
+                                        self.running_tasks.add(task)
+                                        self.running_tasks.add(asyncio.create_task(coroutine_awaiter(task,
+                                                                                                     self.logger)))
+                                # Check acks
+                                if msg_id == 77:
+                                    msg_tuple = (msg.command, msg.get_srcSystem(), msg.get_srcComponent(),
+                                                 msg.target_system, msg.target_component)
+                                    if msg_tuple in self._ack_waiters:
+                                        futs = self._ack_waiters[msg_tuple]
+                                        if len(futs) > 0:
+                                            fut = futs.pop(0)
+                                            if msg.result == 0:
+                                                fut.set_result(True)
+                                            else:
+                                                fut.set_result(False)
+                                # Check other msgs
+                                else:
+                                    msg_tuple = (msg.get_msgId(), msg.get_srcSystem(), msg.get_srcComponent())
+                                    if msg_tuple in self._msg_waiters:
+                                        futs = self._msg_waiters.pop(msg_tuple)
+                                        for fut in futs:
+                                            fut.set_result(msg)
+                            self.con_gcs.mav.srcSystem = self.source_system
+                            self.con_gcs.mav.srcComponent = self.source_component
                 else:
                     await asyncio.sleep(1)
             except Exception as e:
@@ -450,9 +448,9 @@ class MAVPassthrough:
     async def stop(self):
         self.logger.debug("Stopping")
         self.should_stop = True
-        for socket in self._sockets:
+        for sock in self._sockets:
             try:
-                socket.close()
+                sock.close()
             except TypeError:
                 pass
         for task in self.running_tasks:
