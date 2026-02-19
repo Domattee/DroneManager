@@ -1,64 +1,135 @@
 import os
-from multiprocessing import Process, Manager, Event
+from multiprocessing import Process, Event
 import psutil
-from matplotlib.pyplot import tight_layout
+import yappi
 from psutil import NoSuchProcess
 import asyncio
 import time
 import matplotlib.pyplot as plt
 
 from dronemanager.core import DroneManager
+from dronemanager.app import DroneApp
 from dronemanager.drone import DroneMAVSDK
 
 import pyinstrument
-from pyinstrument.renderers import HTMLRenderer
 
 import logging
 
 FILE_PATH = "benchmarking_data.csv"
+log_telemetry = False
+with_app = False
+
+
+async def measure_longterm():
+    pid = os.getpid()
+    stop_cpu_checker = Event()
+    profile_process = Process(target=check_cpu, args=(pid, stop_cpu_checker))
+    profile_process.start()
+    try:
+        dm = DroneManager(DroneMAVSDK, log_to_console=True, console_log_level=logging.INFO)
+        if with_app:
+            app = DroneApp(dm, logger=dm.logger)
+            asyncio.get_running_loop().run_in_executor(None, app.run)
+        await dm.connect_to_drone("tom", None, None, "udp://:14540", log_telemetry=log_telemetry,
+                                  telemetry_frequency=10)
+        await dm.connect_to_drone("jerry", None, None, "udp://:14541", log_telemetry=log_telemetry,
+                                  telemetry_frequency=10)
+        await dm.connect_to_drone("spike", None, None, "udp://:14542", log_telemetry=log_telemetry,
+                                  telemetry_frequency=10)
+        await asyncio.sleep(3)
+        await asyncio.gather(*[drone_back_and_forth_timed(drone, dm, 1800) for drone in ["tom", "jerry", "spike"]])
+    finally:
+        if with_app:
+            try:
+                await app.command_screen.exit()  # Will probably throw an error about being in the wrong loop
+            except:
+                pass
+        else:
+            await dm.close()
+        stop_cpu_checker.set()
+        profile_process.join()
 
 async def measure_cpu():
-    with Manager() as manager:
-        pid = os.getpid()
-        stop_cpu_checker = Event()
-        profile_process = Process(target=check_cpu, args=(pid, stop_cpu_checker))
-        profile_process.start()
-        try:
-            dm = DroneManager(DroneMAVSDK, log_to_console=True, console_log_level=logging.INFO)
-            await dm.connect_to_drone("tom", None, None, "udp://:14540", log_telemetry=True, telemetry_frequency=10)
-            await drone_back_and_forth("tom", dm)
+    pid = os.getpid()
+    stop_cpu_checker = Event()
+    profile_process = Process(target=check_cpu, args=(pid, stop_cpu_checker))
+    profile_process.start()
+    try:
+        dm = DroneManager(DroneMAVSDK, log_to_console=True, console_log_level=logging.INFO)
+        if with_app:
+            app = DroneApp(dm, logger=dm.logger)
+            asyncio.get_running_loop().run_in_executor(None, app.run)
+        await dm.connect_to_drone("tom", None, None, "udp://:14540", log_telemetry=log_telemetry, telemetry_frequency=10)
+        await drone_back_and_forth("tom", dm)
 
-            await dm.connect_to_drone("jerry", None, None, "udp://:14541", log_telemetry=True, telemetry_frequency=10)
-            await asyncio.gather(*[drone_back_and_forth(drone, dm) for drone in ["tom", "jerry"]])
+        await dm.connect_to_drone("jerry", None, None, "udp://:14541", log_telemetry=log_telemetry, telemetry_frequency=10)
+        await asyncio.gather(*[drone_back_and_forth(drone, dm) for drone in ["tom", "jerry"]])
 
-            await dm.connect_to_drone("spike", None, None, "udp://:14542", log_telemetry=True, telemetry_frequency=10)
-            await asyncio.gather(*[drone_back_and_forth(drone, dm) for drone in ["tom", "jerry", "spike"]])
-        finally:
+        await dm.connect_to_drone("spike", None, None, "udp://:14542", log_telemetry=log_telemetry, telemetry_frequency=10)
+        await asyncio.gather(*[drone_back_and_forth(drone, dm) for drone in ["tom", "jerry", "spike"]])
+    finally:
+        if with_app:
+            try:
+                await app.command_screen.exit()  # Will probably throw an error about being in the wrong loop
+            except:
+                pass
+        else:
             await dm.close()
-            stop_cpu_checker.set()
-            profile_process.join()
+        stop_cpu_checker.set()
+        profile_process.join()
 
 
-async def profile_mutidrone():
+async def profile_multidrone_yappi():
+    try:
+        yappi.start()
+        dm = DroneManager(DroneMAVSDK, log_to_console=True, console_log_level=logging.INFO)
+        await dm.connect_to_drone("tom", None, None, "udp://:14540", log_telemetry=log_telemetry, telemetry_frequency=10)
+        await drone_back_and_forth("tom", dm)
+        yappi.stop()
+        stats = yappi.get_func_stats()
+        stats.save("yappi_1.prof", "pstat")
+        yappi.clear_stats()
+
+        yappi.start()
+        await dm.connect_to_drone("jerry", None, None, "udp://:14541", log_telemetry=log_telemetry, telemetry_frequency=10)
+        await asyncio.gather(*[drone_back_and_forth(drone, dm) for drone in ["tom", "jerry"]])
+        yappi.stop()
+        stats = yappi.get_func_stats()
+        stats.save("yappi_2.prof", "pstat")
+        yappi.clear_stats()
+
+
+        yappi.start()
+        await dm.connect_to_drone("spike", None, None, "udp://:14542", log_telemetry=log_telemetry, telemetry_frequency=10)
+        await asyncio.gather(*[drone_back_and_forth(drone, dm) for drone in ["tom", "jerry", "spike"]])
+        yappi.stop()
+        stats = yappi.get_func_stats()
+        stats.save("yappi_3.prof", "pstat")
+        yappi.clear_stats()
+    finally:
+        await dm.close()
+
+
+async def profile_multidrone():
     try:
         profiler1 = pyinstrument.Profiler()
         with profiler1:
             dm = DroneManager(DroneMAVSDK, log_to_console=True, console_log_level=logging.INFO)
-            await dm.connect_to_drone("tom", None, None, "udp://:14540", log_telemetry=True, telemetry_frequency=10)
+            await dm.connect_to_drone("tom", None, None, "udp://:14540", log_telemetry=log_telemetry, telemetry_frequency=10)
             await drone_back_and_forth("tom", dm)
         with open("profile1.html", "w") as f:
             f.write(profiler1.output_html())
 
         profiler2 = pyinstrument.Profiler()
         with profiler2:
-            await dm.connect_to_drone("jerry", None, None, "udp://:14541", log_telemetry=True, telemetry_frequency=10)
+            await dm.connect_to_drone("jerry", None, None, "udp://:14541", log_telemetry=log_telemetry, telemetry_frequency=10)
             await asyncio.gather(*[drone_back_and_forth(drone, dm) for drone in ["tom", "jerry"]])
         with open("profile2.html", "w") as f:
             f.write(profiler2.output_html())
 
         profiler3 = pyinstrument.Profiler()
         with profiler3:
-            await dm.connect_to_drone("spike", None, None, "udp://:14542", log_telemetry=True, telemetry_frequency=10)
+            await dm.connect_to_drone("spike", None, None, "udp://:14542", log_telemetry=log_telemetry, telemetry_frequency=10)
             await asyncio.gather(*[drone_back_and_forth(drone, dm) for drone in ["tom", "jerry", "spike"]])
         with open("profile3.html", "w") as f:
             f.write(profiler3.output_html())
@@ -69,8 +140,21 @@ async def profile_mutidrone():
 async def drone_back_and_forth(drone, dm):
     await dm.arm(drone)
     await dm.takeoff(drone)
-    await dm.fly_to(drone, local=[10, 10, -3])
-    await dm.fly_to(drone, local=[0, 0, -3])
+    await dm.fly_to(drone, local=[10, 10, -3], tol=0.4)
+    await dm.fly_to(drone, local=[0, 0, -3], tol=0.4)
+    await dm.land(drone)
+    await asyncio.sleep(3)
+    await dm.disarm(drone)
+    await dm.change_flightmode(drone, "hold")
+
+
+async def drone_back_and_forth_timed(drone, dm, duration):
+    await dm.arm(drone)
+    await dm.takeoff(drone)
+    start_time = time.time()
+    while time.time() - start_time < duration:
+        await dm.fly_to(drone, local=[10, 10, -3], tol=0.4)
+        await dm.fly_to(drone, local=[0, 0, -3], tol=0.4)
     await dm.land(drone)
     await asyncio.sleep(3)
     await dm.disarm(drone)
@@ -81,7 +165,6 @@ def check_cpu(pid, stopping: Event):
     dt = 0.1
     usages = []
     #logger = logging.getLogger("manager")
-    print("Starting benchmarking...")
     counter = 0
     p = psutil.Process(pid=pid)
     while not stopping.is_set():
@@ -143,6 +226,8 @@ def make_plots():
 
 
 if __name__ == "__main__":
-    #asyncio.run(profile_mutidrone())
+    #asyncio.run(profile_multidrone())
+    #asyncio.run(profile_multidrone_yappi())
     #asyncio.run(measure_cpu())
+    #asyncio.run(measure_longterm())
     make_plots()
