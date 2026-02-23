@@ -155,15 +155,14 @@ class UDPPlugin(Plugin):
       
             # fence logic
             fence_list = []
-            fence_margin = .5
             if getattr(drone, 'fence', None): # Check if fence exists and is not None
                  fence_list = [
-                    drone.fence.north_lower + fence_margin,
-                    drone.fence.north_upper - fence_margin,
-                    drone.fence.east_lower + fence_margin,
-                    drone.fence.east_upper - fence_margin,
-                    drone.fence.down_lower + fence_margin,
-                    drone.fence.down_upper - fence_margin,
+                    drone.fence.north_lower,
+                    drone.fence.north_upper,
+                    drone.fence.east_lower,
+                    drone.fence.east_upper,
+                    drone.fence.down_lower,
+                    drone.fence.down_upper,
                     drone.fence.safety_level
                  ]
             drone_data[drone_name] = {
