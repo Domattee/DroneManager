@@ -9,7 +9,7 @@ from skimage.metrics import structural_similarity
 
 import largestinteriorrectangle as lir
 
-from dronecontrol.missions.engel import ENGELCaptureInfo
+from dronemanager.missions.engel import ENGELCaptureInfo
 
 # TODO: Currently only written for lowres "visible" images
 

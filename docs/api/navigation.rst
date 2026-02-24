@@ -14,7 +14,7 @@ back here and then add extra notes
 Core
 ----
 
-.. automodule:: dronecontrol.navigation.core
+.. automodule:: dronemanager.navigation.core
    :members:
    :undoc-members:
    :show-inheritance:
@@ -23,7 +23,7 @@ Core
 Path Generators
 ---------------
 
-.. automodule:: dronecontrol.navigation.directtargetgenerator
+.. automodule:: dronemanager.navigation.directtargetgenerator
    :members:
    :undoc-members:
    :show-inheritance:
@@ -32,12 +32,12 @@ Path Generators
 GMP3
 ^^^^
 
-.. automodule:: dronecontrol.navigation.gmp3generator
+.. automodule:: dronemanager.navigation.gmp3generator
    :members:
    :undoc-members:
    :show-inheritance:
 
-.. automodule:: dronecontrol.navigation.GMP3
+.. automodule:: dronemanager.navigation.GMP3
    :members:
    :undoc-members:
    :show-inheritance:
@@ -46,17 +46,17 @@ GMP3
 Path Followers
 --------------
 
-.. automodule:: dronecontrol.navigation.directsetpointfollower
+.. automodule:: dronemanager.navigation.directsetpointfollower
    :members:
    :undoc-members:
    :show-inheritance:
 
-.. automodule:: dronecontrol.navigation.ruckigfollower
+.. automodule:: dronemanager.navigation.ruckigfollower
    :members:
    :undoc-members:
    :show-inheritance:
 
-.. automodule:: dronecontrol.navigation.velocityfollower
+.. automodule:: dronemanager.navigation.velocityfollower
    :members:
    :undoc-members:
    :show-inheritance:
@@ -69,7 +69,7 @@ TODO: Short guide on the various geometries.
 Fence limits, fence limits with drone size accounted for, extra safety margin based on safety level
 Key functions: "display boundary", "stick safety"
 
-.. automodule:: dronecontrol.navigation.rectlocalfence
+.. automodule:: dronemanager.navigation.rectlocalfence
    :members:
    :undoc-members:
    :show-inheritance:

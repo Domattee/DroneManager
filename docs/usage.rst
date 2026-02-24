@@ -137,8 +137,8 @@ DroneManager can also be used without the terminal interface. For example, the f
 instance, connects to a drone and performs some basic maneuvers::
 
     import asyncio
-    from dronecontrol.dronemanager import DroneManager
-    from dronecontrol.drone import DroneMAVSDK
+    from dronemanager.dronemanager import DroneManager
+    from dronemanager.drone import DroneMAVSDK
 
     async def main():
         drone_type = DroneMAVSDK
