@@ -151,9 +151,8 @@ class ControllerPlugin(Plugin):
 
         self.auto_set = auto_set  # If True and there is exactly one controller connected, connect to it automatically
         self.auto_drone = auto_drone  # If True and there is exactly one drone connected, control it automatically.
-
         self._disconnected = False  # True if we were connected to a controller and lost it unexpectedly
-
+        self.control_mode = FlightMode.POSCTL  # The flight mode to use for the manual flight. Either POSCTL or ALTCTL.
 
     async def add_controller(self, dev_id: int):
         """ Set which controller to use, matching the ID from `check`.
@@ -315,7 +314,10 @@ class ControllerPlugin(Plugin):
             self.logger.warning("Can't take control of disconnected drones!")
             return
 
-        await self.dm.drones[self._drone_name].manual_control_position()
+        if self.control_mode is FlightMode.POSCTL:
+            await self.dm.drones[self._drone_name].manual_control_position()
+        else:
+            await self.dm.drones[self._drone_name].manual_control_altitude()
 
         self.logger.info(f"Took control of {self._drone_name}")
         self._in_control = True
@@ -377,8 +379,11 @@ class ControllerPlugin(Plugin):
 
                     # If we have non-zero inputs, and we aren't in the appropriate mode, put us into appropriate mode
                     if abs(vertical_input) > 0.01 or abs(yaw_input) > 0.01 or abs(right_input) > 0.01 or abs(forward_input) > 0.01:
-                        if drone.flightmode != FlightMode.POSCTL:
-                            swap_to_manual_task = asyncio.create_task(drone.manual_control_position())
+                        if drone.flightmode != self.control_mode:
+                            if self.control_mode is FlightMode.POSCTL:
+                                swap_to_manual_task = asyncio.create_task(drone.manual_control_position())
+                            else:
+                                swap_to_manual_task = asyncio.create_task(drone.manual_control_altitude())
                             self._running_tasks.add(swap_to_manual_task)
                             self._running_tasks.add(asyncio.create_task(coroutine_awaiter(swap_to_manual_task,
                                                                                              self.logger)))
