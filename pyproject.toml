@@ -17,7 +17,7 @@ dependencies = [
     "textual==2.1.2",
     "rich",
     "mavsdk==3.0.1",
-    "pymavlink==2.4.42",
+    "pymavlink",
     "pygame",
     "haversine",
     "scipy",
