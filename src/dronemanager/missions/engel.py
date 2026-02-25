@@ -123,8 +123,10 @@ class ENGELDataMission(Mission):
             "replay": self.replay_captures,
             "transfer": self.transfer,
             "done": self.done,
-            "test-start": self.correction_test,
+            "test-init": self.init_test,
+            "test-start": self.start_test,
             "test-stop": self.stop_test,
+            "test-close": self.close_test,
         }
         self.cli_commands.update(mission_cli_commands)
         self.weather_sensor = None
@@ -636,126 +638,170 @@ class ENGELDataMission(Mission):
             self.rotation_target = rotation_target
             self.rotation_shift = rotation
 
-    async def correction_test(self, server_ip: str | None = None):
-        self.correction_algo = MsgHandler(server_ip=server_ip)
+            # Do this here for testing
+            self.logger.info(f"Received message {parsed_message}")
+            _, pitch_rate, yaw_rate = self.rotation_shift
+            gimbal_task = asyncio.create_task(self.gimbal.set_gimbal_rates(pitch_rate, yaw_rate))
+            gimbal_awaiter_task = asyncio.create_task(coroutine_awaiter(gimbal_task, self.logger))
+            self._running_tasks.add(gimbal_task)
+            self._running_tasks.add(gimbal_awaiter_task)
+
+    async def init_test(self, server_ip: str | None = None):
+        self.correction_algo = PositionCorrectionHandler()
+        self.logger.info("Setup for position correction test completed.")
+
+    async def start_test(self, ip: str = "127.0.0.1", command_port: int = 9020, data_port: int = 9010):
+        self.correction_algo.connect_cpp(ip, command_port, data_port)
+        self.correction_algo.send_command("rotation_only")
+        await asyncio.sleep(1)
+        self.correction_algo.start()
+        await asyncio.sleep(1)
+        self.correction_algo.send_command("start")
         self.correction_algo.message_callback = self.correction_callback
 
     async def stop_test(self):
-        if hasattr(self, "correction_algo"):
+        if self.correction_algo is not None:
             if self.correction_algo.running:
+                self.correction_algo.send_command("stop")
+
+    async def close_test(self):
+        if self.correction_algo is not None:
+            if self.correction_algo.running:
+                self.correction_algo.send_command("stop")
                 await self.correction_algo.close()
                 self.logger.info("Stopped servers")
+
 
 def _roll_pitch_compensation(gimbal_yaw, drone_roll, drone_pitch):
     return math.sin(gimbal_yaw)*drone_roll + math.cos(gimbal_yaw) * drone_pitch
 
 
-class ReceiveMsg:
+class PositionCorrectionHandler:
     def __init__(self):
-        self.message_queue = Queue()
-        self.server_socket = None
-        self.client_socket = None
-        self.server_running = False
-        self.client_connected = False
+        self.threads = []  # Track all threads
+        # Initialise the channel classes
+        self.running = True
+        self.data_handler = DataChannel()
+        self.command_handler = CommandChannel()
+        self.message_callback = None
+        self.handler_task = None
+        self.logger = logging.getLogger("Manager.CorrectionAlgorithm")
+
+    def connect_cpp(self, ip = "127.0.0.1", command_port = 9020, data_port = 9010):
+        self.connect_command_channel(ip, command_port)
+        self.logger.info("Connected command")
+        self.connect_data_channel(ip, data_port)
+        self.logger.info("connected data")
+
+    def connect_command_channel(self, ip: str = "127.0.0.1", port: int = 9020):
+        self.command_handler.connect(ip, port)
+
+    def connect_data_channel(self, ip: str = "127.0.0.1", port: int = 9010):
+        self.data_handler.connect(ip, port)
+
+    def send_command(self, cmd):
+        assert cmd in ["start", "stop", "pause", "resume", "rotation_only", "translation_only", "status", "quit"], f"Invalid command {cmd}"
+        self.command_handler.send_command(cmd)
+
+    def start(self):
+        # Start processing all the stuff
+        self.handler_task = asyncio.get_running_loop().run_in_executor(None, self._data_thread)
+
+    def _data_thread(self):
+        while self.running:
+            message = self.data_handler.get_from_queue()  # Get and remove
+            if message:
+                if self.message_callback is not None:
+                    self.message_callback(self.data_handler.parse_motion_command(message))
+
+    async def close(self):
+        self.running = False
+        self.command_handler.close()
+        self.data_handler.close()
+        await self.handler_task
+
+
+class CommandChannel:
+    def __init__(self):
+        self.ip = None
+        self.port = None
+        self.sock: socket.socket | None = None
         self.lock = threading.Lock()
         self.logger = logging.getLogger("Manager.CorrectionAlgorithm")
 
-    def start_server(self, port=5000, host='0.0.0.0'):
-        """Start a server on the specified port to receive messages from clients."""
-        try:
-            self.server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            self.server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-            self.server_socket.bind((host, port))
-            self.server_socket.listen(1)
-            self.server_running = True
-            self.logger.info(f"Server started on {host}:{port}")
+    def connect(self, ip, port) -> None:
+        self.ip = ip
+        self.port = port
+        with self.lock:
+            if self.sock:
+                return
+            s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            s.connect((self.ip, self.port))
+            self.sock = s
+        self.logger.info(f"[tcp] connected to {self.ip}:{self.port}")
 
-            # Start accepting connections in a separate thread
-            threading.Thread(target=self._accept_connections, daemon=True).start()
-        except Exception as e:
-            self.logger.error(f"Error starting server: {e}")
-            self.logger.debug(f"{repr(e)}", exc_info=True)
+    def close(self) -> None:
+        with self.lock:
+            if self.sock:
+                try:
+                    self.sock.close()
+                except Exception:
+                    pass
+                self.sock = None
 
-    def _accept_connections(self):
-        """Accept incoming client connections and receive messages."""
-        while self.server_running:
-            try:
-                client_conn, client_addr = self.server_socket.accept()
-                self.logger.info(f"Client connected from {client_addr}")
-                threading.Thread(
-                    target=self._receive_from_client,
-                    args=(client_conn, client_addr),
-                    daemon=True
-                ).start()
-            except Exception as e:
-                if self.server_running:
-                    self.logger.error(f"Error accepting connection: {e}")
-                    self.logger.debug(f"{repr(e)}", exc_info=True)
+    def send_command(self, cmd: str) -> None:
+        msg = (cmd + "\n").encode("utf-8")
+        with self.lock:
+            if not self.sock:
+                raise RuntimeError("Not connected")
+            self.sock.sendall(msg)
 
-    def _receive_from_client(self, client_conn, client_addr):
+
+class DataChannel:
+    def __init__(self):
+        self.ip = None
+        self.port = None
+        self.sock: socket.socket | None = None
+        self.lock = threading.Lock()
+        self.logger = logging.getLogger("Manager.CorrectionAlgorithm")
+        self.message_queue = Queue()
+        self.running = True
+        self.data_thread = None
+
+    def connect(self, ip, port) -> None:
+        self.ip = ip
+        self.port = port
+        with self.lock:
+            if self.sock:
+                return
+            s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            s.connect((self.ip, self.port))
+            self.sock = s
+        self.logger.info(f"[tcp] connected to {self.ip}:{self.port}")
+        self.data_thread = threading.Thread(target=self._receive_msg)
+
+    def close(self) -> None:
+        self.running = False
+        with self.lock:
+            if self.sock:
+                try:
+                    self.sock.close()
+                except Exception:
+                    pass
+                self.sock = None
+
+    def _receive_msg(self):
         """Receive messages from a connected client and add them to the queue."""
-        try:
-            while self.server_running:
-                message = client_conn.recv(1024).decode('utf-8')
+        self.logger.info("Listening for messages...")
+        while self.running:
+            try:
+                message = self.sock.recv(1024).decode('utf-8')
                 if message:
-                    with self.lock:
-                        self.message_queue.put(message)
-                    self.logger.info(f"Message from {client_addr}: {message}")
-                else:
-                    break
-        except Exception as e:
-            self.logger.error(f"Error receiving from client {client_addr}: {e}")
-            self.logger.debug(f"{repr(e)}", exc_info=True)
-        finally:
-            client_conn.close()
-
-    def connect_to_server(self, ip, port):
-        """Connect to a server with the specified IP and port."""
-        try:
-            self.client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            self.client_socket.connect((ip, port))
-            self.client_connected = True
-            self.logger.info(f"Connected to server at {ip}:{port}")
-        except Exception as e:
-            self.logger.error(f"Error connecting to server: {e}")
-            self.logger.debug(f"{repr(e)}", exc_info=True)
-            self.client_connected = False
-
-    def print_from_queue(self):
-        """Print the next message from the queue without removing it."""
-        try:
-            if not self.message_queue.empty():
-                message = self.message_queue.queue[0]  # Peek at the message
-                self.logger.info(f"Queue message: {message}")
-                return message
-            else:
-                self.logger.info("Queue is empty")
-                return None
-        except Exception as e:
-            self.logger.error(f"Error accessing queue: {e}")
-            self.logger.debug(f"{repr(e)}", exc_info=True)
-            return message
-
-    def send_to_server(self, message):
-        """Send a message to the connected server and dequeue the message."""
-        if not self.client_connected or self.client_socket is None:
-            self.logger.info("Not connected to a server")
-            return False
-
-        try:
-            self.client_socket.sendall(message.encode('utf-8'))
-            self.logger.info(f"Sent to server: {message}")
-
-            # Dequeue the message after sending
-            if not self.message_queue.empty():
-                dequeued = self.message_queue.get()
-                self.logger.info(f"Dequeued message: {dequeued}")
-
-            return True
-        except Exception as e:
-            self.logger.error(f"Error sending to server: {e}")
-            self.logger.debug(f"{repr(e)}", exc_info=True)
-            return False
+                    self.logger.info("Got a message")
+                    self.message_queue.put(message)
+            except Exception as e:
+                self.logger.warning("Exception receiving data over data channel!")
+                self.logger.debug(repr(e), exc_info=True)
 
     def get_from_queue(self):
         """Get and remove the next message from the queue."""
@@ -768,24 +814,6 @@ class ReceiveMsg:
             self.logger.error(f"Error getting from queue: {e}")
             self.logger.debug(f"{repr(e)}", exc_info=True)
             return None
-
-    def stop_server(self):
-        """Stop the server."""
-        self.server_running = False
-        if self.server_socket:
-            self.server_socket.close()
-        self.logger.info("Server stopped")
-
-    def disconnect_from_server(self):
-        """Disconnect from the connected server."""
-        self.client_connected = False
-        if self.client_socket:
-            self.client_socket.close()
-        self.logger.info("Disconnected from server")
-
-    def queue_size(self):
-        """Return the current size of the message queue."""
-        return self.message_queue.qsize()
 
     def parse_motion_command(self, message):
         """Parse motion command message into rotation, translation, and target components.
@@ -828,43 +856,3 @@ class ReceiveMsg:
             self.logger.error(f"Error parsing motion command: {e}")
             self.logger.debug(f"{repr(e)}", exc_info=True)
             return None
-
-
-class MsgHandler:
-    def __init__(self, server_ip = None):
-        self.server_ip = '192.168.0.2' if server_ip is None else server_ip
-        self.client_ip = ""
-        self.server_port = 9001
-        self.client_port = 9010
-        self.threads = []  # Track all threads
-        # Start a server
-        self.running = True
-        self.msg_handler = ReceiveMsg()
-        self.message_callback = None
-        self.handler_task = asyncio.get_running_loop().run_in_executor(None, self.__start_handler)
-
-    def __start_handler(self):
-        # Connect as client to another server
-        self.msg_handler.connect_to_server(self.server_ip, self.server_port)
-
-        # Start server
-        self.msg_handler.start_server(port=self.client_port, host=self.client_ip)
-        while self.running:
-            message = self.msg_handler.get_from_queue()  # Get and remove
-            if message:
-                self.msg_handler.send_to_server(message)
-                if self.message_callback is not None:
-                    self.message_callback(self.msg_handler.parse_motion_command(message))
-
-    def get_msg(self):
-        # Send messages and dequeue
-        msg = self.msg_handler.print_from_queue()  # View next message
-        if msg is not None:
-            result = self.msg_handler.parse_motion_command(msg)
-            return result
-        else:
-            return None
-
-    async def close(self):
-        self.running = False
-        await self.handler_task
