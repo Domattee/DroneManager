@@ -16,8 +16,8 @@ import pyinstrument
 import logging
 
 FILE_PATH = "benchmarking_data.csv"
-log_telemetry = False
-with_app = False
+log_telemetry = True
+with_app = True
 
 
 async def measure_longterm():
@@ -49,34 +49,36 @@ async def measure_longterm():
         stop_cpu_checker.set()
         profile_process.join()
 
-async def measure_cpu():
+async def measure_cpu(n_drones):
     pid = os.getpid()
-    stop_cpu_checker = Event()
-    profile_process = Process(target=check_cpu, args=(pid, stop_cpu_checker))
-    profile_process.start()
     try:
-        dm = DroneManager(DroneMAVSDK, log_to_console=True, console_log_level=logging.INFO)
+        dm = DroneManager(DroneMAVSDK, log_to_console=False, console_log_level=logging.INFO)
         if with_app:
             app = DroneApp(dm, logger=dm.logger)
-            asyncio.get_running_loop().run_in_executor(None, app.run)
-        await dm.connect_to_drone("tom", None, None, "udp://:14540", log_telemetry=log_telemetry, telemetry_frequency=10)
-        await drone_back_and_forth("tom", dm)
+            app_task = asyncio.create_task(app.run_async())
+        for i in range(n_drones):
+            drone_names = [f"drone_{j}" for j in range(i+1)]
+            file_name = f"maxconf_{i}_drones"
+            stop_cpu_checker = Event()
+            profile_process = Process(target=check_cpu, args=(pid, stop_cpu_checker, file_name))
+            profile_process.start()
 
-        await dm.connect_to_drone("jerry", None, None, "udp://:14541", log_telemetry=log_telemetry, telemetry_frequency=10)
-        await asyncio.gather(*[drone_back_and_forth(drone, dm) for drone in ["tom", "jerry"]])
-
-        await dm.connect_to_drone("spike", None, None, "udp://:14542", log_telemetry=log_telemetry, telemetry_frequency=10)
-        await asyncio.gather(*[drone_back_and_forth(drone, dm) for drone in ["tom", "jerry", "spike"]])
+            for j in range(i+1):
+                await dm.connect_to_drone(drone_names[j], None, None, f"udp://:1454{j}", log_telemetry=log_telemetry, telemetry_frequency=10)
+            await asyncio.gather(*[drone_back_and_forth(drone, dm) for drone in drone_names])
+            #await dm.disconnect(drone_names)
+            stop_cpu_checker.set()
+            profile_process.join()
     finally:
         if with_app:
             try:
                 await app.command_screen.exit()  # Will probably throw an error about being in the wrong loop
+                await app_task
             except:
                 pass
         else:
             await dm.close()
-        stop_cpu_checker.set()
-        profile_process.join()
+
 
 
 async def profile_multidrone_yappi():
@@ -150,18 +152,25 @@ async def drone_back_and_forth(drone, dm):
 
 async def drone_back_and_forth_timed(drone, dm, duration):
     await dm.arm(drone)
+    await asyncio.sleep(1)
     await dm.takeoff(drone)
     start_time = time.time()
     while time.time() - start_time < duration:
         await dm.fly_to(drone, local=[10, 10, -3], tol=0.4)
         await dm.fly_to(drone, local=[0, 0, -3], tol=0.4)
-    await dm.land(drone)
-    await asyncio.sleep(3)
-    await dm.disarm(drone)
+    disarmed = False
+    while not disarmed:
+        await dm.land(drone)
+        await asyncio.sleep(2)
+        await dm.disarm(drone)
+        await asyncio.sleep(1)
+        disarmed = dm.drones[drone].is_armed
     await dm.change_flightmode(drone, "hold")
 
 
-def check_cpu(pid, stopping: Event):
+def check_cpu(pid, stopping: Event, file_path = None):
+    if file_path is None:
+        file_path = FILE_PATH
     dt = 0.1
     usages = []
     #logger = logging.getLogger("manager")
@@ -181,7 +190,7 @@ def check_cpu(pid, stopping: Event):
         counter += 1
         #if counter % 100 == 0:
         #    print("\t".join([f"{pid}:{max(usages[pid][1])}:{max(usages[pid][2])}" for pid in usages]))
-    with open(FILE_PATH, mode="wt", encoding="utf8") as f:
+    with open(file_path, mode="wt", encoding="utf8") as f:
         f.write("time, cpu, mem\n")
         for item in usages:
             f.write(f"{item[0]}, {item[1]}, {item[2]}\n")
@@ -228,6 +237,6 @@ def make_plots():
 if __name__ == "__main__":
     #asyncio.run(profile_multidrone())
     #asyncio.run(profile_multidrone_yappi())
-    #asyncio.run(measure_cpu())
+    asyncio.run(measure_cpu(6))
     #asyncio.run(measure_longterm())
-    make_plots()
+    #make_plots()
