@@ -139,6 +139,11 @@ class ENGELDataMission(Mission):
         self.loaded_file: str | None = None
         self._current_capture: ENGELCaptureInfo | None = None
 
+        # Due to drone motion, we might have to move beyond gimbal limits during replay, leading to a deadlock. These
+        # limits prevent this, by skipping any captures where the gimbal pitch would exceed these values.
+        self._gimbal_max_pitch = 40
+        self._gimbal_min_pitch = -44
+
         # Controller stuff
         self._added_controller_buttons: dict[int, Callable] = {}
         self._added_controller_axis_methods: set[Callable] = set()
@@ -288,7 +293,7 @@ class ENGELDataMission(Mission):
                 await self.camera.set_parameter(name, value)
 
     async def replay_captures(self):
-        await self.drones[self.drone_name].execute_task(self._replay_captures())
+        await self._replay_captures() # Can't actually just queue _replay captures, as it cancels itself during moves
 
     async def _replay_captures(self):
         """ Function to take the position from previous captures saved to file and capture them all again."""
@@ -334,9 +339,14 @@ class ENGELDataMission(Mission):
                 target_gimbal_pitch = target_total_pitch - current_dronepitch_corrected
                 target_gimbal_yaw = reference_image.gimbal_yaw_absolute
 
+                if self._gimbal_max_pitch < target_gimbal_pitch < self._gimbal_min_pitch:
+                    self.logger.info("Replay exceeding gimbal limit, skipping...")
+                    continue
+
                 await self.gimbal.set_gimbal_mode("lock")
                 await self.gimbal.set_gimbal_angles(target_gimbal_pitch, target_gimbal_yaw)
                 await asyncio.sleep(3)
+                skip = False
                 # Fine gimbal adjustment
                 while (abs(self.gimbal.pitch - target_gimbal_pitch) > 0.25
                        or abs(self.gimbal.yaw_absolute - target_gimbal_yaw) > 0.25):
@@ -344,8 +354,15 @@ class ENGELDataMission(Mission):
                                                                             drone.attitude[0],
                                                                             drone.attitude[1])
                     target_gimbal_pitch = target_total_pitch - current_dronepitch_corrected  # Recompute pitch target for possible drone change in pitch
+                    if self._gimbal_max_pitch < target_gimbal_pitch < self._gimbal_min_pitch:
+                        self.logger.info("Replay exceeding gimbal limit, skipping...")
+                        skip = True
+                        break
+
                     await self.gimbal.set_gimbal_angles(target_gimbal_pitch, target_gimbal_yaw)
                     await asyncio.sleep(0.2)
+                if skip:
+                    continue
                 # Refine position and gimbal attitude based on previous image
                 # TODO: Integrate from other repo, more eval on simulation first
 
@@ -478,7 +495,7 @@ class ENGELDataMission(Mission):
         self.loaded_file = None
 
     async def done(self):
-        await self.drones[self.drone_name].execute_task(self._done())
+        await self._done()  # Same issue as with _replay
 
     async def _done(self):
         """ Save any captures, reset and fly back to base and land"""
