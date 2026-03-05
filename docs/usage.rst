@@ -239,7 +239,37 @@ With the drones connected and all the scripts loaded you can begin flying missio
 Configuration file
 ------------------
 
-TODO: Config file
+To prevent having to reenter commands constantly, a number of DroneManagers aspects can be adjusted permanently with the
+``config.json`` file. It has three main components. The first are parameters for DroneManager itself, such as the
+MAVLink system ID, or the plugins that are automatically loaded on startup. Second is a list of plugin settings.
+This entry lists each plugin and a series of parameters which are passed to the plugin when it is initialized.
+The final component is a list of drones and parameters for them::
+
+    {
+      "drone_name": "tom",                    # Drone name, must match connection command
+      "address": "udp://192.168.1.31:14561",  # Connection string,
+      "position_rate": 5.0,                   # Request position/attitude, etc telemetry at this frequency
+      "max_h_vel": 10.0,                      # This parameter and below define speed, acceleration and jerk limits
+      "max_down_vel": 1.0,
+      "max_up_vel": 3.0,
+      "max_h_acc": 1.5,
+      "max_v_acc": 0.5,
+      "max_h_jerk": 0.5,
+      "max_v_jerk": 0.5,
+      "max_yaw_vel": 60,
+      "max_yaw_acc": 30,
+      "max_yaw_jerk": 30,
+      "log_telemetry": false,                 # Whether to log every MAVLink message. Somewhat slow.
+      "rtsp": "rtsp://192.168.1.31:8900/live",  # RTSP Stream information, currently not used.
+      "size": 1.0                             # The size of the drone. Currently not used.
+    }
+
+These parameters are used when a matching name is used during connection. Instead of typing
+``connect tom udp://IP:port -f 30 -l False`` everytime you want to use this drone, you can adjust the parameters in the
+config file and they will be loaded automatically with just ``connect tom``. If you supply an argument in the command
+line, it is used instead of the config file. The file is left unchanged by this.
+The speed, acceleration and jerk limits are used for autonomous navigation functions by default.
+There is one special drone entry, which is called "default". These parameters are used when no matching name is found.
 
 
 Common Issues
