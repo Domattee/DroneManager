@@ -7,8 +7,17 @@ Plugins
    :backlinks: none
 
 
-TODO: Short description of purpose, how to use
-List of special plugins: missions, sensors
+Plugins exist to extend the functionality of DroneManager in a straightforward way. They define a list of commands that
+they make available for the user interface, a list of background functions that should run continuously while the plugin
+is running. They can also have dependencies on other plugins, which are then loaded automatically when the plugin is
+loaded.
+
+They are implemented as special classes in modules. Each module in the ``plugins`` folder is inspected for potential
+classes. There can one plugin per module. The name of the module defines the name of the plugin. For the command-line,
+they additionally provide a prefix, which is prepended to the commands to prevent collisions, i.e. multiple plugins can
+have a ``connect`` command. For plugin ``abc``, this command becomes ``abc-connect``.
+
+There are two special types of plugins: :doc:`Missions <mission>` and :doc:`Sensors <sensor>`.
 
 
 Plugin Base Class

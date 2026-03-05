@@ -168,7 +168,8 @@ This is a showcase demo where three drones look for a POI and start continuously
 To run it, you will need three drones, preferably running PX4, a dummy object of interest and a 7 x 3 x 3 meter area 
 where you can fly multiple drones with high precision.
 We ran this demo in an indoor environment with an OptiTrack system for positioning. Each drone was configured to
-communicate on a separate port, see :ref:`common issues <connection_issues>`. The setup instructions for real drones below assume a similar setup.
+communicate on a separate port, see :ref:`common issues <connection_issues>`. The setup instructions for real drones
+below assume a similar setup.
 
 If you don't have an indoor flying set up ready to go, we suggest going outside and using GPS instead. The setup will 
 have to be modified to allow for positioning errors from GPS by increasing the flight area significantly, at least triple.
@@ -260,8 +261,23 @@ When working with real drones you should always test the actual behaviour in a s
 Connection Issues
 ^^^^^^^^^^^^^^^^^
 
-TODO: Ports, Mavlink awkwardness
-TODO: Firewalls
+UDP communication over MAVLink happens in a few different patterns. Drones are configured to communicate on a specific
+port, we will call it the MAVPort, usually 14550 or 14540. They should broadcast their heartbeat on that port and be
+discoverable without knowing their specific IP.
+
+However, it is in our experience quite rare for these heartbeats to arrive, whether due to firewall issues or the
+broadcast rules of some intermediate node. To cover this case, we also send heartbeats to the drone directly from a
+separate port. In our experience, it varies widely how drones respond to this. Some answer on the port from which the
+heartbeat was sent. Some answer on the MAVPort. Some answer on the heartbeat port, but only for the first connection
+they receive. DroneManager should cover all these cases, except in the last case, once a drone has been disconnected
+and the ports closed, the drone itself will have to be restarted before a connection can be re-established. Note
+that this only applies if the drone is actively disconnected and the ports are closed, a temporary connection loss
+maintains the ports.
+
+In principle, multiple drones can connect on the same port if their system IDs are different. In practice however, a
+lot of MAVLink software and SDKs do not actually support this, and information from and commands to the different
+drones gets mangled. If you want to use multiple drones at once, we highly recommend setting each drone to communicate
+on a different port.
 
 Coordinate Systems
 ^^^^^^^^^^^^^^^^^^

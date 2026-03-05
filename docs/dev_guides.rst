@@ -15,22 +15,136 @@ navigation functions.
 
 The second expands this for multiple drones and makes them available to plugins. This component handles the bulk of
 the logic. The main class is :py:class:`DroneManager <dronemanager.dronemanager.DroneManager>`, but it also contains
-all plugins and missions.
+all plugins and missions. This is the core component of the library, and should be the entry point for most use cases.
 
 The last component handles user interactions, i.e. the terminal interface. It consists of only the
 :py:mod:`App <dronemanager.app>` and :py:mod:`<dronecontrol.widgets>` modules.
 
-TODO: GRAPH
+.. image:: imgs/implementationchart.svg
 
-TODO:
-    - Two entry points for code: Drone or DroneManager
-    - Recommended: DroneManager
-    - New functionality: Plugins
-    - Missions to collect functions that all relate to some workflow
+We use the python built-in ``logging`` library for all the log handling. By default, this includes the log pane on the
+terminal interface and a series of files in the log directory. If you are not using the terminal interface, the argument
+```log_to_console`` can be used to print messages to console instead.
 
 .. note::
 
-   TODO: Short bit on asyncio and its traps
+   This software makes extensive use of `asyncio library <https://docs.python.org/3/library/asyncio.html>`__. While
+   multi-threading is possible with it, it is not automatically so. Care must be taken to offload CPU-intensive tasks
+   to other threads or processes, or execution of the core tasks can be blocked.
+
+
+Creating your own plugin
+------------------------
+
+Plugins exist to extend the functionality of DroneManager in a straightforward way. They define a list of commands that
+they make available for the user interface, a list of background functions that should run continuously while the plugin
+is running. They can also have dependencies on other plugins, which are then loaded automatically when the plugin is
+loaded.
+
+They are implemented as special classes in modules. Each module in the ``plugins`` folder is inspected for potential
+classes. There can one plugin per module. The name of the module defines the name of the plugin. For the command-line,
+they additionally provide a prefix, which is prepended to the commands to prevent collisions, i.e. multiple plugins can
+have a ``connect`` command. For plugin ``abc``, this command becomes ``abc-connect``. Loaded plugins are accessible
+from the DroneManager object by their name.
+
+Below is a short guide on creating your own plugin.
+
+Start with a python file named ``yourplugin.py`` with the following contents, and put it into the ``plugins``
+directory::
+
+   from dronemanager.plugin import Plugin
+
+   class YourPlugin(Plugin):
+
+       PREFIX = "test"
+
+       def __init__(self, dm, logger, name):
+           super().__init__(dm, logger, name)
+           self.background_functions = [
+           ]
+           self.cli_commands = {
+           }
+
+This plugin doesn't do anything yet, but you can already load it, by typing ``load yourplugin``. The name of the file
+defines the name of the plugin. You can have multiple classes in the file, but only one plugin class, which are
+subclasses of ``Plugin`` and have names that end with "Plugin", as in the example.
+
+To add a command to the CLI, it needs to be added to the ``cli_commands`` dictionary. The key should be a string, which
+becomes the text that is entered into the CLI, while the value is the coroutine that will be executed. For example::
+
+   class YourPlugin(Plugin):
+
+       PREFIX = "test"
+
+       def __init__(self, dm, logger, name):
+           super().__init__(dm, logger, name)
+           self.background_functions = [
+           ]
+           self.cli_commands = {
+              "echo": self.str_echo,
+           }
+
+       async def str_echo(self, input_string: str):
+           self.logger.info(input_string)
+
+Restart DroneManager, load the plugin again and then type ``test-echo Hello!`` in the command line. It should now also
+print ``Hello!`` in the log pane. The CLI commands are compounds of the plugin prefix, "test" in this case, and the
+dictionary key, to prevent name collisions.
+
+Everytime you change the code in a plugin, you will have to reload DroneManager.
+
+Note that a CLI command must be a coroutine, not a normal function. Commands can have arguments, as in the example.
+These should have type-hints, as we use them to define the parser. If you type ``test-echo What a nice day!``, you will
+get an error, as the parser only expects one argument. Typing ``test-echo "What a nice day!"`` will print the message.
+
+If an argument has a default value, it becomes an optional parameter to the CLI. List hints are also supported. Changing
+the type hint to ``list[str]`` and typing ``test-echo What a nice day!`` will print ``["What", "a", "nice", day!"]``
+
+Plugins can define dependencies through a class attribute::
+
+   class YourPlugin(Plugin):
+
+       PREFIX = "test"
+       DEPENDENCIES = ["sensor"]
+
+These plugins are loaded automatically when we try to load our plugin now. Dependencies also support a dot notation::
+
+   DEPENDENCIES = ["sensor.ecowitt"]
+
+This is necessary when you are dependent on one of the specialised plugins, currently only missions or sensors, as they
+have their own loading procedures.
+
+Finally, plugins can define background functions that are started and stopped automatically when the plugin is loaded
+or closed::
+
+   import asyncio
+   from dronemanager.plugin import Plugin
+
+   class YourPlugin(Plugin):
+
+       PREFIX = "test"
+       DEPENDENCIES = ["sensor.ecowitt"]
+
+       def __init__(self, dm, logger, name):
+           super().__init__(dm, logger, name)
+           self.background_functions = [
+               self.get_weather_data(),
+           ]
+           self.cli_commands = {
+               "echo": self.str_echo,
+           }
+
+       async def str_echo(self, input_string: str):
+           self.logger.info(input_string)
+
+       async def get_weather_data(self):
+           while True:
+               await self.dm.ecowitt.get_data()
+               await asyncio.sleep(1)
+
+In this example, we regularly try to access the ``get_data`` function of the ecowitt sensor plugin. Since you're likely
+not connected to such a sensor, you will get error messages in the log pane instead.
+Like CLI commands, background functions must be coroutines, but note the different syntax with the parenthesis.
 
 
 .. _guide_mission:
@@ -41,10 +155,6 @@ Creating your own mission
 TODO: Example process of making a mission, using existing as example
 
 
-Creating your own plugin
-------------------------
-
-TODO: Example process of making a plugin, using existing as example
 
 
 Navigation function guide
