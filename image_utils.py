@@ -23,19 +23,21 @@ DISTORTION_IPHONE = np.asarray([[0.1919431, -0.9801058, -0.0031962, 0.0017257, 1
 def load_images(json_file: str):
     with open(json_file, "rt") as f:
         json_dict = json.load(f)
+    base_dir = pathlib.Path(json_file).parent.resolve()
     captures = [ENGELCaptureInfo.from_json_dict(capture_dict) for capture_dict in json_dict]
     replay_imgs = []
     og_imgs = []
-    base_img_path = pathlib.Path(captures[0].images[0].file_location).parent.parent
+
     for capture_info in captures:
         if capture_info.reference_id is None:
             print("Not a replay capture!")
             return False
         for image in capture_info.images:
             if "visible" in image.file_location:
-                replay_imgs.append(cv2.imread(image.file_location))
+                img_path = base_dir.joinpath(image.file_location)
+                replay_imgs.append(cv2.imread(str(img_path)))
                 # Go through the images in the reference capture and find the "visible" one
-                reference_capture_image_list = [f for f in base_img_path.joinpath(str(capture_info.reference_id)).iterdir() if f.is_file()]
+                reference_capture_image_list = [f for f in base_dir.joinpath("images", str(capture_info.reference_id)).iterdir() if f.is_file()]
                 og_image = [str(f) for f in reference_capture_image_list if "visible" in str(f)][0]
                 og_imgs.append(cv2.imread(og_image))
     return list(zip(og_imgs, replay_imgs))
@@ -211,7 +213,10 @@ def main():
         # Do the image correction
         imgs = load_images(args.path)
         for pair in imgs:
-            homography_pipe(pair)
+            try:
+                homography_pipe(pair)
+            except Exception as e:
+                print(f"Couldn't process pair due to an exception! {repr(e)}")
     elif args.command == "homtest":
         img1 = cv2.imread(args.img1)
         img2 = cv2.imread(args.img2)

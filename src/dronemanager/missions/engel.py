@@ -623,4 +623,5 @@ class ENGELDataMission(Mission):
             await asyncio.sleep(1/self._gimbal_frequency)
 
 def _roll_pitch_compensation(gimbal_yaw, drone_roll, drone_pitch):
-    return math.sin(gimbal_yaw)*drone_roll + math.cos(gimbal_yaw) * drone_pitch
+    return 0  # Seems like our gimbal might already correct for drone pitch and roll when the gimbal is in locked mode?
+    #return math.sin(gimbal_yaw)*drone_roll + math.cos(gimbal_yaw) * drone_pitch
