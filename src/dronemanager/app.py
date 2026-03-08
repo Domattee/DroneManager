@@ -208,7 +208,7 @@ class CommandScreen(Screen):
 
         param_parser = command_parsers.add_parser("params", help="Prints parameters for a drone", logger=self.logger)
         param_parser.add_argument("drone", type=str, help="Name of the drone")
-        param_parser.add_argument("--raw", action="store_true",
+        param_parser.add_argument("-r", "--raw", action="store_true",
                                   help="Print raw parameters instead. Very long!")
 
         arm_parser = command_parsers.add_parser("arm", help="Arm the named drone(s).", logger = self.logger)
