@@ -1,7 +1,10 @@
-""" Mission for ENGEL data collection
-Capture images and combine with weather and position info from drone, storing them
-Functions to retake the same position as in a previous image and take another image.
+""" Mission for ENGEL data collection.
+
+Capture images and combine with weather data and position information from the capturing drone, storing them.
+Also includes functions to retake the same position as in a previous image and capture another image, as well as
+assorted post-processing and meta-data handling.
 """
+
 import asyncio
 import math
 import pathlib
