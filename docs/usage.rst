@@ -36,8 +36,7 @@ This creates a new drone object, assigns it the name ``tom`` and tries to connec
 connection string. You can provide any name, it will be used to identify the drone in other commands.
 
 .. note::
-   Typing any command with ``--help`` or ``-h`` prints a help string for that command.
-   Also, a reference sheet with all default commands and their options is at the :ref:`bottom of this page <com_ref>`.
+   Typing any command with ``- -help`` or ``-h`` prints a help string for that command.
 
 .. note::
    As a convenience feature, we provide a config file in which drone names and their connection string as well as other
@@ -207,10 +206,13 @@ thus must be started at the same location.
 
 1. Boot up DroneManager
 2. Load the mission scripts: ``mission-load uam``
-3. Start a single gazebo drone using ``TODO`` and connect to it with DroneManager.
+3. Start a single gazebo drone using
+   ``PX4_SYS_AUTOSTART=4001 PX4_SIM_MODEL=gz_x500 PX4_GZ_MODEL_POSE="0,0" ./build/px4_sitl_default/bin/px4 -i 0`` and
+   connect to it with DroneManager.
 4. Add the drone to the mission with ``uam-add <name>``.
 5. Move the drone to its start position with ``uam-reset``.
-6. Repeat steps 3 through 5 for two more drones, incrementing TODO each time. Don't disconnect or remove the drones that
+6. Repeat steps 3 through 5 for two more drones, incrementing the ``-i`` argument each time.
+   Do not adjust the ``MODEL_POSE`` argument. Don't disconnect or remove the drones that
    are already set up. For each subsequent drone, all the drones will reshuffle to their new start positions in
    sequence.
 7. Check that each drone reports the correct position in DroneManager. The first drone should be at (3, -1.25), the
@@ -333,45 +335,4 @@ With an external visual tracking system for positioning, the tracking system mig
 convention, while the drone expects forward, right and down.
 With visual odometry instead of an absolute system, the axes might be aligned with the orientation of the drone at
 boot-up.
-
-
-.. _com_ref:
-
-Command reference
------------------
-
-The syntax used in this reference is as follows:
-
-- ``<Parameters>`` are mandatory positional parameters.
-- ``<Parameters?>`` are optional positional parameters.
-- ``-p`` are boolean flags.
-- ``-p <parameter: defaultValue>`` are optional parameters with a flag to indicate that they are being supplied. Usually,
-  these have a default value.
-
-Many commands can be "scheduled" by adding the flag `-s`, which means that the drone will finish any previous commands
-before proceeding to the scheduled command. Multiple commands can be scheduled at once. Entering a command without
-scheduling clears the schedule, i.e. the drone will cancel whatever it is doing and execute the new command immediately.
-
-A command is considered "complete" when some condition is met, depending on the command, or when it errors out, either
-because of an exception or because the flight controller denied the command, for example when trying to arm a drone
-without a GPS fix (if the flight controller is configured to require a GPS fix for arming). Commands for multiple
-drones complete independently, i.e. if you schedule a takeoff and a move for two drones, but one of the drones doesn't
-reach the takeoff altitude, the other one will still start its move once its takeoff has completed.
-
-You can also add `-h` or `--help` to print a help string, either for the whole interface or a specific command.
-
-This list only contains the "core" commands that belong to DroneManager directly. For commands added by plugins, see
-the documentation for the plugins.
-
-TODO: Command list for non-plugin commands
-
-+-------------------------+--------------------------+--------------------------+
-| command                 | Arguments                | Description              |
-+=========================+==========================+==========================+
-| command -flag -s        | -flag: Toggles something | A dummy command line     |
-|                         | -s: Schedule this command| with a long description  |
-+-------------------------+--------------------------+--------------------------+
-| command -flag -s        | -flag: Toggles something | A dummy command line     |
-|                         | -s: Schedule this command| with a long description  |
-+-------------------------+--------------------------+--------------------------+
 
