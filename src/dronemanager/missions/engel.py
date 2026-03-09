@@ -124,7 +124,10 @@ class ENGELDataMission(Mission):
             "transfer": self.transfer,
             "done": self.done,
             "test-init": self.init_test,
+            "connect-command": self.connect_command,
+            "connect-data": self.connect_data,
             "test-start": self.start_test,
+            "test-command": self.test_command,
             "test-stop": self.stop_test,
             "test-close": self.close_test,
         }
@@ -641,35 +644,38 @@ class ENGELDataMission(Mission):
             # Do this here for testing
             self.logger.info(f"Received message {parsed_message}")
             _, pitch_rate, yaw_rate = self.rotation_shift
-            gimbal_task = asyncio.create_task(self.gimbal.set_gimbal_rates(pitch_rate, yaw_rate))
-            gimbal_awaiter_task = asyncio.create_task(coroutine_awaiter(gimbal_task, self.logger))
-            self._running_tasks.add(gimbal_task)
-            self._running_tasks.add(gimbal_awaiter_task)
+            #gimbal_task = asyncio.create_task(self.gimbal.set_gimbal_rates(pitch_rate, yaw_rate))
+            #gimbal_awaiter_task = asyncio.create_task(coroutine_awaiter(gimbal_task, self.logger))
+            #self._running_tasks.add(gimbal_task)
+            #self._running_tasks.add(gimbal_awaiter_task)
 
-    async def init_test(self, server_ip: str | None = None):
+    async def init_test(self, ip: str = "127.0.0.1", command_port: int = 9020, data_port: int = 9010):
         self.correction_algo = PositionCorrectionHandler()
+        self.correction_algo.message_callback = self.correction_callback
+        await self.connect_command(ip, command_port)
+        await self.connect_data(ip, data_port)
         self.logger.info("Setup for position correction test completed.")
 
-    async def start_test(self, ip: str = "127.0.0.1", command_port: int = 9020, data_port: int = 9010):
-        self.correction_algo.connect_cpp(ip, command_port, data_port)
-        self.correction_algo.send_command("rotation_only")
-        await asyncio.sleep(1)
+    async def connect_command(self, ip: str = "127.0.0.1", port: int = 9020):
+        self.correction_algo.connect_command_channel(ip, port)
+
+    async def connect_data(self, ip: str = "127.0.0.1", port: int = 9010):
+        self.correction_algo.connect_data_channel(ip, port)
+
+    async def start_test(self):
         self.correction_algo.start()
-        await asyncio.sleep(1)
-        self.correction_algo.send_command("start")
-        self.correction_algo.message_callback = self.correction_callback
+
+    async def test_command(self, command: str):
+        self.correction_algo.send_command(command)
 
     async def stop_test(self):
-        if self.correction_algo is not None:
-            if self.correction_algo.running:
-                self.correction_algo.send_command("stop")
+        self.correction_algo.stop()
 
     async def close_test(self):
         if self.correction_algo is not None:
-            if self.correction_algo.running:
-                self.correction_algo.send_command("stop")
-                await self.correction_algo.close()
-                self.logger.info("Stopped servers")
+            self.correction_algo.send_command("stop")
+            await self.correction_algo.close()
+            self.logger.info("Stopped servers")
 
 
 def _roll_pitch_compensation(gimbal_yaw, drone_roll, drone_pitch):
@@ -680,24 +686,20 @@ class PositionCorrectionHandler:
     def __init__(self):
         self.threads = []  # Track all threads
         # Initialise the channel classes
-        self.running = True
+        self.running = False
         self.data_handler = DataChannel()
         self.command_handler = CommandChannel()
         self.message_callback = None
         self.handler_task = None
         self.logger = logging.getLogger("Manager.CorrectionAlgorithm")
 
-    def connect_cpp(self, ip = "127.0.0.1", command_port = 9020, data_port = 9010):
-        self.connect_command_channel(ip, command_port)
-        self.logger.info("Connected command")
-        self.connect_data_channel(ip, data_port)
-        self.logger.info("connected data")
-
     def connect_command_channel(self, ip: str = "127.0.0.1", port: int = 9020):
         self.command_handler.connect(ip, port)
+        self.logger.info("Connected command")
 
     def connect_data_channel(self, ip: str = "127.0.0.1", port: int = 9010):
         self.data_handler.connect(ip, port)
+        self.logger.info("connected data")
 
     def send_command(self, cmd):
         assert cmd in ["start", "stop", "pause", "resume", "rotation_only", "translation_only", "status", "quit"], f"Invalid command {cmd}"
@@ -705,20 +707,31 @@ class PositionCorrectionHandler:
 
     def start(self):
         # Start processing all the stuff
+        self.data_handler.processing = True
+        self.running = True
         self.handler_task = asyncio.get_running_loop().run_in_executor(None, self._data_thread)
+        self.send_command("start")
+
+    def stop(self):
+        self.data_handler.processing = False
+        self.send_command("stop")
 
     def _data_thread(self):
         while self.running:
-            message = self.data_handler.get_from_queue()  # Get and remove
-            if message:
-                if self.message_callback is not None:
-                    self.message_callback(self.data_handler.parse_motion_command(message))
+            try:
+                message = self.data_handler.get_from_queue()
+                if message:
+                    if self.message_callback is not None:
+                        data = self.data_handler.parse_motion_command(message)
+                        self.message_callback(data)
+            except Exception as e:
+                self.logger.warning(repr(e), exc_info=True)
 
     async def close(self):
         self.running = False
         self.command_handler.close()
-        self.data_handler.close()
         await self.handler_task
+        await self.data_handler.close()
 
 
 class CommandChannel:
@@ -765,8 +778,9 @@ class DataChannel:
         self.lock = threading.Lock()
         self.logger = logging.getLogger("Manager.CorrectionAlgorithm")
         self.message_queue = Queue()
-        self.running = True
-        self.data_thread = None
+        self.running = False  # Listening to incoming messages
+        self.processing = False  # Passing incoming messages onward
+        self.data_task = None
 
     def connect(self, ip, port) -> None:
         self.ip = ip
@@ -777,11 +791,13 @@ class DataChannel:
             s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             s.connect((self.ip, self.port))
             self.sock = s
+        self.running = True
+        self.data_task = asyncio.get_running_loop().run_in_executor(None, self._receive_msg)
         self.logger.info(f"[tcp] connected to {self.ip}:{self.port}")
-        self.data_thread = threading.Thread(target=self._receive_msg)
 
-    def close(self) -> None:
+    async def close(self) -> None:
         self.running = False
+        self.processing = False
         with self.lock:
             if self.sock:
                 try:
@@ -789,6 +805,11 @@ class DataChannel:
                 except Exception:
                     pass
                 self.sock = None
+        if self.data_task is not None:
+            await self.data_task
+
+    def start(self):
+        self.processing = True
 
     def _receive_msg(self):
         """Receive messages from a connected client and add them to the queue."""
@@ -796,8 +817,8 @@ class DataChannel:
         while self.running:
             try:
                 message = self.sock.recv(1024).decode('utf-8')
-                if message:
-                    self.logger.info("Got a message")
+                if self.processing and message:
+                    self.logger.info(f"Got a message, current queue size: {self.message_queue.qsize()}")
                     self.message_queue.put(message)
             except Exception as e:
                 self.logger.warning("Exception receiving data over data channel!")
@@ -806,10 +827,7 @@ class DataChannel:
     def get_from_queue(self):
         """Get and remove the next message from the queue."""
         try:
-            if not self.message_queue.empty():
-                return self.message_queue.get()
-            else:
-                return None
+            return self.message_queue.get()
         except Exception as e:
             self.logger.error(f"Error getting from queue: {e}")
             self.logger.debug(f"{repr(e)}", exc_info=True)
