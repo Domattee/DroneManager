@@ -25,27 +25,6 @@ Drone module
    :show-inheritance:
 
 
-Terminal interface
-------------------
-
-App
-^^^
-
-.. automodule:: dronemanager.app
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
-
-Custom widgets
-^^^^^^^^^^^^^^
-
-.. automodule:: dronemanager.widgets
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
-
 MAVLink connection
 ------------------
 
