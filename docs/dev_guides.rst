@@ -18,7 +18,7 @@ the logic. The main class is :py:class:`DroneManager <dronemanager.dronemanager.
 all plugins and missions. This is the core component of the library, and should be the entry point for most use cases.
 
 The last component handles user interactions, i.e. the terminal interface. It consists of only the
-:py:mod:`App <dronemanager.app>` and :py:mod:`<dronemanager.widgets>` modules.
+:py:mod:`App <dronemanager.app>` and :py:mod:`widget <dronemanager.widgets>` modules.
 
 .. image:: imgs/implementationchart.svg
 
@@ -153,7 +153,7 @@ Creating custom missions
 ------------------------
 
 Missions fundamentally work very similar to plugins, with a few key changes. They must be subclasses of the
-:py:class:`dronemanager.plugins.mission.Mission` abstract base class, they go into a folder "missions" and they have a
+:py:class:`Mission <dronemanager.plugins.mission.Mission>` abstract base class, they go into a folder "missions" and they have a
 new attribute ``name``, which takes the role of the prefix used for plugins. Unlike with plugins, this is an instance
 attribute, allowing multiple instances of the same mission class.
 Loading a mission is done with ``mission-load <file> <name?>``, where <file> is the name of the file with the mission,
