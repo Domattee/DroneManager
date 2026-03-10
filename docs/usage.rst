@@ -36,7 +36,7 @@ This creates a new drone object, assigns it the name ``tom`` and tries to connec
 connection string. You can provide any name, it will be used to identify the drone in other commands.
 
 .. note::
-   Typing any command with ``- -help`` or ``-h`` prints a help string for that command.
+   Typing any command with ``--help`` or ``-h`` prints a help string for that command.
 
 .. note::
    As a convenience feature, we provide a config file in which drone names and their connection string as well as other
@@ -133,7 +133,7 @@ Script usage
 ------------
 
 DroneManager can also be used without the terminal interface. For example, the following code will create a DM
-instance, connects to a drone and performs some basic maneuvers::
+instance, connect to a drone and perform some basic maneuvers::
 
     import asyncio
     from dronemanager.dronemanager import DroneManager

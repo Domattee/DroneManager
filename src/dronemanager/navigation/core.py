@@ -254,8 +254,9 @@ class PathFollower(ABC):
     async def follow(self):
         """ Follows waypoints produced from a path generator by sending setpoints to the drone FC.
 
-        Requests a new waypoint from the TG when get_next_waypoint returns True. If the PG does not produce a waypoint,
-        holds position instead.
+        Requests a new waypoint from the PathGenerator when get_next_waypoint returns True. If the PG does not produce
+        a waypoint, holds position instead.
+
         :return:
         """
         # Use current position as dummy waypoint in case og bugs in get_next_waypoint function or similar
