@@ -97,11 +97,16 @@ class FlightArea(abc.ABC):
 
     @property
     @abc.abstractmethod
-    def alt_max(self):
+    def z_min(self):
         pass
 
-    def boundary_list(self):
-        return [self.x_min, self.x_max, self.y_min, self.y_max, self.alt_max]
+    @property
+    @abc.abstractmethod
+    def z_max(self):
+        pass
+
+    def bounding_box(self):
+        return [self.x_min, self.x_max, self.y_min, self.y_max, self.z_min, self.z_max]
 
 
 class Mission(Plugin, abc.ABC):

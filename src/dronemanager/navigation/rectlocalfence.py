@@ -12,8 +12,8 @@ class RectLocalFence(Fence):
     Lower limits but be smaller than upper limits.
     Safety level is used only by the controller functionality.
     """
-    def __init__(self, logger, north_lower, north_upper, east_lower, east_upper, down_lower, down_upper, safety_level = 0):
-        super().__init__(logger)
+    def __init__(self, north_lower, north_upper, east_lower, east_upper, down_lower, down_upper, safety_level = 0):
+        super().__init__()
         assert north_lower < north_upper and east_lower < east_upper and down_lower < down_upper, \
             "Lower fence limits must be less than the upper ones!"
         assert 0 <= safety_level <= 5 , "Safety Level must be between 0 and 5 and int"
@@ -24,6 +24,7 @@ class RectLocalFence(Fence):
         self.down_lower = down_lower
         self.down_upper = down_upper
         self.safety_level = int(safety_level)
+        self._warned_on_params = set()
 
     def check_waypoint_compatible(self, point: Waypoint):
         if self.active and point.type in [WayPointType.POS_NED, WayPointType.POS_VEL_NED, WayPointType.POS_VEL_ACC_NED]:
@@ -36,7 +37,13 @@ class RectLocalFence(Fence):
 
     def controller_safety(self, drone, forward_input, right_input, vertical_input, yaw_input, *args, **kwargs):
         # Common parameters for all axes
-
+        if not drone.parameters_loaded:
+            if not drone.name in self._warned_on_params:
+                self.logger.warning(f"Drone {drone.name} parameters not loaded, can't perform fence check. Controller "
+                                    "inputs may exceed fence!")
+                self._warned_on_params.add(drone)
+            return forward_input, right_input, vertical_input, yaw_input
+        # This needs the params to be loaded, provide a warning if they aren't loaded yet and then just pass on
         max_speed_h = drone.drone_params.max_h_vel
         max_speed_down = drone.config.max_down_vel
         max_speed_up = drone.config.max_up_vel

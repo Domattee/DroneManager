@@ -9,6 +9,7 @@ import numpy as np
 from dronemanager.plugins.mission import Mission, MissionStage, FlightArea
 from dronemanager.utils import dist_ned
 from dronemanager.navigation.core import Waypoint, WayPointType
+from dronemanager.navigation.rectlocalfence import RectLocalFence
 
 # TODO: Take circling function and put it into drone orbit function
 # TODO: Better ready check, should consider position and status of each drone for the calling stage.
@@ -51,9 +52,12 @@ class UAMFlightArea(FlightArea):
         return self.e_upper
 
     @property
-    def alt_max(self):
-        return self.alt
+    def z_min(self):
+        return -self.alt
 
+    @property
+    def z_max(self):
+        return 0
 
 class FakeBattery:
 
@@ -108,6 +112,7 @@ class UAMMission(Mission):
         self.poi_position = [-2, 0, -self.flight_altitude]  # in NED, altitude is just for convenient distance check.
         self.poi_tolerance = 1.2
         self.update_rate = 5  # Mission state is checked and progressed this often per second.
+        self.fence = RectLocalFence(*self.flight_area.bounding_box(), safety_level=3)
 
         # SingleSearch Parameters
         self.single_search_forward_leg = 1  # in meters
@@ -653,7 +658,7 @@ class UAMMission(Mission):
         for name in names:
             try:
                 self.drones[name] = self.dm.drones[name]
-                self.dm.set_fence(name, *self.flight_area.boundary_list())
+                self.dm.set_fence(name, self.fence)
                 self.batteries[name] = FakeBattery()
             except KeyError:
                 self.logger.error(f"No drone named {name}")

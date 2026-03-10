@@ -717,32 +717,36 @@ class DroneMAVSDK(Drone):
 
     async def load_parameters(self):
         self.logger.info(f"Loading parameters...")
-        parameters = await self.system.param.get_all_params()
-        raw_params = {}
-        for param in parameters.int_params:
-            raw_params[param.name] = (param.value, int)
-        for param in parameters.float_params:
-            raw_params[param.name] = (param.value, float)
-        for param in parameters.custom_params:
-            raw_params[param.name] = (param.value, str)
-        drone_params = DroneParams(raw_params)
-        if self.autopilot == "PX4":
-            drone_params.max_h_vel = drone_params.raw['MPC_XY_VEL_MAX'][0]
-            drone_params.max_up_vel = drone_params.raw['MPC_Z_VEL_MAX_UP'][0]
-            drone_params.max_down_vel = drone_params.raw['MPC_Z_VEL_MAX_DN'][0]
-            drone_params.max_yaw_rate = drone_params.raw['MPC_MAN_Y_MAX'][0]
-        elif self.autopilot == "Ardupilot":
-            drone_params.max_h_vel = drone_params.raw['LOIT_SPEED'][0] * 10  # cm/s
-            drone_params.max_up_vel = drone_params.raw['PILOT_SPEED_UP'][0] * 10
-            drone_params.max_down_vel = drone_params.raw['PILOT_SPEED_DN'][0] * 10
-            drone_params.max_yaw_rate = drone_params.raw['PILOT_Y_RATE'][0]  # degrees per second
-            if drone_params.max_down_vel == 0:
-                drone_params.max_down_vel = drone_params.max_up_vel
-        else:
-            self.logger.warning("Couldn't parse parameters for this autopilot, drone speeds might"
-                                "not work properly.")
-        self.drone_params = drone_params
-        self.logger.info(f"Loaded parameters!")
+        try:
+            parameters = await self.system.param.get_all_params()
+            raw_params = {}
+            for param in parameters.int_params:
+                raw_params[param.name] = (param.value, int)
+            for param in parameters.float_params:
+                raw_params[param.name] = (param.value, float)
+            for param in parameters.custom_params:
+                raw_params[param.name] = (param.value, str)
+            drone_params = DroneParams(raw_params)
+            if self.autopilot == "PX4":
+                drone_params.max_h_vel = drone_params.raw['MPC_XY_VEL_MAX'][0]
+                drone_params.max_up_vel = drone_params.raw['MPC_Z_VEL_MAX_UP'][0]
+                drone_params.max_down_vel = drone_params.raw['MPC_Z_VEL_MAX_DN'][0]
+                drone_params.max_yaw_rate = drone_params.raw['MPC_MAN_Y_MAX'][0]
+            elif self.autopilot == "Ardupilot":
+                drone_params.max_h_vel = drone_params.raw['LOIT_SPEED'][0] * 10  # cm/s
+                drone_params.max_up_vel = drone_params.raw['PILOT_SPEED_UP'][0] * 10
+                drone_params.max_down_vel = drone_params.raw['PILOT_SPEED_DN'][0] * 10
+                drone_params.max_yaw_rate = drone_params.raw['PILOT_Y_RATE'][0]  # degrees per second
+                if drone_params.max_down_vel == 0:
+                    drone_params.max_down_vel = drone_params.max_up_vel
+            else:
+                self.logger.warning("Couldn't parse parameters for this autopilot, drone speeds might"
+                                    "not work properly.")
+            self.drone_params = drone_params
+            self.logger.info(f"Loaded parameters!")
+        except Exception as e:
+            self.logger.warning("Couldn't load parameters!")
+            self.logger.debug(repr(e), exc_info=True)
         # TODO: Should probably do some kind of parameter checking: If the drone velocity and acceleration parameters are
         #  lower than the ones set in our config, algorithms might not work properly
 

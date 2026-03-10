@@ -185,7 +185,7 @@ class UDPPlugin(Plugin):
             for mission_name in self.dm.mission.missions:
                 mission = self.dm.mission.missions[mission_name]
                 mission_data[mission.PREFIX] = {
-                    "flightarea": mission.flight_area.boundary_list() if mission.flight_area is not None else None,
+                    "flightarea": mission.flight_area.bounding_box() if mission.flight_area is not None else None,
                     "stage": mission.current_stage.name if mission.current_stage is not None else None,
                     "drones": list(mission.drones.keys()),
                 }

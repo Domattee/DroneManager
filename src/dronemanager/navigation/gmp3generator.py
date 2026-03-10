@@ -19,12 +19,7 @@ class GMP3Generator(PathGenerator):
     def __init__(self, drone, dt, logger):
         super().__init__(drone, logger, waypoint_type=WayPointType.POS_VEL_NED)
         if self.drone.fence is not None:
-            x_max = self.drone.fence.bounding_box[1]
-            x_min = self.drone.fence.bounding_box[0]
-            y_max = self.drone.fence.bounding_box[3]
-            y_min = self.drone.fence.bounding_box[2]
-            z_max = self.drone.fence.bounding_box[5]
-            z_min = self.drone.fence.bounding_box[4]
+            x_min, x_max, y_min, y_max, z_min, z_max = self.drone.fence.bounding_box
         else:
             x_max = 20
             x_min = -20

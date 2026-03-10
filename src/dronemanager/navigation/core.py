@@ -1,4 +1,6 @@
 import asyncio
+import logging
+
 import numpy as np
 from abc import ABC, abstractmethod
 from enum import Enum, auto
@@ -112,8 +114,8 @@ class Fence(ABC):
     """ Abstract base class for geo-fence type classes and methods.
 
     """
-    def __init__(self, logger, *args, **kwargs):
-        self.logger = logger
+    def __init__(self, *args, **kwargs):
+        self.logger = logging.getLogger("Manager.Fence")
         self.active = True
 
     @abstractmethod
