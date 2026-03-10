@@ -29,8 +29,8 @@ terminal interface and a series of files in the log directory. If you are not us
 .. note::
 
    This software makes extensive use of `asyncio library <https://docs.python.org/3/library/asyncio.html>`__. While
-   multi-threading is possible with it, it is not automatically so. Care must be taken to offload CPU-intensive tasks
-   to other threads or processes, or execution of the core tasks can be blocked.
+   multi-threading is possible with it, it is not automatically multithreaded. Care must be taken to offload
+   CPU-intensive tasks to other threads or processes, or execution of the core tasks can be blocked.
 
 
 Creating your own plugin
@@ -149,12 +149,21 @@ Like CLI commands, background functions must be coroutines, but note the differe
 
 .. _guide_mission:
 
-Creating your own mission
--------------------------
+Creating custom missions
+------------------------
 
-TODO: Example process of making a mission, using existing as example
+Missions fundamentally work very similar to plugins, with a few key changes. They must be subclasses of the :class:`Mission`
+abstract base class, they go into a folder "missions" and they have a new attribute ``name``, which takes the role of
+the prefix used for plugins. Unlike with plugins, this is an instance attribute, allowing multiple instances of the same
+mission class.
+Loading a mission is done with ``mission-load <file> <name?>``, where <file> is the name of the file with the mission,
+similar to plugins. The name argument is optional, by default the name of the file is used. The mission plugin must be
+loaded first (done at startup by default).
 
-
+Compared to plugins, there are 5 functions which missions must provide, as they used by other parts of the software.
+They also come with three suggested attributes: A "current_stage", for whatever state the mission is currently in, a
+"flight_area" and "drones", an ordered dictionary of the drones participating in this mission. Usage of these attributes
+is completely optional, but if they are set, then information about them is sent out over the UDP plugin by default.
 
 
 Navigation function guide
