@@ -142,9 +142,10 @@ or closed::
                await self.dm.ecowitt.get_data()
                await asyncio.sleep(1)
 
-In this example, we regularly try to access the ``get_data`` function of the ecowitt sensor plugin. Since you're likely
-not connected to such a sensor, you will get error messages in the log pane instead.
-Like CLI commands, background functions must be coroutines, but note the different syntax with the parenthesis.
+In this example, we regularly try to access the :py:meth:`~dronemanager.sensors.ecowitt.EcoWittSensor.get_data` function
+of the ecowitt sensor plugin. Since you're likely not connected to such a sensor, you will get error messages in the
+log pane instead. Like CLI commands, background functions must be coroutines, but note the different syntax with the
+parenthesis.
 
 
 .. _guide_mission:
@@ -163,8 +164,8 @@ for access from DroneManager.
 
 Compared to plugins, there are 5 functions which missions must provide, as they used by other parts of the software.
 They also come with three suggested attributes: ``current_stage`` of type
-:py:class:``~dronemanager.plugins.mission.MissionStage``, for whatever state the mission is currently in, a
-``flight_area`` with type :py:class:`~dronemanager.plugins.mission.FlightArea` and "drones", an ordered dictionary of
+:py:class:`~dronemanager.plugins.mission.MissionStage`, for whatever state the mission is currently in, a
+``flight_area`` with type :py:class:`~dronemanager.plugins.mission.FlightArea` and ``drones``, an ordered dictionary of
 the drones participating in this mission. Usage of these attributes is completely optional, but if they are set, then
 information about them is sent out over the UDP plugin by default.
 
@@ -176,7 +177,7 @@ For the most part, DroneManager acts as a communication manager, translating inf
 via MAVLink.
 Movement commands have a more complicated flow with split path generation, with a path generator and a path follower.
 
-The py:meth:``~dronemanager.drone.DroneMAVSDK.flyto`` function acts as the entry point, wherein the user or a script
+The py:meth:`~dronemanager.drone.DroneMAVSDK.flyto` function acts as the entry point, wherein the user or a script
 provide a final target position for the drone to fly to and rest at. This target position is sent to a
 :py:class:`~dronemanager.navigation.core.PathGenerator` which produces a series of way points from the current position
 of the drone to the destination. A :py:class:`~dronemanager.navigation.core.PathFollower` algorithm then queries these
