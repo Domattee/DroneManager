@@ -10,7 +10,7 @@ DroneManager
 DroneManager module
 -------------------
 
-.. automodule:: dronemanager.dronemanager
+.. automodule:: dronemanager.core
    :members:
    :undoc-members:
    :show-inheritance:
