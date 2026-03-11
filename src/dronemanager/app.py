@@ -5,6 +5,7 @@ import os
 import shlex
 import typing
 import types
+from collections.abc import Callable
 
 from dronemanager.core import DroneManager
 from dronemanager.drone import Drone, DroneMAVSDK
@@ -661,13 +662,28 @@ class DroneApp(App):
             self.logger.debug("No valid target for switching")
 
 
-def check_cli_command_signatures(command):
-    """
+def check_cli_command_signatures(command: Callable) -> list[tuple]:
+    """ Inspects a function signature to determine the type of the arguments, if they are optional, etc.
+
+    Returns a tuple for each argument. Each tuple contains:
+
+     1. If the argument type hint is valid or not for our parsing.
+     2. The name of the argument (i.e. "command" for this function.)
+     3. If the argument expects a list.
+     4. If the argument is required.
+     5. If the argument accepts ``None``.
+     6. The base type of the argument, i.e. is a float or a string. For a list of floats, the base type is float.
+     7. If the argument is keyword only.
+     8. If the argument has a default value.
+     9. The default value, or ``None`` if it doesn't have one.
 
     If a signature is invalid, the other fields may not be populated correctly or at all.
 
-    :param command:
-    :return:
+    Args:
+        command: The function to be inspected.
+
+    Returns:
+        A list of tuples for each argument.
     """
     sig = inspect.signature(command)
     args_invalid = []
@@ -745,7 +761,6 @@ def check_cli_command_signatures(command):
         args_defaults.append(default)
 
     return list(zip(args_invalid, args_name, args_list, args_required, args_accepts_none, args_types, args_kwonly, args_has_defaults, args_defaults))
-
 
 
 def main():

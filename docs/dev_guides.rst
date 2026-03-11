@@ -98,7 +98,8 @@ These should have type-hints, as we use them to define the parser. If you type `
 get an error, as the parser only expects one argument. Typing ``test-echo "What a nice day!"`` will print the message.
 
 If an argument has a default value, it becomes an optional parameter to the CLI. List hints are also supported. Changing
-the type hint to ``list[str]`` and typing ``test-echo What a nice day!`` will print ``["What", "a", "nice", day!"]``
+the type hint to ``list[str]`` and typing ``test-echo What a nice day!`` will print ``["What", "a", "nice", day!"]``.
+Note that container-likes **must** be annotated as lists, not tuples or other types.
 
 Plugins can define dependencies through a class attribute::
 
