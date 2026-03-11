@@ -6,7 +6,7 @@ import os.path
 import threading
 import platform
 import time
-from subprocess import Popen, PIPE, STDOUT, DEVNULL
+from subprocess import Popen, DEVNULL
 from abc import ABC, abstractmethod
 from typing import Coroutine
 
@@ -1221,18 +1221,12 @@ class DroneMAVSDK(Drone):
 
     async def move(self, offset, yaw: float | None = None, use_gps=True, tolerance=0.25):
         self.logger.info("Starting move")
-        north, east, down = offset
         target_yaw = self.attitude[2] + yaw
         if use_gps:
-            cur_lat, cur_long, cur_alt = self.position_global
-            target_lat, target_long, target_amsl = relative_gps(north, east, -down, cur_lat, cur_long, cur_alt)
+            target_lat, target_long, target_amsl = relative_gps(self.position_global, offset)
             waypoint = Waypoint(WayPointType.POS_GLOBAL, gps=[target_lat, target_long, target_amsl], yaw=target_yaw)
         else:
-            cur_x, cur_y, cur_z = self.position_ned
-            target_x = cur_x + north
-            target_y = cur_y + east
-            target_z = cur_z + down
-            waypoint = Waypoint(WayPointType.POS_NED, pos=[target_x, target_y, target_z], yaw=target_yaw)
+            waypoint = Waypoint(WayPointType.POS_NED, pos=self.position_ned + offset, yaw=target_yaw)
         return await self.fly_to(waypoint=waypoint, put_into_offboard=True, tolerance=tolerance)
 
     async def go_to(self, local: np.ndarray | None = None, gps: np.ndarray | None = None, yaw: float | None = None,
@@ -1250,13 +1244,13 @@ class DroneMAVSDK(Drone):
                 gps = waypoint.gps
             else:
                 offset = waypoint.pos - self.position_ned
-                gps = relative_gps(offset[0], offset[1], -offset[2], *self.position_global)
+                gps = relative_gps(self.position_global, offset)
             yaw = waypoint.yaw
         elif gps is not None:
             pass
         elif local is not None:
             offset = local - self.position_ned
-            gps = relative_gps(offset[0], offset[1], -offset[2], *self.position_global)
+            gps = relative_gps(self.position_global, offset)
 
         # Send goto command
         await self.system.action.goto_location(*gps, yaw)

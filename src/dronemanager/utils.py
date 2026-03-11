@@ -1,45 +1,94 @@
+""" This module contains generic utility functions used throughout the software, mostly relating to GPS and NED
+positions.
+
+Unless stated otherwise, a GPS coordinate is any indexable sequence with the latitude, longitude and AMSL in that order.
+"""
+
 import math
+from collections.abc import Sequence
 from urllib.parse import urlparse
 import numpy as np
 import logging
 from pathlib import Path
 import socket
-import inspect
-import typing
-import types
 import asyncio
 from haversine import inverse_haversine, haversine, Direction, Unit
 
 common_formatter = logging.Formatter('%(asctime)s.%(msecs)03d %(levelname)s %(name)s - %(message)s', datefmt="%H:%M:%S")
+"""The common formatter string for the loggers"""
 
 CACHE_DIR = Path(__file__).parent.parent.parent.joinpath(".cache")
+"""The directory for any information that might be worth caching. Currently only used for camera definition information."""
 
 LOG_DIR = Path(__file__).parent.parent.parent.joinpath("logs")
+"""The directory where all the log files are saved."""
 
 EARTH_RADIUS = 6371000
+""" Used to compute an approximate NED distance between two GPS coordinates"""
 
 
-def dist_ned(pos1, pos2):
+def dist_ned(pos1: np.ndarray, pos2: np.ndarray) -> float:
+    """ The euclidian distance between two cartesian points.
+
+    For n-dimensional points, the arrays should have shape (n,).
+
+    Args:
+        pos1: First position, as a numpy array
+        pos2: Second position, as a numpy array
+
+    Returns:
+        The distance between the two points as a float.
+    """
     return np.sqrt(np.sum((pos1 - pos2) ** 2, axis=0))
 
 
-def dist_gps(gps1, gps2):
+def dist_gps(gps1: Sequence[float], gps2: Sequence[float]) -> float:
+    """ Approximate euclidian distance between two GPS coordinates.
+
+    Haversine functions with WGS84 are used to compute the horizontal component of the distance.
+
+    Args:
+        gps1: GPS coordinates of first point
+        gps2: GPS coordinates of second point
+
+    Returns:
+        Approximate distance between the two points as a float.
+    """
     dist_horiz = haversine((gps1[0], gps1[1]), (gps2[0], gps2[1]), unit=Unit.METERS)
     dist_alt = gps1[2] - gps2[2]
     return math.sqrt(dist_horiz*dist_horiz + dist_alt*dist_alt)
 
 
-def heading_ned(pos1, pos2):
-    """ Heading from pos1 to pos2, going from -180 to +180 with 0 straight north.
+def heading_ned(pos1: Sequence[float], pos2: Sequence[float]) -> float:
+    """ The heading from one position to another, in degrees.
 
-    pos1 and pos2 must be NED arrays."""
+    This is the angle from north, such that moving in that direction from the first point will cross the second point.
+    The range is from -180 to +180 with 0 north and +90 east. The two positions must be given as NED.
+    Assumes flat earth.
+
+    Args:
+        pos1: The first position
+        pos2: The second position
+
+    Returns:
+        The heading in degrees, as a float.
+    """
     return math.atan2(pos2[1] - pos1[1], pos2[0] - pos1[0]) / math.pi * 180
 
 
-def heading_gps(gps1, gps2):
-    """ Heading between GPS coordinates, going from -180 to +180 with 0 straight north.
+def heading_gps(gps1: Sequence[float], gps2: Sequence[float]) -> float:
+    """ The heading from one GPS position to another, in degrees.
 
-    Note that the GPS coordinates include an altitude, which is ignored in this function
+    This is the angle from north, such that moving in that direction from the first point will cross the second point.
+    The range is from -180 to +180 with 0 north and +90 east. The two positions must be given as GPS coordinates with
+    latitude first and longitude second.
+
+    Args:
+        gps1: The first position
+        gps2: The second position
+
+    Returns:
+        The heading in degrees, as a float.
     """
     diff_long_rad = (gps2[1] - gps1[1]) * math.pi / 180
     lat1_rad = gps1[0] * math.pi / 180
@@ -49,26 +98,57 @@ def heading_gps(gps1, gps2):
     return math.atan2(x, y) * 180 / math.pi
 
 
-def relative_gps(north, east, up, lat, long, alt):
-    """ Given a NEU offset and a GPS position, calculate the GPS coordinates of the offset position."""
-    target_alt = alt + up
-    coords = (lat, long)
-    coords = inverse_haversine(coords, north, Direction.NORTH, unit=Unit.METERS)
-    target_lat, target_long = inverse_haversine(coords, east, Direction.EAST, unit=Unit.METERS)
+def relative_gps(gps: Sequence[float], offset: Sequence[float]) -> tuple[float, float, float]:
+    """ Create a GPS coordinate that is shifted from the input GPS by a NED input offset.
+
+    Uses haversine functions.
+
+    Args:
+        gps: Initial GPS coordinate
+        offset: NED offset
+
+    Returns:
+        The new, offset GPS coordinate as a tuple (latitude, longitude, amsl)
+    """
+    target_alt = gps[2] - offset[2]
+    coords = (gps[0], gps[1])
+    coords = inverse_haversine(coords, offset[0], Direction.NORTH, unit=Unit.METERS)
+    target_lat, target_long = inverse_haversine(coords, offset[1], Direction.EAST, unit=Unit.METERS)
     return target_lat, target_long, target_alt
 
 
-def offset_from_gps(origin, gps1, gps2):
-    """ Given two GPS points, computes a heading and distance between the first two and then creates a new point
-    separated fom the origin by the same heading and distance"""
+def offset_from_gps(origin: Sequence[float], gps1: Sequence[float], gps2: Sequence[float]) -> tuple[float, float, float]:
+    """ Given two GPS points, computes the heading and distance between them and then creates a new point
+    separated fom a third GPS point by the same heading and distance.
+
+    Uses haversine functions.
+
+    Args:
+        origin: The GPS point from which the new offset point will be created
+        gps1: The starting GPS point for determining the offset
+        gps2: The ending GPS point for determining the offset
+
+    Returns:
+        The new, offset point as a tuple (latitude, longitude, amsl)
+    """
     dist_horiz = haversine((gps1[0], gps1[1]), (gps2[0], gps2[1]), unit=Unit.METERS)
     dist_alt = gps2[2] - gps1[2]
     heading = heading_gps(gps1, gps2)
     lat, long = inverse_haversine(origin[:2], dist_horiz, heading, unit=Unit.METERS)
-    return [lat, long, origin[2] + dist_alt]
+    return lat, long, origin[2] + dist_alt
 
-def ned_from_gps(gps1, gps2):
-    """Given two GPS points, compute the NED difference between the two positions, same as PX4 http://mathworld.wolfram.com/AzimuthalEquidistantProjection.html"""
+
+def ned_from_gps(gps1: Sequence[float], gps2: Sequence[float]) -> tuple[float, float, float]:
+    """ Given two GPS points, compute the NED difference between the two positions.
+    Utilizes the same algorithm as PX4 http://mathworld.wolfram.com/AzimuthalEquidistantProjection.html
+
+    Args:
+        gps1: GPS coordinates of first point
+        gps2: GPS coordinates of second point
+
+    Returns:
+        A tuple with the north, east, down offset between the two GPS coordinates.
+    """
     lat1_rad = gps1[0]*math.pi / 180
     lat2_rad = gps2[0]*math.pi / 180
     long1_rad = gps1[1]*math.pi / 180
@@ -90,12 +170,13 @@ def ned_from_gps(gps1, gps2):
     down = gps1[2] - gps2[2]
     return north, east, down
 
-def get_free_port():
+def get_free_port() -> int:
     """ Get a free network port.
 
-    The port is not guaranteed to be free once the function returns.
+    The port is not guaranteed to be free once the function returns, but they usually are.
 
-    :return:
+    Returns:
+        The free port
     """
     sock = socket.socket()
     sock.bind(("", 0))
@@ -104,11 +185,19 @@ def get_free_port():
     return port
 
 
-def parse_address(string):
-    """ Used to ensure that udp://:14540, udp://localhost:14540 and udp://127.0.0.1:14540 are recognized as equivalent.
+def parse_address(string: str) -> tuple[str, str, int]:
+    """ Parses a connection string of the form ``schema://host:appendix``.
 
-    Missing elements from the string or the other entries are replaced with defaults. These are udp, empty host and
-    50051 for the scheme, host and port, respectively.
+    Also used to ensure that udp://:14540, udp://localhost:14540 and udp://127.0.0.1:14540 are recognized as equivalent.
+
+    Missing elements from the string or the other entries are replaced with defaults.
+    These are "udp", an empty host "", and 50051 for the scheme, host and appendix, respectively.
+
+    Args:
+        string: A connection string.
+
+    Returns:
+        A tuple with the parsed schema, host and appendix.
     """
     scheme, rest = string.split("://")
     if scheme == "serial":
@@ -131,93 +220,19 @@ def parse_address(string):
     return scheme, loc, append
 
 
-def check_cli_command_signatures(command):
+async def coroutine_awaiter(task: asyncio.Future, logger: logging.Logger):
+    """ Awaits the provided coroutine, logging any exceptions.
+
+    In DroneManager, there are many functions that run indefinitely without a concrete return value. These functions
+    are not "naturally" awaited at any point in the code, which can lead to exceptions being silently dropped.
+    This function is used to catch these scenarios, by creating an extra task that awaits the actually interesting task.
+    This task does not need to be explicitly awaited itself.
+
+    Args:
+        task: The task or future to await.
+        logger: This logger will be used for any exception logging.
+
     """
-
-    If a signature is invalid, the other fields may not be populated correctly or at all.
-
-    :param command:
-    :return:
-    """
-    sig = inspect.signature(command)
-    args_invalid = []
-    args_name = []
-    args_list = []
-    args_required = []
-    args_accepts_none = []
-    args_types = []
-    args_kwonly = []
-    args_has_defaults = []
-    args_defaults = []
-    for param in sig.parameters.values():
-        is_invalid = False
-        is_list = False
-        is_required = param.default is param.empty
-        accepts_none = False
-        param_type = str
-        is_kwonly = param.kind is param.KEYWORD_ONLY
-        has_default = param.default is not param.empty
-        default = param.default if has_default else None
-
-        # Cases we accept: Direct type, List of a type, Union of a type and None, Union of None and a list of a type
-        if param.annotation is None or param.annotation is param.empty or len(typing.get_args(param.annotation)) > 2:
-            is_invalid = True
-        # Looking at the case of a union with a raw type or a union with a raw type and a list
-        if typing.get_origin(param.annotation) in (typing.Union, types.UnionType):
-            if type(None) not in typing.get_args(param.annotation):
-                is_invalid = True
-            accepts_none = True
-            for type_arg in typing.get_args(param.annotation):
-                if type_arg is type(None):  # Skip the None arg
-                    continue
-                elif typing.get_origin(type_arg) is not None:  # If its a container of some sort
-                    if not typing.get_origin(type_arg) is list:  # Invalid if not a list
-                        is_invalid = True
-                    else:
-                        is_list = True
-                        if len(typing.get_args(type_arg)) > 1:  # Invalid if multiple arguments
-                            is_invalid = True
-                        else:
-                            list_internal_type = typing.get_args(type_arg)[0]
-                            # Check that we dont have nested lists:
-                            if typing.get_origin(list_internal_type) is not None:
-                                is_invalid = True
-                            param_type = list_internal_type
-                else:  # Parameter is not None or a container
-                    is_list = False
-                    param_type = type_arg
-        else:
-            if typing.get_origin(param.annotation) is not None:  # If it's a container of some sort
-                if not typing.get_origin(param.annotation) is list:  # Invalid if not a list
-                    is_invalid = True
-                else:
-                    is_list = True
-                    if len(typing.get_args(param.annotation)) > 1:  # Invalid if multiple arguments
-                        is_invalid = True
-                    else:
-                        list_internal_type = typing.get_args(param.annotation)[0]
-                        # Check that we dont have nested lists:
-                        if typing.get_origin(list_internal_type) is not None:
-                            is_invalid = True
-                        param_type = list_internal_type
-            else:
-                is_list = False
-                param_type = param.annotation
-        name = param.name
-        args_invalid.append(is_invalid)
-        args_name.append(name)
-        args_list.append(is_list)
-        args_required.append(is_required)
-        args_accepts_none.append(accepts_none)
-        args_types.append(param_type)
-        args_kwonly.append(is_kwonly)
-        args_has_defaults.append(has_default)
-        args_defaults.append(default)
-
-    return list(zip(args_invalid, args_name, args_list, args_required, args_accepts_none, args_types, args_kwonly, args_has_defaults, args_defaults))
-
-
-async def coroutine_awaiter(task: asyncio.Future, logger):
     try:
         if isinstance(task, asyncio.Future):
             await task
@@ -227,6 +242,6 @@ async def coroutine_awaiter(task: asyncio.Future, logger):
         logger.error(f"Encountered an exception in a coroutine! See the log for more details")
         logger.debug(e, exc_info=True)
 
-# The first haversine/ inverse_haversine call is slow, because of numba stuff, so do it here
+# The first haversine/ inverse_haversine calls are slow, because of numba stuff, so do it here
 dist_gps([10, 20, 300], [20, 10, 400])
-relative_gps(1, 1, 1, 1, 1, 1)
+relative_gps([1, 1, 1], [1, 1, 1])

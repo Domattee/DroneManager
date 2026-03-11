@@ -28,7 +28,7 @@ class Waypoint:
                  yaw: float | None = None,
                  yaw_rate: float | None = None,):
         # Internal data structure, form [x, y, z, xvel, yvel, zvel, xacc, yacc, zacc, lat, long, amsl, yaw, yaw_rate]
-        self._array: np.ndarray[float] = np.empty((14,))
+        self._array: np.ndarray = np.empty((14,), dtype=np.floating)
 
         self._array[:3] = pos
         self._array[3:6] = vel
@@ -98,9 +98,9 @@ class Waypoint:
     def heading_gps(self, other: "Waypoint"):
         return heading_gps(self.gps, other.gps)
 
-    def shift_gps(self, north: float, east: float, up: float) -> "Waypoint":
-        """Returns a new waypoint, offset by north, east and up from this waypoint. Note that the yaw is kept."""
-        new_gps = relative_gps(north, east, up, *self.gps)
+    def shift_gps(self, north: float, east: float, down: float) -> "Waypoint":
+        """Returns a new waypoint, offset by north, east and down from this waypoint. Note that the yaw is kept."""
+        new_gps = relative_gps(self.gps, [north, east, down])
         return Waypoint(WayPointType.POS_GLOBAL, gps=np.asarray(new_gps), yaw=self.yaw)
 
     def offset_gps(self, initial: "Waypoint", target: "Waypoint"):
