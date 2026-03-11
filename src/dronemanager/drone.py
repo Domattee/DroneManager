@@ -22,7 +22,7 @@ from mavsdk.offboard import PositionNedYaw, PositionGlobalYaw, VelocityNedYaw, A
 from mavsdk.manual_control import ManualControlError
 
 from dronemanager.utils import dist_ned, dist_gps, relative_gps, coroutine_awaiter
-from dronemanager.utils import parse_address, common_formatter, get_free_port
+from dronemanager.utils import parse_address, COMMON_FORMATTER, get_free_port
 from dronemanager.utils import LOG_DIR
 from dronemanager.mavpassthrough import MAVPassthrough
 from dronemanager.navigation.core import WayPointType, Waypoint, PathGenerator, PathFollower, Fence
@@ -173,7 +173,7 @@ class Drone(ABC, threading.Thread):
             os.makedirs(LOG_DIR, exist_ok=True)
             file_handler = logging.FileHandler(os.path.join(LOG_DIR, log_file_name))
             file_handler.setLevel(logging.DEBUG)
-            file_handler.setFormatter(common_formatter)
+            file_handler.setFormatter(COMMON_FORMATTER)
             self.add_handler(file_handler)
 
         self.position_update_rate: float = 10

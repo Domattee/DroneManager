@@ -9,7 +9,7 @@ from collections.abc import Callable
 
 from dronemanager.core import DroneManager
 from dronemanager.drone import Drone, DroneMAVSDK
-from dronemanager.utils import common_formatter, coroutine_awaiter
+from dronemanager.utils import COMMON_FORMATTER, coroutine_awaiter
 from dronemanager.navigation.rectlocalfence import RectLocalFence
 
 import textual.css.query
@@ -639,7 +639,7 @@ class DroneApp(App):
             os.makedirs(logdir, exist_ok=True)
             file_handler = logging.FileHandler(os.path.join(logdir, filename))
             file_handler.setLevel(logging.DEBUG)
-            file_handler.setFormatter(common_formatter)
+            file_handler.setFormatter(COMMON_FORMATTER)
             self.logger.addHandler(file_handler)
         else:
             self.logger = logger

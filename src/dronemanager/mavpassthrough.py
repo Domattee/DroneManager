@@ -9,7 +9,7 @@ import struct
 
 from pymavlink import mavutil
 
-from dronemanager.utils import common_formatter, coroutine_awaiter, LOG_DIR
+from dronemanager.utils import COMMON_FORMATTER, coroutine_awaiter, LOG_DIR
 
 # TODO: Routing between multiple GCS so we can have my app and QGroundControl connected at the same time
 # TODO: Implement sending as drone/drone components
@@ -43,7 +43,7 @@ class MAVPassthrough:
         os.makedirs(LOG_DIR, exist_ok=True)
         file_handler = logging.FileHandler(os.path.join(LOG_DIR, filename))
         file_handler.setLevel(logging.DEBUG)
-        file_handler.setFormatter(common_formatter)
+        file_handler.setFormatter(COMMON_FORMATTER)
         self.logger.addHandler(file_handler)
         self.logging_handlers = []
         self.logging_handlers.append(file_handler)

@@ -14,7 +14,7 @@ from asyncio.exceptions import TimeoutError, CancelledError
 
 from dronemanager.drone import Drone, parse_address, DroneConfigs, DroneConfig
 from dronemanager.navigation.rectlocalfence import RectLocalFence
-from dronemanager.utils import common_formatter, get_free_port, LOG_DIR
+from dronemanager.utils import COMMON_FORMATTER, get_free_port, LOG_DIR
 from dronemanager.navigation.core import Waypoint, Fence
 from dronemanager.plugin import Plugin
 
@@ -128,7 +128,7 @@ class DroneManager:
             os.makedirs(LOG_DIR, exist_ok=True)
             file_handler = logging.FileHandler(os.path.join(LOG_DIR, filename))
             file_handler.setLevel(logging.DEBUG)
-            file_handler.setFormatter(common_formatter)
+            file_handler.setFormatter(COMMON_FORMATTER)
             self.logger.addHandler(file_handler)
         else:
             self.logger = logger
@@ -136,7 +136,7 @@ class DroneManager:
         if log_to_console:
             console_handler = logging.StreamHandler(sys.stdout)
             console_handler.setLevel(console_log_level)
-            console_handler.setFormatter(common_formatter)
+            console_handler.setFormatter(COMMON_FORMATTER)
             self.logger.addHandler(console_handler)
 
     async def connect_to_drone(self,
