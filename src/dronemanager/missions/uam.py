@@ -662,6 +662,9 @@ class UAMMission(Mission):
                 self.batteries[name] = FakeBattery()
             except KeyError:
                 self.logger.error(f"No drone named {name}")
+            except Exception as e:
+                self.logger.error(f"Encountered an exception while adding drone {name}!")
+                self.logger.debug(repr(e), exc_info=True)
         self._init_variables()
         return True
 
