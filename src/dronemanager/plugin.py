@@ -54,6 +54,7 @@ class Plugin(ABC):
 
     async def close(self):
         """ Ends all running tasks functions."""
-        for task in self._running_tasks:
+        while len(self._running_tasks) > 0:
+            task = self._running_tasks.pop()
             if isinstance(task, asyncio.Task):
                 task.cancel()
