@@ -196,6 +196,7 @@ class ENGELDataMission(Mission):
         await self.camera.set_parameter("RANGE_MAX", 40.0)
         await self.camera.set_parameter("RANGE_MIN", 10.0)
         await self.camera.set_parameter("MAIN_CAM", self.camera.parse_param_value("MAIN_CAM", "Visible"))
+        await self.camera.set_parameter("LAYOUT_MAIN", self.camera.parse_param_value("LAYOUT_MAIN", "Fullscreen"))
         await self.camera.set_parameter("ZOOM_THERMO_I", self.camera.parse_param_value("ZOOM_THERMO_I", "1.0"))
         await self.camera.set_parameter("ZOOM_VISIBLE_I", self.camera.parse_param_value("ZOOM_VISIBLE_I", "1.0"))
 
