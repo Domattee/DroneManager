@@ -106,6 +106,8 @@ class OptitrackPlugin(Plugin):
         self._stopping = False
         self._covariance_matrix = Covariance([math.nan])
 
+        self._err_count = [0]  # Stick in a list so we can pass by reference sort of work around
+
     async def connect_server(self, remote: str = None, local: str = None):
         """ Connect to a NatNet server at the given IP remote and local IP addresses. Localhost by default. """
         if self.client is not None:
@@ -215,7 +217,7 @@ class OptitrackPlugin(Plugin):
                                                                 self._covariance_matrix)
                         if self.log_rigid_frames and self.frame_count % self.log_every == 0:
                             self.logger.info(f"Logging every {self.log_every}th rigid body frame CONVERTED:{track_id} - {conv_position, conv_rotation}")
-                        send_task = asyncio.run_coroutine_threadsafe(self._error_wrapper(drone.system.mocap.set_vision_position_estimate, vis_pos_estimate), self._event_loop)
+                        send_task = asyncio.run_coroutine_threadsafe(self._error_wrapper(drone.system.mocap.set_vision_position_estimate, self._err_count, vis_pos_estimate), self._event_loop)
                         send_task_awaiter = asyncio.run_coroutine_threadsafe(coroutine_awaiter(send_task, self.logger), self._event_loop)
                         self._running_tasks.add(send_task)
                         self._running_tasks.add(send_task_awaiter)
@@ -234,10 +236,15 @@ class OptitrackPlugin(Plugin):
         if self.client is not None:
             self.client.shutdown()
 
-    async def _error_wrapper(self, func, *args, **kwargs):
+    async def _error_wrapper(self, func, err_count, *args, **kwargs):
         try:
             res = await func(*args, **kwargs)
+            err_count[0] = 0
         except MocapError as e:
-            self.logger.error(f"CameraError: {e._result.result_str}")
+            err_count[0] += 1
+            if err_count[0] == 1:
+                self.logger.error(f"MocapError: {e._result.result_str}")
+            elif err_count[0] % 100 == 0:
+                self.logger.error(f"{err_count[0]} MocapErrors: {e._result.result_str}")
             return False
         return res
