@@ -45,7 +45,7 @@ class CoordinateConversion:
     def convert_quat(self, tracking_pos, tracking_quat, out_sequence = "XYZ", degrees = False):
         converted_pos = self.rotation.apply(tracking_pos)
         converted_rot = (self.rotation * Rotation.from_quat(tracking_quat) *
-                         self.rotation.inv()).as_euler(out_sequence,degrees=degrees)
+                         self._inv_rotation).as_euler(out_sequence,degrees=degrees)
         return converted_pos, converted_rot
 
     def _make_perm_matrix(self):
@@ -55,7 +55,7 @@ class CoordinateConversion:
             seq += axis[-1]
             axis = axis.lower()
             neg = axis.startswith("-")
-            if axis.endswith("x") or axis.endswith(()):
+            if axis.endswith("x"):
                 pos = 0
             elif axis.endswith("y"):
                 pos = 1
@@ -219,8 +219,6 @@ class OptitrackPlugin(Plugin):
                             self.logger.info(f"Logging every {self.log_every}th rigid body frame CONVERTED:{track_id} - {conv_position, conv_rotation}")
                         send_task = asyncio.run_coroutine_threadsafe(self._error_wrapper(drone.system.mocap.set_vision_position_estimate, self._err_count, vis_pos_estimate), self._event_loop)
                         send_task_awaiter = asyncio.run_coroutine_threadsafe(coroutine_awaiter(send_task, self.logger), self._event_loop)
-                        self._running_tasks.add(send_task)
-                        self._running_tasks.add(send_task_awaiter)
                 except KeyError:
                     self.logger.warning(f"Received tracking data for drone '{drone_name}' which is no longer connected, removing...")
                     self._remove_drone(drone_name)
@@ -231,6 +229,8 @@ class OptitrackPlugin(Plugin):
             self.logger.debug(repr(e), exc_info = True)
 
     async def close(self):
+        if self.client is not None:
+            self.client.new_frame_with_data_listener = None
         self._stopping = True
         await super().close()
         if self.client is not None:
