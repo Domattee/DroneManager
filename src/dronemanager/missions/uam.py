@@ -557,14 +557,19 @@ class UAMMission(Mission):
 
     async def _land_drone_at_current_position(self, drone):
         await self.dm.land([drone])
-        await asyncio.sleep(2/self.update_rate) # Wait a couple of beats for landing detection
-        await self.dm.disarm([drone])
+        disarmed = False
+        while not disarmed:
+            await asyncio.sleep(0.5) # Wait a couple of beats for landing detection
+            disarmed = await self.dm.disarm([drone])
+            if isinstance(disarmed, Exception):
+                self.logger.info("Drone didn't disarm, trying again in a few moments...")
+                disarmed = False
         try:
             self.flying_drones.remove(drone)
         except KeyError:
             pass
-        await asyncio.sleep(2/self.update_rate) # Wait a couple of beats
-        await self.dm.change_flightmode(drone, "hold")
+        await asyncio.sleep(0.5) # Wait a couple of beats
+        await self.dm.change_flightmode(drone, "position")
 
     def _yaw_to_point(self, drone, position):
         dx = position[0] - self.dm.drones[drone].position_ned[0]
