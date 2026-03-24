@@ -615,9 +615,10 @@ class UAMMission(Mission):
 
     async def _launch_drone(self, drone, altitude):
         armed = await self.dm.arm([drone])
-        if armed:
+        if armed and not isinstance(armed, Exception):
+            await asyncio.sleep(0.5)
             takeoff = await self.dm.takeoff([drone], altitude=altitude)
-            if takeoff:
+            if takeoff and not isinstance(takeoff, Exception):
                 self.flying_drones.add(drone)
                 return True
         return False
