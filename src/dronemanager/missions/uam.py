@@ -486,7 +486,10 @@ class UAMMission(Mission):
             self.logger.info(f"Trying to do swap with {candidate}")
             # Launch the new drone
             launched = await self._launch_drone(candidate, self.swap_altitude)
-            if launched:
+            if isinstance(launched, Exception) or not launched:
+                self.logger.warning(f"Couldn't launch {candidate} for swap, trying different drone!")
+                continue
+            else:
                 swap_drone = candidate
         self.flying_drones.add(swap_drone)
         return swap_drone
@@ -560,6 +563,8 @@ class UAMMission(Mission):
             self.flying_drones.remove(drone)
         except KeyError:
             pass
+        await asyncio.sleep(2/self.update_rate) # Wait a couple of beats
+        await self.dm.change_flightmode(drone, "hold")
 
     def _yaw_to_point(self, drone, position):
         dx = position[0] - self.dm.drones[drone].position_ned[0]

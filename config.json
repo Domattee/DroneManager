@@ -81,7 +81,7 @@
       "size": 1.0
     },
     {
-      "drone_name": "luke",
+      "drone_name": "green",
       "address": "udp://192.168.1.31:14561",
       "position_rate": 5.0,
       "max_h_vel": 10.0,
@@ -117,7 +117,7 @@
       "size": 1.0
     },
     {
-      "drone_name": "derek",
+      "drone_name": "yellow",
       "address": "udp://192.168.1.33:14563",
       "position_rate": 5.0,
       "max_h_vel": 10.0,
@@ -171,7 +171,7 @@
       "size": 1.0
     },
     {
-      "drone_name": "corran",
+      "drone_name": "blue",
       "address": "udp://192.168.1.36:14566",
       "position_rate": 5.0,
       "max_h_vel": 10.0,
