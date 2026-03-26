@@ -10,6 +10,7 @@ from collections.abc import Callable
 import socket
 import threading
 from queue import Queue
+import select
 
 import numpy as np
 import json
@@ -816,10 +817,14 @@ class DataChannel:
         self.logger.info("Listening for messages...")
         while self.running:
             try:
-                message = self.sock.recv(1024).decode('utf-8')
-                if self.processing and message:
-                    self.logger.info(f"Got a message, current queue size: {self.message_queue.qsize()}")
-                    self.message_queue.put(message)
+                rlist, _, _ = select.select([self.sock], [], [], 1)
+                if len(rlist) == 1:
+                    message = self.sock.recv(1024).decode('utf-8')
+                    if self.processing and message:
+                        self.logger.info(f"Got a message, current queue size: {self.message_queue.qsize()}")
+                        self.message_queue.put(message)
+                else:
+                    continue
             except Exception as e:
                 self.logger.warning("Exception receiving data over data channel!")
                 self.logger.debug(repr(e), exc_info=True)
