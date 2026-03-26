@@ -173,7 +173,7 @@ class ENGELDataMission(Mission):
             PS4Mapping.remove_method_from_button(button, func)
         for func in self._added_controller_axis_methods:
             PS4Mapping.remove_axis_method(func)
-        await self.stop_test()
+        await self.close_test()
         await super().close()
 
     async def connect(self):
@@ -674,7 +674,7 @@ class ENGELDataMission(Mission):
 
     async def close_test(self):
         if self.correction_algo is not None:
-            self.correction_algo.send_command("stop")
+            self.correction_algo.stop()
             await self.correction_algo.close()
             self.logger.info("Stopped servers")
 
@@ -696,14 +696,15 @@ class PositionCorrectionHandler:
 
     def connect_command_channel(self, ip: str = "127.0.0.1", port: int = 9020):
         self.command_handler.connect(ip, port)
-        self.logger.info("Connected command")
+        self.logger.info("Connected command channel")
 
     def connect_data_channel(self, ip: str = "127.0.0.1", port: int = 9010):
         self.data_handler.connect(ip, port)
-        self.logger.info("connected data")
+        self.logger.info("Connected data channel")
 
     def send_command(self, cmd):
         assert cmd in ["start", "stop", "pause", "resume", "rotation_only", "translation_only", "status", "quit"], f"Invalid command {cmd}"
+        #self.logger.debug(f"Sending command {cmd} to correction algo")
         self.command_handler.send_command(cmd)
 
     def start(self):
@@ -714,8 +715,12 @@ class PositionCorrectionHandler:
         self.send_command("start")
 
     def stop(self):
+        self.logger.info("Stopping correction algorithm")
         self.data_handler.processing = False
-        self.send_command("stop")
+        try:
+            self.send_command("stop")
+        except ConnectionAbortedError:
+            self.logger.info("Couldn't send stop command: Connection aborted")
 
     def _data_thread(self):
         while self.running:
@@ -731,7 +736,8 @@ class PositionCorrectionHandler:
     async def close(self):
         self.running = False
         self.command_handler.close()
-        await self.handler_task
+        if self.handler_task is not None:
+            self.handler_task.cancel()
         await self.data_handler.close()
 
 
@@ -746,28 +752,26 @@ class CommandChannel:
     def connect(self, ip, port) -> None:
         self.ip = ip
         self.port = port
-        with self.lock:
-            if self.sock:
-                return
-            s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            s.connect((self.ip, self.port))
-            self.sock = s
+        if self.sock:
+            return
+        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        s.connect((self.ip, self.port))
+        self.sock = s
         self.logger.info(f"[tcp] connected to {self.ip}:{self.port}")
 
     def close(self) -> None:
-        with self.lock:
-            if self.sock:
-                try:
-                    self.sock.close()
-                except Exception:
-                    pass
-                self.sock = None
+        if self.sock:
+            try:
+                self.sock.close()
+            except Exception:
+                pass
+            self.sock = None
 
     def send_command(self, cmd: str) -> None:
         msg = (cmd + "\n").encode("utf-8")
-        with self.lock:
-            if not self.sock:
-                raise RuntimeError("Not connected")
+        if not self.sock:
+            self.logger.warning("Can't send command, not connected!")
+        else:
             self.sock.sendall(msg)
 
 
@@ -786,12 +790,11 @@ class DataChannel:
     def connect(self, ip, port) -> None:
         self.ip = ip
         self.port = port
-        with self.lock:
-            if self.sock:
-                return
-            s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            s.connect((self.ip, self.port))
-            self.sock = s
+        if self.sock:
+            return
+        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        s.connect((self.ip, self.port))
+        self.sock = s
         self.running = True
         self.data_task = asyncio.get_running_loop().run_in_executor(None, self._receive_msg)
         self.logger.info(f"[tcp] connected to {self.ip}:{self.port}")
@@ -814,6 +817,7 @@ class DataChannel:
 
     def _receive_msg(self):
         """Receive messages from a connected client and add them to the queue."""
+        time.sleep(0.5)
         self.logger.info("Listening for messages...")
         while self.running:
             try:
