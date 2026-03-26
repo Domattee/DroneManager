@@ -920,6 +920,8 @@ class DroneMAVSDK(Drone):
         if self.path_follower.is_active:
             await self.path_follower.deactivate()
         res =  await self._takeoff_using_offboard(altitude=altitude)
+        if isinstance(res, Exception) or not res:
+            return False
         self.return_position = Waypoint(WayPointType.POS_NED, pos=self.position_ned, yaw=self.attitude[2])
         return res
 

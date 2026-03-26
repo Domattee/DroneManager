@@ -486,7 +486,10 @@ class UAMMission(Mission):
             self.logger.info(f"Trying to do swap with {candidate}")
             # Launch the new drone
             launched = await self._launch_drone(candidate, self.swap_altitude)
-            if launched:
+            if isinstance(launched, Exception) or not launched:
+                self.logger.warning(f"Couldn't launch {candidate} for swap, trying different drone!")
+                continue
+            else:
                 swap_drone = candidate
         self.flying_drones.add(swap_drone)
         return swap_drone
@@ -554,12 +557,19 @@ class UAMMission(Mission):
 
     async def _land_drone_at_current_position(self, drone):
         await self.dm.land([drone])
-        await asyncio.sleep(2/self.update_rate) # Wait a couple of beats for landing detection
-        await self.dm.disarm([drone])
+        disarmed = False
+        while not disarmed:
+            await asyncio.sleep(0.5) # Wait a couple of beats for landing detection
+            disarmed = await self.dm.disarm([drone])
+            if isinstance(disarmed, Exception):
+                self.logger.info("Drone didn't disarm, trying again in a few moments...")
+                disarmed = False
         try:
             self.flying_drones.remove(drone)
         except KeyError:
             pass
+        await asyncio.sleep(0.5) # Wait a couple of beats
+        await self.dm.change_flightmode(drone, "position")
 
     def _yaw_to_point(self, drone, position):
         dx = position[0] - self.dm.drones[drone].position_ned[0]
@@ -610,9 +620,10 @@ class UAMMission(Mission):
 
     async def _launch_drone(self, drone, altitude):
         armed = await self.dm.arm([drone])
-        if armed:
+        if armed and not isinstance(armed, Exception):
+            await asyncio.sleep(0.5)
             takeoff = await self.dm.takeoff([drone], altitude=altitude)
-            if takeoff:
+            if takeoff and not isinstance(takeoff, Exception):
                 self.flying_drones.add(drone)
                 return True
         return False

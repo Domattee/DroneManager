@@ -45,7 +45,7 @@ class CoordinateConversion:
     def convert_quat(self, tracking_pos, tracking_quat, out_sequence = "XYZ", degrees = False):
         converted_pos = self.rotation.apply(tracking_pos)
         converted_rot = (self.rotation * Rotation.from_quat(tracking_quat) *
-                         self.rotation.inv()).as_euler(out_sequence,degrees=degrees)
+                         self._inv_rotation).as_euler(out_sequence,degrees=degrees)
         return converted_pos, converted_rot
 
     def _make_perm_matrix(self):
@@ -55,7 +55,7 @@ class CoordinateConversion:
             seq += axis[-1]
             axis = axis.lower()
             neg = axis.startswith("-")
-            if axis.endswith("x") or axis.endswith(()):
+            if axis.endswith("x"):
                 pos = 0
             elif axis.endswith("y"):
                 pos = 1
@@ -106,6 +106,8 @@ class OptitrackPlugin(Plugin):
         self._stopping = False
         self._covariance_matrix = Covariance([math.nan])
 
+        self._err_count = [0]  # Stick in a list so we can pass by reference sort of work around
+
     async def connect_server(self, remote: str = None, local: str = None):
         """ Connect to a NatNet server at the given IP remote and local IP addresses. Localhost by default. """
         if self.client is not None:
@@ -154,6 +156,9 @@ class OptitrackPlugin(Plugin):
 
     async def remove_drone(self, name: str):
         """ Remove a drone from the data forwarding system by name"""
+        self._remove_drone(name)
+
+    def _remove_drone(self, name):
         to_remove = None
         for key, value in self._drone_id_mapping.items():
             if value == name:
@@ -188,16 +193,13 @@ class OptitrackPlugin(Plugin):
                     body_dict[track_id] = position
                     rotation = rb.rot
                     if track_id in self._drone_id_mapping:
-                        callback_task = asyncio.run_coroutine_threadsafe(self._process_rigid_body(track_id, position, rotation), self._event_loop)
-                        callback_awaiter = asyncio.run_coroutine_threadsafe(coroutine_awaiter(callback_task, self.logger), self._event_loop)
-                        self._running_tasks.add(callback_task)
-                        self._running_tasks.add(callback_awaiter)
+                        self._process_rigid_body(track_id, position, rotation)
                 self.available_bodies = body_dict
         except Exception as e:
             self.logger.error("Exception in new frame callback, see log for details.")
             self.logger.debug(repr(e), exc_info = True)
 
-    async def _process_rigid_body(self, track_id, position, rotation):
+    def _process_rigid_body(self, track_id, position, rotation):
         try:
             self.frame_count += 1
             self.frame_count = self.frame_count % 1000000
@@ -215,13 +217,11 @@ class OptitrackPlugin(Plugin):
                                                                 self._covariance_matrix)
                         if self.log_rigid_frames and self.frame_count % self.log_every == 0:
                             self.logger.info(f"Logging every {self.log_every}th rigid body frame CONVERTED:{track_id} - {conv_position, conv_rotation}")
-                        send_task = asyncio.create_task(self._error_wrapper(drone.system.mocap.set_vision_position_estimate, vis_pos_estimate))
-                        send_task_awaiter = asyncio.create_task(coroutine_awaiter(send_task, self.logger))
-                        self._running_tasks.add(send_task)
-                        self._running_tasks.add(send_task_awaiter)
+                        send_task = asyncio.run_coroutine_threadsafe(self._error_wrapper(drone.system.mocap.set_vision_position_estimate, self._err_count, vis_pos_estimate), self._event_loop)
+                        send_task_awaiter = asyncio.run_coroutine_threadsafe(coroutine_awaiter(send_task, self.logger), self._event_loop)
                 except KeyError:
                     self.logger.warning(f"Received tracking data for drone '{drone_name}' which is no longer connected, removing...")
-                    await self.remove_drone(drone_name)
+                    self._remove_drone(drone_name)
         except UnboundLocalError:
             pass
         except Exception as e:
@@ -229,15 +229,22 @@ class OptitrackPlugin(Plugin):
             self.logger.debug(repr(e), exc_info = True)
 
     async def close(self):
+        if self.client is not None:
+            self.client.new_frame_with_data_listener = None
         self._stopping = True
         await super().close()
         if self.client is not None:
             self.client.shutdown()
 
-    async def _error_wrapper(self, func, *args, **kwargs):
+    async def _error_wrapper(self, func, err_count, *args, **kwargs):
         try:
             res = await func(*args, **kwargs)
+            err_count[0] = 0
         except MocapError as e:
-            self.logger.error(f"CameraError: {e._result.result_str}")
+            err_count[0] += 1
+            if err_count[0] == 1:
+                self.logger.error(f"MocapError: {e._result.result_str}")
+            elif err_count[0] % 100 == 0:
+                self.logger.error(f"{err_count[0]} MocapErrors: {e._result.result_str}")
             return False
         return res
