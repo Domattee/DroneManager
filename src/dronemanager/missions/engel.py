@@ -644,10 +644,8 @@ class ENGELDataMission(Mission):
             # Do this here for testing
             self.logger.info(f"Received message {parsed_message}")
             _, pitch_rate, yaw_rate = self.rotation_shift
-            #gimbal_task = asyncio.create_task(self.gimbal.set_gimbal_rates(pitch_rate, yaw_rate))
-            #gimbal_awaiter_task = asyncio.create_task(coroutine_awaiter(gimbal_task, self.logger))
-            #self._running_tasks.add(gimbal_task)
-            #self._running_tasks.add(gimbal_awaiter_task)
+            gimbal_task = asyncio.create_task(self.gimbal.set_gimbal_rates(pitch_rate, yaw_rate))
+            gimbal_awaiter_task = asyncio.create_task(coroutine_awaiter(gimbal_task, self.logger))
 
     async def init_test(self, ip: str = "127.0.0.1", command_port: int = 9020, data_port: int = 9010):
         self.correction_algo = PositionCorrectionHandler()
@@ -742,7 +740,7 @@ class PositionCorrectionHandler:
                 if message:
                     if self.message_callback is not None:
                         data = self.data_handler.parse_motion_command(message)
-                        self.message_callback(data)
+                        self.loop.call_soon_threadsafe(self.message_callback, data)
             except Exception as e:
                 self.logger.warning(repr(e), exc_info=True)
 
