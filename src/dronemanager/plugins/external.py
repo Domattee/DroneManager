@@ -118,7 +118,6 @@ class UDPPlugin(Plugin):
             except Exception as e:
                 self.logger.warning("Exception listening for incoming UDP!")
                 self.logger.debug(repr(e), exc_info=True)
-                self.logger.debug("Dummy")
 
     async def _client_sender(self, client: UDPClient):
         """ Send data to the client.
