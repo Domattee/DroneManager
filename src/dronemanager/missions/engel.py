@@ -828,7 +828,7 @@ class DataChannel:
         self.logger.info("Listening for messages...")
         while self.running:
             try:
-                message = await self.conn[0].readline() #self.sock.recv(1024).decode('utf-8')
+                message = (await self.conn[0].readline()).decode("utf-8")
                 if self.processing and message:
                     self.logger.info(f"Got a message, current queue size: {self.message_queue.qsize()}")
                     self.message_queue.put(message)
