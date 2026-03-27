@@ -648,6 +648,7 @@ class ENGELDataMission(Mission):
             gimbal_awaiter_task = asyncio.create_task(coroutine_awaiter(gimbal_task, self.logger))
 
     async def init_test(self, ip: str = "127.0.0.1", command_port: int = 9020, data_port: int = 9010):
+        self.logger.info("Performing setup for position correction algorithm...")
         self.correction_algo = PositionCorrectionHandler()
         self.correction_algo.message_callback = self.correction_callback
         await self.connect_command(ip, command_port)
