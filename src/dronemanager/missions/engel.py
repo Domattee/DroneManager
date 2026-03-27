@@ -9,7 +9,7 @@ import pathlib
 from asyncio import StreamReader, StreamWriter
 from collections.abc import Callable
 import socket
-from queue import Queue
+from queue import Queue, Empty
 
 import numpy as np
 import json
@@ -664,7 +664,6 @@ class ENGELDataMission(Mission):
         await self.correction_algo.start()
 
     async def test_command(self, cmd: str):
-        self.logger.info(f"Sending command {cmd}")
         try:
             await self.correction_algo.send_command(cmd)
         except Exception as e:
@@ -678,7 +677,7 @@ class ENGELDataMission(Mission):
         if self.correction_algo is not None:
             await self.correction_algo.stop()
             await self.correction_algo.close()
-            self.logger.info("Stopped correction algorithm")
+            self.correction_algo = None
 
 
 def _roll_pitch_compensation(gimbal_yaw, drone_roll, drone_pitch):
@@ -715,18 +714,19 @@ class PositionCorrectionHandler:
 
     async def send_command(self, cmd):
         assert cmd in self.valid_commands, f"Invalid command {cmd}, must be one of {self.valid_commands}"
-        self.logger.debug(f"Sending command {cmd} to correction algo")
+        self.logger.info(f"Sending command {cmd} to correction algo")
         await self.command_handler.send_command(cmd)
 
     async def start(self):
         # Start processing all the stuff
+        self.logger.info("Starting correction algorithm...")
         self.data_handler.processing = True
         self.running = True
         self.handler_task = self.loop.run_in_executor(None, self._data_thread)
         await self.send_command("start")
 
     async def stop(self):
-        self.logger.info("Stopping correction algorithm")
+        self.logger.info("Stopping correction algorithm...")
         self.data_handler.processing = False
         try:
             await self.send_command("stop")
@@ -745,11 +745,13 @@ class PositionCorrectionHandler:
                 self.logger.warning(repr(e), exc_info=True)
 
     async def close(self):
+        self.logger.info("Closing correction algorithm...")
         self.running = False
         self.command_handler.close()
         if self.handler_task is not None:
             self.handler_task.cancel()
         self.data_handler.close()
+        self.logger.info("Closed correction algorithm")
 
 
 class CommandChannel:
@@ -841,7 +843,9 @@ class DataChannel:
     def get_from_queue(self):
         """Get and remove the next message from the queue."""
         try:
-            return self.message_queue.get()
+            return self.message_queue.get(timeout=1)
+        except Empty:
+            return None
         except Exception as e:
             self.logger.error(f"Error getting from queue: {e}")
             self.logger.debug(f"{repr(e)}", exc_info=True)
