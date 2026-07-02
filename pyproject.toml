@@ -14,11 +14,10 @@ description = "Package to connect to and control multiple drones, either program
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
-    "numpy<2; python_version < '3.14'",
-    "numpy; python_version >= '3.14'",
-    "textual==8.2.8",
+    "numpy",
+    "textual==8.2.*",
     "rich",
-    "mavsdk==3.15.3",
+    "mavsdk==3.15.*",
     "pymavlink",
     "pygame-ce",
     "haversine",

@@ -10,10 +10,8 @@ import sys
 
 
 # ChatGTP generated most of this
-MAV_URL = "https://github.com/mavlink/MAVSDK/releases/download/v3.0.0/mavsdk-windows-x64-release.zip"
 VS_URL = "https://aka.ms/vs/17/release/vs_BuildTools.exe"
 
-MAVPATH = "src/dronemanager/mavsdk_server_bin.exe"
 VSWHERE_PATHS = [
     "C:/Program Files (x86)/Microsoft Visual Studio/Installer/vswhere.exe",
     "C:/Program Files/Microsoft Visual Studio/Installer/vswhere.exe"
@@ -120,36 +118,10 @@ def msvc():
         need_restart = install_msvc(installer_path)
         return need_restart
 
-def check_mavlink_binary():
-    if pathlib.Path(MAVPATH).exists():
-        return True
-    return False
-
-
-def mavlink_binary():
-    have_mavlink = check_mavlink_binary()
-    if have_mavlink:
-        print("Mavlink server binary already present, skipping")
-    else:
-        print("Missing mavlink server binary, installing...")
-        with tempfile.TemporaryDirectory() as tempdir:
-            zip_path = pathlib.Path(tempdir).joinpath("mavsdk-windows-x64-release.zip")
-            zip_dir = pathlib.Path(tempdir).joinpath("mavsdk-windows-x64-release")
-            print(f"Downloading mavsdk release to {zip_path}...")
-            download_file(MAV_URL, zip_path)
-            print("Unzipping files...")
-            with zipfile.ZipFile(zip_path, 'r') as zip_ref:
-                zip_ref.extractall(zip_dir)
-            mav_unzipped = zip_dir.joinpath("bin", "mavsdk_server_bin.exe")
-            print("Moving server executable...")
-            shutil.move(mav_unzipped, MAVPATH)
-
-
 def main():
     if platform.system() == "Windows":
         need_restart = msvc()
         if not need_restart:
-            mavlink_binary()
             print("All done!")
     else:
         print("Not on Windows, this step is not necessary!")
