@@ -6,6 +6,7 @@ import os.path
 import threading
 import time
 import json
+from collections.abc import Callable
 from subprocess import Popen
 from abc import ABC, abstractmethod
 from typing import Coroutine
@@ -274,6 +275,31 @@ class Drone(ABC, threading.Thread):
         """ Resume executing tasks. """
         self.is_paused = False
         self.logger.debug("Resuming...")
+
+    @abstractmethod
+    def add_message_callback(self, message_name: str, callback: Callable):
+        """ Add callback to a specific message. The callback is executed every time a corresponding message is received.
+
+        The callback signature should be callback(message). Note that the types of messages available can depend on the
+        specific communication protocol (i.e. MAVLink).
+
+        Args:
+            message_name: The target message
+            callback: The callback
+
+        """
+        pass
+
+    @abstractmethod
+    def remove_message_callback(self, message_name: str, callback: Callable):
+        """ Remove a callback.
+
+        Args:
+            message_name: The target message
+            callback: The callback
+
+        """
+        pass
 
     @property
     @abstractmethod

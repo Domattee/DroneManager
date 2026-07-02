@@ -1,6 +1,7 @@
 import asyncio
 import math
 import typing
+import json
 
 import mavsdk.gimbal
 from mavsdk.gimbal import GimbalError
@@ -159,9 +160,9 @@ class Gimbal:
         self.secondary_control: tuple[float, float] = (math.nan, math.nan)
         self._running_tasks = set()
         self.update_rate = 5  # How often we request updates on control and attitude
-        self._message_callbacks: dict[int, typing.Callable[[any], typing.Coroutine]] = {
-            265: self._gimbal_attitude_callback,
-            281: self._gimbal_control_callback,
+        self._message_callbacks: dict[str, typing.Callable[[any], typing.Coroutine]] = {
+            "MOUNT_ORIENTATION": self._gimbal_attitude_callback,
+            "GIMBAL_MANAGER_STATUS": self._gimbal_control_callback,
         }
         self._add_callbacks()
         self.start()
@@ -170,12 +171,12 @@ class Gimbal:
         self._running_tasks.add(asyncio.create_task(self.take_control()))
 
     def _add_callbacks(self):
-        for message_id, message_callback in self._message_callbacks.items():
-            self.drone.mav_conn.add_drone_message_callback(message_id, message_callback)
+        for message_name, message_callback in self._message_callbacks.items():
+            self.drone.add_message_callback(message_name, message_callback)
 
     def _remove_callbacks(self):
-        for message_id, message_callback in self._message_callbacks.items():
-            self.drone.mav_conn.remove_drone_message_callback(message_id, message_callback)
+        for message_name, message_callback in self._message_callbacks.items():
+            self.drone.remove_message_callback(message_name, message_callback)
 
     async def close(self):
         try:
@@ -194,17 +195,19 @@ class Gimbal:
 
     async def _gimbal_control_callback(self, msg):
         # Check for gimbal manager status messages (281)
-        if msg.gimbal_device_id == self.device_id:
+        fields = json.loads(msg.fields_json)
+        if fields["gimbal_device_id"] == self.device_id:
             self.primary_control = (msg.primary_control_sysid, msg.primary_control_compid)
             self.secondary_control = (msg.secondary_control_sysid, msg.secondary_control_compid)
 
     async def _gimbal_attitude_callback(self, msg):
         # If the message is of type MOUNT_ORIENTATION (265) and source system and component match ours: save info
-        if msg.get_srcComponent() == self.device_id:
-            self.roll = msg.roll
-            self.pitch = msg.pitch
-            self.yaw = msg.yaw
-            self.yaw_absolute = msg.yaw_absolute
+        if msg.component_id == self.device_id:
+            fields = json.loads(msg.fields_json)
+            self.roll = fields["roll"]
+            self.pitch = fields["pitch"]
+            self.yaw = fields["yaw"]
+            self.yaw_absolute = fields["yaw_absolute"]
 
     def log_status(self):
         self.logger.info(f"Gimbal control: {'Yes' if self.in_control else 'No'}, P:{self.primary_control}, "
