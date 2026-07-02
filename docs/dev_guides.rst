@@ -212,18 +212,15 @@ and the :py:class:`RuckigFollower <dronemanager.navigation.ruckigfollower.Ruckig
 Writing documentation
 ---------------------
 
-We use Google-style docstrings. Most IDEs can be set up to configure
-which style of docstring stub is generated.
-Type hints go into the signature, not the docstring.
+We use Google-style docstrings. Most IDEs can be set up to configure which style of docstring stub is generated.
+Type hints for function arguments go into the signature, not the docstring.
 
-For classes, everything goes into the class docstring, except the arguments
-for ``__init__``, which go into the ``__init__`` docstring.
+For classes, everything goes into the class docstring, except the arguments for ``__init__``, which go into
+the ``__init__`` docstring. Class attributes must be type hinted ONLY in the docstring, otherwise builds will fail with
+duplicate entry errors.
 
-Sphinx uses the class hierarchy to try and find a docstring when a class
-overrides a member of its parent class. This can lead to errors when the
-docstring of the parent class doesn't meet the formatting standards. In
-this case, the subclass should provide its own docstring, referencing the
-parent class when necessary.
+Sphinx uses the class hierarchy to try and find a docstring when a class overrides a member of its parent class. This
+can lead to errors when the docstring of the parent class doesn't meet the formatting standards. In this case, the
+subclass should provide its own docstring, referencing the parent class when necessary.
 
-For general formatting, see the sphinx documentation, they have examples
-of Google-style docstrings as well.
+For general formatting, see the sphinx documentation, they have examples of Google-style docstrings as well.
