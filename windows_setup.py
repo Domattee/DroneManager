@@ -4,8 +4,6 @@ import subprocess
 import urllib.request
 import tempfile
 import json
-import zipfile
-import shutil
 import sys
 
 
