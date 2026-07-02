@@ -4,9 +4,9 @@ from collections import deque
 import math
 import os.path
 import threading
-import platform
 import time
-from subprocess import Popen, DEVNULL
+import json
+from subprocess import Popen
 from abc import ABC, abstractmethod
 from typing import Coroutine
 
@@ -154,7 +154,8 @@ class Drone(ABC, threading.Thread):
         threading.Thread.__init__(self)
         self.name = name
         self.drone_addr = None
-        self.drone_ip = None
+        self.drone_identifier = None
+        self.autopilot = None
         if config:
             self.config = config
         else:
@@ -166,15 +167,26 @@ class Drone(ABC, threading.Thread):
         self.logger = logging.getLogger(name)
         self.logger.setLevel(logging.DEBUG)
         self.logging_handlers = []
+        self.telem_logger = logging.getLogger(f"{name}_telemetry")
+        self.telem_logger.setLevel(logging.DEBUG)
+        self.telem_logging_handlers = []
         self.log_to_file = log_to_file
         if self.log_to_file:
-            log_file_name = f"drone_{self.name}_{datetime.datetime.now()}"
+            stamp = datetime.datetime.now()
+            log_file_name = f"drone_{self.name}_{stamp}"
             log_file_name = log_file_name.replace(":", "_").replace(".", "_") + ".log"
             os.makedirs(LOG_DIR, exist_ok=True)
             file_handler = logging.FileHandler(os.path.join(LOG_DIR, log_file_name))
             file_handler.setLevel(logging.DEBUG)
             file_handler.setFormatter(COMMON_FORMATTER)
             self.add_handler(file_handler)
+
+            telemetry_file_name = f"telemetry_{self.name}_{stamp}"
+            telemetry_file_name = telemetry_file_name.replace(":", "_").replace(".", "_") + ".log"
+            telemetry_handler = logging.FileHandler(os.path.join(LOG_DIR, telemetry_file_name))
+            telemetry_handler.setLevel(logging.DEBUG)
+            telemetry_handler.setFormatter(COMMON_FORMATTER)
+            self.add_telemetry_handler(telemetry_handler)
 
         self.position_update_rate: float = 10
         self.fence: Fence | None = None
@@ -230,6 +242,10 @@ class Drone(ABC, threading.Thread):
         self.logger.addHandler(handler)
         self.logging_handlers.append(handler)
 
+    def add_telemetry_handler(self, handler):
+        self.telem_logger.addHandler(handler)
+        self.telem_logging_handlers.append(handler)
+
     @abstractmethod
     async def stop_execution(self):
         """ Stops the thread. This function should be called at the end of any implementing function.
@@ -237,6 +253,10 @@ class Drone(ABC, threading.Thread):
         :return:
         """
         self.should_stop.set()
+        for handler in self.logging_handlers:
+            self.logger.removeHandler(handler)
+        for handler in self.telem_logging_handlers:
+            self.telem_logger.removeHandler(handler)
 
     def pause(self):
         """ Pause task execution by setting self.is_paused to True.
@@ -274,10 +294,6 @@ class Drone(ABC, threading.Thread):
     @abstractmethod
     def in_air(self) -> bool:
         pass
-
-    @property
-    def autopilot(self) -> str:
-        return self.mav_conn.drone_autopilot
 
     @property
     @abstractmethod
@@ -526,8 +542,6 @@ class DroneMAVSDK(Drone):
         self.server_port = mavsdk_server_port
         self.gcs_system_id = None
         self.gcs_component_id = None
-        self.drone_system_id = None           # Populated during connection process
-        self.drone_component_id = None
         self._server_process: Popen | None = None
         self._is_connected: bool = False
         self._is_armed: bool = False
@@ -541,6 +555,8 @@ class DroneMAVSDK(Drone):
         self._heading: float = math.nan
         self._batteries: dict[int, Battery] = {}
         self._running_tasks = set()
+
+        self._message_callbacks: dict[str, set] = dict()
 
         # How often (per second) we request position information from the drone. The same interval is used by path
         # planning algorithms for their time resolution.
@@ -676,25 +692,62 @@ class DroneMAVSDK(Drone):
                                       f"GCS: {self.mav_conn.connected_to_gcs()}")
                     await asyncio.sleep(0.1)
                 self.logger.debug("Connected passthrough!")
-                self.drone_system_id = self.mav_conn.drone_system
-                self.drone_component_id = self.mav_conn.drone_component
 
             await connected
 
             async for state in self.system.core.connection_state():
                 if state.is_connected:
+                    self._running_tasks.add(asyncio.create_task(self._process_messages()))
+                    self._get_drone_info()
                     await self._configure_message_rates()
                     await self._schedule_update_tasks()
-                    self.logger.debug("Connected!")
                     self.config.address = self.drone_addr
+
                     param_load_task = asyncio.create_task(self.load_parameters())
                     param_load_task_awaiter = asyncio.create_task(coroutine_awaiter(param_load_task, self.logger))
                     self._running_tasks.add(param_load_task)
                     self._running_tasks.add(param_load_task_awaiter)
+                    self.logger.debug(f"Connected!")
                     return True
         except Exception as e:
             self.logger.debug(f"Exception during connection: {repr(e)}", exc_info=True)
         return False
+
+    def add_message_callback(self, message_name, callback):
+        if message_name in self._message_callbacks:
+            self._message_callbacks[message_name].add(callback)
+        else:
+            self._message_callbacks[message_name] = {callback}
+
+    def remove_message_callback(self, message_name, callback):
+        if message_name in self._message_callbacks:
+            self._message_callbacks[message_name].remove(callback)
+
+    async def _process_messages(self):
+        async for message in self.system.mavlink_direct.message(""):
+            if self.config.log_telemetry:
+                self.telem_logger.debug(f"Received {message.message_name} from {message.system_id, message.component_id}: {message.fields_json}")
+            if message.message_name in self._message_callbacks:
+                for callback in self._message_callbacks[message.message_name]:
+                    try:
+                        callback(message)
+                    except Exception as e:
+                        self.logger.error(f"Couldn't perform a message callback {callback} for message "
+                                          f"{message.message_name} from {message.system_id, message.component_id}: "
+                                          f"{message.fields_json}")
+                        self.logger.debug(repr(e), exc_info=True)
+
+    def _get_drone_info_callback(self, message):
+        self.drone_identifier = (message.system_id, message.component_id)
+        fields = json.loads(message.fields_json)
+        match fields["autopilot"]:
+            case 3:
+                self.autopilot = "ArduPilot"
+            case 12:
+                self.autopilot = "PX4"
+
+    def _get_drone_info(self):
+        self.add_message_callback("HEARTBEAT", self._get_drone_info_callback)
 
     async def load_parameters(self):
         self.logger.info(f"Loading parameters...")
@@ -1332,6 +1385,7 @@ class DroneMAVSDK(Drone):
 
         :return:
         """
+        # Deactivate path follower
         if self.path_follower:
             if self.path_follower.is_active:
                 await self.path_follower.deactivate()
@@ -1342,12 +1396,11 @@ class DroneMAVSDK(Drone):
                 del self.mav_conn
         except AttributeError:
             pass
+        # Cleanup other stuff that doesn't reliably get cleaned up otherwise
         if self.system is not None:
             self.system.__del__()
         if self._server_process:
             self._server_process.terminate()
-        for handler in self.logging_handlers:
-            self.logger.removeHandler(handler)
         await super().stop_execution()
 
     async def stop(self):
