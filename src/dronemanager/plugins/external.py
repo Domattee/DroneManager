@@ -178,7 +178,7 @@ class UDPPlugin(Plugin):
                 "fence": fence_list,
                 "target": target_list,
             }
-        data = {"drones": drone_data}
+        data = {"drones": drone_data, "t_send": time.time()}
         if hasattr(self.dm, "mission"):  # Check that the mission plugin is actually loaded
             mission_data = {}
             data["missions"] = mission_data
