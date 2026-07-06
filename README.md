@@ -19,6 +19,7 @@ A package to connect to and control multiple drones.
 - [Examples](#examples)
   - [Holodeck](#holodeck)
   - [UAM](#uam-demo)
+- [Citation](#citation)
 
 ## Installation
 
@@ -155,3 +156,20 @@ rescue mission.
 To hightlight the advantage of multiple autonomously coordinating drones, there is also a phase with only a single drone
 performing both the search and the observation phase.
 Setup instructions for both real and simulated drones are available [here](https://dronemanager.readthedocs.io/en/latest/usage.html#example-mission).
+
+
+## Citation
+
+If you use DroneManager in your work, please cite the following:
+
+```
+@ARTICLE{11372659,
+  author={Salamat, Babak and Mattern, Dominik and Olzem, Sebastian-Sven and Elsbacher, Gerhard and Seidel, Christian and Tonello, Andrea M.},
+  journal={IEEE Access}, 
+  title={GMP3: Learning-Driven, Bellman-Guided Trajectory Planning for AAVs in Real-Time on SE(3)}, 
+  year={2026},
+  volume={14},
+  number={},
+  pages={22720-22733},
+  doi={10.1109/ACCESS.2026.3661193}}
+```
