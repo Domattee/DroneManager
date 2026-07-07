@@ -135,14 +135,20 @@ async def main(args):
     for plugin in ["mission", "controllers", "external"]:
         await dm.load_plugin(plugin)
 
+    if args.drone:
+        drones = [d.split("=", 1) for d in args.drone]
+    else:
+        drones = [(args.name, args.address)]
+
     sampler = TelemetrySampler(frequency=args.telemetry_hz, duration=args.duration)
     sampler_task = asyncio.create_task(sampler.run())
 
     try:
-        await dm.connect_to_drone(args.name, None, None, args.address, log_telemetry=False,
-                                   telemetry_frequency=args.mavlink_hz)
+        for name, address in drones:
+            await dm.connect_to_drone(name, None, None, address, log_telemetry=False,
+                                       telemetry_frequency=args.mavlink_hz)
         await asyncio.sleep(2)
-        await drone_back_and_forth_timed(args.name, dm, args.duration)
+        await asyncio.gather(*[drone_back_and_forth_timed(name, dm, args.duration) for name, _ in drones])
     finally:
         await sampler_task
         await dm.close()
@@ -163,6 +169,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--address", default="udp://172.30.235.63:18570", help="MAVSDK connection string for the SITL drone")
     parser.add_argument("--name", default="kirk")
+    parser.add_argument("--drone", action="append", help="NAME=ADDRESS pair, repeatable for multi-drone scaling (overrides --name/--address)")
     parser.add_argument("--duration", type=float, default=45.0, help="Benchmark duration in seconds")
     parser.add_argument("--telemetry-hz", type=float, default=20.0, help="Requested UDP telemetry rate (Unity default)")
     parser.add_argument("--mavlink-hz", type=float, default=30.0, help="MAVSDK internal telemetry subscription rate")
