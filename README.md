@@ -37,7 +37,9 @@ As part of the installation a command called ```dm``` is installed, which starts
 Alternatively you can run the app.py script.
 
 > [!NOTE]  
-> The additional script on windows is required to install MSVC and the MAVSDK Server binary, which isn't shipped with the installation.
+> The additional script on windows is required to install or update MSVC, which is required for ruckig.
+> If you are getting build errors, especially involving ruckig, please try to build directly from their repo before 
+> installing DM: `pip install ruckig@git+https://github.com/pantor/ruckig`
 
 ## Usage
 
