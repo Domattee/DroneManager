@@ -8,13 +8,14 @@ import sys
 
 
 # ChatGTP generated most of this
-VS_URL = "https://aka.ms/vs/17/release/vs_BuildTools.exe"
+VS_URL = "https://aka.ms/vs/release/vs_BuildTools.exe"
 
 VSWHERE_PATHS = [
     "C:/Program Files (x86)/Microsoft Visual Studio/Installer/vswhere.exe",
     "C:/Program Files/Microsoft Visual Studio/Installer/vswhere.exe"
 ]
 
+MSVC_VERSION_MINIMUM = "17.14"
 
 def find_vswhere():
     for path in VSWHERE_PATHS:
@@ -49,9 +50,23 @@ def is_msvc_installed():
         json_str = result.stdout.decode("cp1252", errors="replace")
 
         installations = json.loads(json_str)
-        if installations:
-            return True
 
+
+        good_install = False
+        if installations:
+            print(f"MSVC Installed versions: {[installation['installationVersion'] for installation in installations]}")
+            for installation in installations:
+                version = installation["installationVersion"].split(".")
+                required_version = MSVC_VERSION_MINIMUM.split(".")
+                if int(version[0]) > int(required_version[0]):
+                    good_install = True
+                elif int(version[0]) == int(required_version[0]) and int(version[1]) >= int(required_version[1]):
+                    good_install = True
+            if not good_install:
+                print("MSVC found, but only old versions!")
+            return good_install
+
+        print("MSVC missing, installing...")
         return False
 
     except Exception as e:
@@ -72,7 +87,7 @@ def download_file(url, dest_path):
 
 
 def install_msvc(installer_path):
-    # Returns True if a restall is required, otherwise False
+    # Returns True if a reinstall is required, otherwise False
     print("Starting silent MSVC Build Tools installation...\n")
 
     components = [
