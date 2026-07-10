@@ -205,6 +205,24 @@
       "log_telemetry": true,
       "rtsp": "rtsp://192.168.0.10:8554/test",
       "size": 3.0
+    },
+    {
+      "drone_name": "lal_soong",
+      "address": "udp://10.42.0.60:14570",
+      "position_rate": 20.0,
+      "max_h_vel": 10.0,
+      "max_down_vel": 1.5,
+      "max_up_vel": 3.0,
+      "max_h_acc": 1.5,
+      "max_v_acc": 0.5,
+      "max_h_jerk": 0.5,
+      "max_v_jerk": 0.5,
+      "max_yaw_vel": 60,
+      "max_yaw_acc": 30,
+      "max_yaw_jerk": 30,
+      "log_telemetry": true,
+      "rtsp": null,
+      "size": 3.0
     }
   ]
 }
