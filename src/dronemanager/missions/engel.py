@@ -270,16 +270,16 @@ class ENGELDataMission(Mission):
                 self.capturing = False
                 self._current_capture = None
                 return False
-            # If accepted: Collect metadata, listen for capture_info messages for CAMERA_IMAGE_CAPTURED using callback on mav_conn
+            # If accepted: Collect metadata, listen for capture_info messages for CAMERA_IMAGE_CAPTURED using callback
             else:
                 # Add callback, wait capture duration, remove callback
                 # TODO: We should know how many images the camera will take after the configure call, maybe just wait for all of those.
                 # TODO: Request images that didn't arrive using image index
                 # TODO: Directly associate images with the corresponding reference image somehow, instead of the larger "capture"
-                mav_conn = self.dm.drones[self.drone_name].mav_conn
-                mav_conn.add_drone_message_callback(263, self._imaged_captured_callback)
+                drone = self.dm.drones[self.drone_name]
+                drone.add_message_callback("CAMERA_IMAGE_CAPTURED", self._imaged_captured_callback)
                 await asyncio.sleep(self.max_capture_duration)
-                mav_conn.remove_drone_message_callback(263, self._imaged_captured_callback)
+                drone.remove_message_callback("CAMERA_IMAGE_CAPTURED", self._imaged_captured_callback)
                 self.capturing = False
                 self._current_capture = None
                 if len(capture.images) > 0:

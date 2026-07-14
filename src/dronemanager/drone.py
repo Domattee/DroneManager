@@ -23,9 +23,8 @@ from mavsdk.offboard import PositionNedYaw, PositionGlobalYaw, VelocityNedYaw, A
 from mavsdk.manual_control import ManualControlError
 
 from dronemanager.utils import dist_ned, dist_gps, relative_gps, coroutine_awaiter
-from dronemanager.utils import parse_address, COMMON_FORMATTER, get_free_port
+from dronemanager.utils import parse_address, COMMON_FORMATTER
 from dronemanager.utils import LOG_DIR
-from dronemanager.mavpassthrough import MAVPassthrough
 from dronemanager.navigation.core import WayPointType, Waypoint, PathGenerator, PathFollower, Fence
 from dronemanager.navigation.directtargetgenerator import DirectTargetGenerator
 from dronemanager.navigation.gmp3generator import GMP3Generator
@@ -197,7 +196,6 @@ class Drone(ABC, threading.Thread):
         self.return_position: Waypoint | None = None  # Position of the drone immediately after takeoff
 
         self.is_paused = False
-        self.mav_conn: MAVPassthrough | None = None
         self.drone_params: DroneParams | None = None
         self.start()
         asyncio.create_task(self._task_scheduler())
@@ -582,13 +580,13 @@ class DroneMAVSDK(Drone):
         self._batteries: dict[int, Battery] = {}
         self._running_tasks = set()
 
+        self._have_drone_info = asyncio.Event()
+
         self._message_callbacks: dict[str, set] = dict()
 
         # How often (per second) we request position information from the drone. The same interval is used by path
         # planning algorithms for their time resolution.
         self.position_update_rate = config.position_rate
-
-        self.mav_conn: MAVPassthrough = MAVPassthrough(loggername=f"{name}_MAVLINK", log_messages=self.config.position_rate)
 
         # Init path generator
         try:
@@ -679,18 +677,13 @@ class DroneMAVSDK(Drone):
         scheme, loc, appendix = parse_address(string=drone_address)
         self.drone_addr = f"{scheme}://{loc}:{appendix}"
         self.logger.debug(f"Connecting to drone {self.name} @ {self.drone_addr}")
-        if self.mav_conn:
-            mavsdk_passthrough_port = get_free_port()
-            mavsdk_passthrough_string = f"udp://:{mavsdk_passthrough_port}"
-            passthrough_gcs_string = f"127.0.0.1:{mavsdk_passthrough_port}"
+        if scheme == "serial":
+            mavsdk_passthrough_string = f"serial://{loc}"
         else:
-            if scheme == "serial":
-                mavsdk_passthrough_string = f"serial://{loc}"
-            else:
-                mavsdk_passthrough_string = f"{scheme}://:{appendix}"
+            mavsdk_passthrough_string = f"{scheme}://:{appendix}"
 
-        if log_telemetry is None:
-            log_telemetry = self.config.log_telemetry
+        if log_telemetry is not None:
+            self.config.log_telemetry = log_telemetry
 
         try:
             if self.server_addr is None:
@@ -701,24 +694,6 @@ class DroneMAVSDK(Drone):
 
             connected = asyncio.create_task(self.system.connect(system_address=mavsdk_passthrough_string))
             self._running_tasks.add(connected)
-
-            # Create passthrough
-            if self.mav_conn:
-                self.mav_conn.log_messages = log_telemetry
-                # Wait to try and make sure that the mavsdk server has started before booting up passthrough
-                await asyncio.sleep(0.5)
-                self.logger.debug(
-                    f"Connecting passthrough to drone @{loc}:{appendix} and MAVSDK server @{passthrough_gcs_string}")
-                self.mav_conn.connect_drone(loc, appendix, scheme=scheme)
-                self.mav_conn.connect_gcs(passthrough_gcs_string)
-
-                while not self.mav_conn.connected_to_drone() or not self.mav_conn.connected_to_gcs():
-                    self.logger.debug(f"Waiting on passthrough to connect. "
-                                      f"Drone: {self.mav_conn.connected_to_drone()}, "
-                                      f"GCS: {self.mav_conn.connected_to_gcs()}")
-                    await asyncio.sleep(0.1)
-                self.logger.debug("Connected passthrough!")
-
             await connected
 
             async for state in self.system.core.connection_state():
@@ -750,18 +725,23 @@ class DroneMAVSDK(Drone):
             self._message_callbacks[message_name].remove(callback)
 
     async def _process_messages(self):
-        async for message in self.system.mavlink_direct.message(""):
-            if self.config.log_telemetry:
-                self.telem_logger.debug(f"Received {message.message_name} from {message.system_id, message.component_id}: {message.fields_json}")
-            if message.message_name in self._message_callbacks:
-                for callback in self._message_callbacks[message.message_name]:
-                    try:
-                        callback(message)
-                    except Exception as e:
-                        self.logger.error(f"Couldn't perform a message callback {callback} for message "
-                                          f"{message.message_name} from {message.system_id, message.component_id}: "
-                                          f"{message.fields_json}")
-                        self.logger.debug(repr(e), exc_info=True)
+        try:
+            async for message in self.system.mavlink_direct.message(""):
+                if self.config.log_telemetry:
+                    self.telem_logger.debug(f"Received {message.message_name} from {message.system_id, message.component_id}: {message.fields_json}")
+                if message.message_name in self._message_callbacks:
+                    for callback in self._message_callbacks[message.message_name]:
+                        try:
+                            callback(message)
+                        except Exception as e:
+                            self.logger.error(f"Couldn't perform a message callback {callback} for message "
+                                              f"{message.message_name} from {message.system_id, message.component_id}: "
+                                              f"{message.fields_json}")
+                            self.logger.debug(repr(e), exc_info=True)
+        except Exception as e:
+            self.logger.debug("An exception occurred in the _process_message function. If this happened during "
+                              "disconnection, it is not concerning")
+            self.logger.debug(repr(e), exc_info=True)
 
     def _get_drone_info_callback(self, message):
         self.drone_identifier = (message.system_id, message.component_id)
@@ -769,8 +749,10 @@ class DroneMAVSDK(Drone):
         match fields["autopilot"]:
             case 3:
                 self.autopilot = "ArduPilot"
+                self._have_drone_info.set()
             case 12:
                 self.autopilot = "PX4"
+                self._have_drone_info.set()
 
     def _get_drone_info(self):
         self.add_message_callback("HEARTBEAT", self._get_drone_info_callback)
@@ -787,21 +769,26 @@ class DroneMAVSDK(Drone):
             for param in parameters.custom_params:
                 raw_params[param.name] = (param.value, str)
             drone_params = DroneParams(raw_params)
-            if self.autopilot == "PX4":
-                drone_params.max_h_vel = drone_params.raw['MPC_XY_VEL_MAX'][0]
-                drone_params.max_up_vel = drone_params.raw['MPC_Z_VEL_MAX_UP'][0]
-                drone_params.max_down_vel = drone_params.raw['MPC_Z_VEL_MAX_DN'][0]
-                drone_params.max_yaw_rate = drone_params.raw['MPC_MAN_Y_MAX'][0]
-            elif self.autopilot == "Ardupilot":
-                drone_params.max_h_vel = drone_params.raw['LOIT_SPEED'][0] * 10  # cm/s
-                drone_params.max_up_vel = drone_params.raw['PILOT_SPEED_UP'][0] * 10
-                drone_params.max_down_vel = drone_params.raw['PILOT_SPEED_DN'][0] * 10
-                drone_params.max_yaw_rate = drone_params.raw['PILOT_Y_RATE'][0]  # degrees per second
-                if drone_params.max_down_vel == 0:
-                    drone_params.max_down_vel = drone_params.max_up_vel
-            else:
-                self.logger.warning("Couldn't parse parameters for this autopilot, drone speeds might"
-                                    "not work properly.")
+            try:
+                await asyncio.wait_for(self._have_drone_info.wait(), 3)
+                if self.autopilot == "PX4":
+                    drone_params.max_h_vel = drone_params.raw['MPC_XY_VEL_MAX'][0]
+                    drone_params.max_up_vel = drone_params.raw['MPC_Z_VEL_MAX_UP'][0]
+                    drone_params.max_down_vel = drone_params.raw['MPC_Z_VEL_MAX_DN'][0]
+                    drone_params.max_yaw_rate = drone_params.raw['MPC_MAN_Y_MAX'][0]
+                elif self.autopilot == "Ardupilot":
+                    drone_params.max_h_vel = drone_params.raw['LOIT_SPEED'][0] * 10  # cm/s
+                    drone_params.max_up_vel = drone_params.raw['PILOT_SPEED_UP'][0] * 10
+                    drone_params.max_down_vel = drone_params.raw['PILOT_SPEED_DN'][0] * 10
+                    drone_params.max_yaw_rate = drone_params.raw['PILOT_Y_RATE'][0]  # degrees per second
+                    if drone_params.max_down_vel == 0:
+                        drone_params.max_down_vel = drone_params.max_up_vel
+                else:
+                    self.logger.warning("Couldn't parse parameters for this autopilot, drone speeds might "
+                                        "not work properly.")
+            except asyncio.TimeoutError:
+                self.logger.warning("Couldn't get basic drone information, can't parse drone parameters! The "
+                                    "connection is likely too poor!")
             self.drone_params = drone_params
             self.logger.info(f"Loaded parameters!")
         except Exception as e:
@@ -856,11 +843,6 @@ class DroneMAVSDK(Drone):
             await asyncio.sleep(5)
 
     async def _connect_check(self):
-        if self.mav_conn:
-            while True:
-                self._is_connected = self.mav_conn.connected_to_drone() and self.mav_conn.connected_to_gcs()
-                await asyncio.sleep(1 / self.position_update_rate)
-        else:
             async for state in self.system.core.connection_state():
                 self._is_connected = state.is_connected
 
@@ -1416,12 +1398,6 @@ class DroneMAVSDK(Drone):
             if self.path_follower.is_active:
                 await self.path_follower.deactivate()
             self.path_follower.close()
-        try:
-            if self.mav_conn:
-                await self.mav_conn.stop()
-                del self.mav_conn
-        except AttributeError:
-            pass
         # Cleanup other stuff that doesn't reliably get cleaned up otherwise
         if self.system is not None:
             self.system.__del__()
