@@ -219,13 +219,14 @@ class ENGELDataMission(Mission):
         :param msg:
         :return:
         """
-        if msg.capture_result == 1:
-            if msg.time_utc < 1e12:  # Assume this is reporting time since boot if too small
+        fields = json.loads(msg.fields_json)
+        if fields["capture_result"] == 1:
+            if fields["time_utc"] < 1e12:  # Assume this is reporting time since boot if too small
                 time_stamp = datetime.datetime.now(datetime.UTC)
             else:
-                time_stamp = datetime.datetime.fromtimestamp(msg.time_utc / 1e3, datetime.UTC)
-            gps = np.asarray([msg.lat / 1e7, msg.lon / 1e7, msg.alt / 1e3])
-            file_url = msg.file_url
+                time_stamp = datetime.datetime.fromtimestamp(fields["time_utc"] / 1e3, datetime.UTC)
+            gps = np.asarray([fields["lat"] / 1e7, fields["lon"] / 1e7, fields["alt"] / 1e3])
+            file_url = fields["file_url"]
             cur_drone_att = self.dm.drones[self.drone_name].attitude.copy()
             cur_gimbal_att = np.asarray([self.gimbal.roll, self.gimbal.pitch, self.gimbal.yaw])
             if file_url in [self._current_capture.images[i].file_location for i in range(len(self._current_capture.images))]:
@@ -236,7 +237,7 @@ class ENGELDataMission(Mission):
                                                                    cur_gimbal_att, self.gimbal.yaw_absolute, file_url))
         else:
             self.logger.warning("Camera reports failure to capture image!")
-            self.logger.debug(msg.to_dict())
+            self.logger.debug(fields)
 
     async def do_capture(self, reference_capture: ENGELCaptureInfo | None = None):
         """ Capture an image and store relevant data. """

@@ -192,8 +192,8 @@ class DroneManager:
                         self.logger.info(f"Trying to connect to drone {name} @{scheme}://{parsed_addr} with baud {parsed_port}")
                     else:
                         self.logger.info(f"Trying to connect to drone {name} @{scheme}://{parsed_addr}:{parsed_port}")
-                    connected = await asyncio.wait_for(drone.connect(drone_address, system_id=self.system_id,
-                                                                     component_id=self.component_id,
+                    connected = await asyncio.wait_for(drone.connect(drone_address, gcs_system_id=self.system_id,
+                                                                     gcs_component_id=self.component_id,
                                                                      log_telemetry=log_telemetry),
                                                        timeout)
                 except (CancelledError, TimeoutError, OSError, socket.gaierror, AssertionError) as e:

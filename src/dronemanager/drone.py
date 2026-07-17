@@ -1,5 +1,6 @@
 import asyncio
 import datetime
+import inspect
 from collections import deque
 import math
 import os.path
@@ -564,8 +565,6 @@ class DroneMAVSDK(Drone):
         self.system: System | None = None
         self.server_addr = mavsdk_server_address
         self.server_port = mavsdk_server_port
-        self.gcs_system_id = None
-        self.gcs_component_id = None
         self._server_process: Popen | None = None
         self._is_connected: bool = False
         self._is_armed: bool = False
@@ -669,11 +668,9 @@ class DroneMAVSDK(Drone):
     def batteries(self) -> dict[int, Battery]:
         return self._batteries
 
-    async def connect(self, drone_address, system_id=0, component_id=0, log_telemetry=None) -> bool:
+    async def connect(self, drone_address, gcs_system_id=0, gcs_component_id=0, log_telemetry=None) -> bool:
         # If we are on windows, we can't rely on the MAVSDK to have the binary installed.
         # If we use serial, loc is the path and appendix the baudrate, if we use udp it is IP and port
-        self.gcs_system_id = system_id
-        self.gcs_component_id = component_id
         scheme, loc, appendix = parse_address(string=drone_address)
         self.drone_addr = f"{scheme}://{loc}:{appendix}"
         self.logger.debug(f"Connecting to drone {self.name} @ {self.drone_addr}")
@@ -690,7 +687,7 @@ class DroneMAVSDK(Drone):
                 self.logger.debug(f"Starting up own MAVSDK Server instance with app port {self.server_port} and remote "
                                   f"connection {mavsdk_passthrough_string}")
             self.system = System(mavsdk_server_address=self.server_addr, port=self.server_port,
-                                 sysid=system_id, compid=component_id)
+                                 sysid=gcs_system_id, compid=gcs_component_id)
 
             connected = asyncio.create_task(self.system.connect(system_address=mavsdk_passthrough_string))
             self._running_tasks.add(connected)
@@ -715,6 +712,7 @@ class DroneMAVSDK(Drone):
         return False
 
     def add_message_callback(self, message_name, callback):
+        assert not inspect.isawaitable(callback), "Message callbacks can't be coroutines!"
         if message_name in self._message_callbacks:
             self._message_callbacks[message_name].add(callback)
         else:
