@@ -61,3 +61,15 @@ def test_forwarding_uses_connected_drones(plugin):
     plugin_obj._forward_to_drones(b"abc")
 
     assert len(drone.mav_conn.sent) == 1
+
+
+def test_extract_rtcm_packets_from_tcp_stream(plugin):
+    plugin_obj, _ = plugin
+    stream = b"\x00\x01\x02" + b"\xD3\x00\x00\x00\x00\x00" + b"\xD3\x00\x00\x00\x10\x00"
+
+    packets, leftover = plugin_obj._extract_rtcm_packets(stream)
+
+    assert len(packets) == 2
+    assert leftover == b""
+    assert packets[0][3] == 0 and packets[0][4] == 0
+    assert packets[1][3] == 0 and packets[1][4] == 0x10

@@ -23,6 +23,12 @@
       "local_ip": "127.0.0.1",
       "axes": ["z", "-x", "-y"],
       "log_frames": false
+    },
+    "rtcm3": {
+      "host": "192.168.137.40",
+      "port": 5016,
+      "idle_timeout": 30.0,
+      "reconnect_delay": 2.0
     }
   },
   "drones": [

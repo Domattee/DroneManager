@@ -1,6 +1,4 @@
 import asyncio
-import os
-import serial
 
 from dronemanager.plugin import Plugin
 
@@ -11,11 +9,14 @@ class RTCM3Plugin(Plugin):
 
     MAX_RTCM_PAYLOAD = 180
 
-    def __init__(self, dm, logger, name):
-        super().__init__(dm, logger, name)
+    def __init__(self, dm, logger, name, host="192.168.137.40", port=5016,
+                 idle_timeout=30.0, reconnect_delay=2.0, **kwargs):
+        super().__init__(dm, logger, name, **kwargs)
 
-        self.port_path = "/dev/f9p_base"
-        self.baud_rate = 9600
+        self.host = host
+        self.port = int(port)
+        self.idle_timeout = float(idle_timeout)
+        self.reconnect_delay = float(reconnect_delay)
 
         self.is_connected = False
         self.total_frames_parsed = 0
@@ -42,67 +43,84 @@ class RTCM3Plugin(Plugin):
         self.is_connected = False
         await asyncio.sleep(0.1)
 
-    async def _port_lifecycle_manager(self):
-        """Async worker managing the connection cycle."""
-        self.logger.info(f"RTCM3 Plugin initialized. Watching for node: {self.port_path}")
+    def _extract_rtcm_packets(self, payload: bytes | bytearray) -> tuple[list[bytes], bytes]:
+        """Pull all complete RTCM3 frames from a byte stream, leaving any partial tail behind."""
+        buffer = bytearray(payload)
+        packets: list[bytes] = []
 
-        await asyncio.sleep(0.1)
-
-        while self._should_run:
-            if not os.path.exists(self.port_path):
-                if self.is_connected:
-                    self.logger.warning(f"Connection severed! Node {self.port_path} dropped.")
-                    self.is_connected = False
-
-                await asyncio.sleep(2.0)
+        while len(buffer) >= 3:
+            if buffer[0] != 0xD3:
+                del buffer[0]
                 continue
 
+            length = ((buffer[1] & 0x03) << 8) | buffer[2]
+            total_packet_size = length + 6
+
+            if len(buffer) < total_packet_size:
+                break
+
+            packets.append(bytes(buffer[:total_packet_size]))
+            del buffer[:total_packet_size]
+
+        return packets, bytes(buffer)
+
+    async def _port_lifecycle_manager(self):
+        """Async worker managing the TCP connection cycle."""
+        self.logger.info(
+            f"RTCM3 Plugin initialized. Listening for RTCM3 stream on {self.host}:{self.port} "
+            f"(idle_timeout={self.idle_timeout}s, reconnect_delay={self.reconnect_delay}s)"
+        )
+
+        while self._should_run:
+            reader = None
+            writer = None
             try:
-                await self._parse_serial_async()
-            except Exception as e:
-                if self._should_run:
-                    self.logger.error(f"Hardware parsing error occurred: {e}")
-                self.is_connected = False
-                await asyncio.sleep(2.0)
+                reader, writer = await asyncio.open_connection(self.host, self.port)
+                self.is_connected = True
+                self.logger.info(f"TCP link locked onto {self.host}:{self.port}.")
 
-    async def _parse_serial_async(self):
-        """Asynchronously handles byte-level slicing and processing from the F9P stream."""
-        self.logger.info(f"Opening hardware pipeline link at {self.port_path}...")
-
-        with serial.Serial(self.port_path, self.baud_rate, timeout=0) as ser:
-            self.is_connected = True
-            self.logger.info(f"Link locked onto {self.port_path}. Stripping UBX/NMEA overhead.")
-
-            byte_buffer = bytearray()
-
-            while self._should_run and os.path.exists(self.port_path):
-                if ser.in_waiting > 0:
-                    data = ser.read(512)
-                    if data:
-                        byte_buffer.extend(data)
-                else:
-                    await asyncio.sleep(0.01)
-                    continue
-
-                while len(byte_buffer) >= 3 and self._should_run:
-                    if byte_buffer[0] != 0xD3:
-                        del byte_buffer[0]
-                        continue
-
-                    length = ((byte_buffer[1] & 0x03) << 8) | byte_buffer[2]
-                    total_packet_size = length + 6
-
-                    if len(byte_buffer) < total_packet_size:
+                byte_buffer = bytearray()
+                while self._should_run:
+                    try:
+                        data = await asyncio.wait_for(reader.read(4096), timeout=self.idle_timeout)
+                    except asyncio.TimeoutError:
+                        self.logger.warning(
+                            f"RTCM3 TCP idle timeout after {self.idle_timeout}s; closing connection and reconnecting."
+                        )
                         break
 
-                    rtcm_packet = bytes(byte_buffer[:total_packet_size])
-                    del byte_buffer[:total_packet_size]
+                    if not data:
+                        self.logger.warning("RTCM3 TCP socket closed by peer; reconnecting.")
+                        break
 
-                    msg_id = (rtcm_packet[3] << 4) | (rtcm_packet[4] >> 4)
-                    self.total_frames_parsed += 1
-                    self._distribute_packet(msg_id, rtcm_packet)
+                    byte_buffer.extend(data)
+                    packets, tail = self._extract_rtcm_packets(bytes(byte_buffer))
+                    byte_buffer = bytearray(tail)
+
+                    for rtcm_packet in packets:
+                        msg_id = (rtcm_packet[3] << 4) | (rtcm_packet[4] >> 4)
+                        self.total_frames_parsed += 1
+                        self._distribute_packet(msg_id, rtcm_packet)
 
                     await asyncio.sleep(0)
+            except (ConnectionResetError, ConnectionRefusedError, OSError) as exc:
+                self.is_connected = False
+                if self._should_run:
+                    self.logger.warning(f"RTCM3 TCP connection lost ({exc}). Retrying in {self.reconnect_delay}s...")
+                await asyncio.sleep(self.reconnect_delay)
+            except Exception as exc:
+                self.is_connected = False
+                if self._should_run:
+                    self.logger.error(f"RTCM3 parsing error occurred: {exc}")
+                await asyncio.sleep(self.reconnect_delay)
+            finally:
+                self.is_connected = False
+                if writer is not None:
+                    writer.close()
+                    try:
+                        await writer.wait_closed()
+                    except Exception:
+                        pass
 
     def _distribute_packet(self, msg_id: int, packet: bytes):
         """Pushes the isolated frame out into the DroneManager ecosystem and the connected drones."""
@@ -190,9 +208,9 @@ class RTCM3Plugin(Plugin):
 
     async def get_status(self):
         """Inspect RTCM3 stream health."""
-        connection_label = "CONNECTED" if self.is_connected else "DISCONNECTED/PORT MISSING"
+        connection_label = "CONNECTED" if self.is_connected else "DISCONNECTED/TCP UNAVAILABLE"
         self.logger.info(f"--- [RTCM3 Interface Diagnostic] ---")
-        self.logger.info(f"Target Port Node : {self.port_path}")
+        self.logger.info(f"Target TCP endpoint : {self.host}:{self.port}")
         self.logger.info(f"Hardware Status  : {connection_label}")
         self.logger.info(f"Frames Extracted : {self.total_frames_parsed}")
 
