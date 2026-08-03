@@ -9,7 +9,7 @@ class RTCM3Plugin(Plugin):
 
     MAX_RTCM_PAYLOAD = 180
 
-    def __init__(self, dm, logger, name, host="192.168.137.40", port=5016,
+    def __init__(self, dm, logger, name, host="192.168.1.40", port=5016,
                  idle_timeout=30.0, reconnect_delay=2.0, **kwargs):
         super().__init__(dm, logger, name, **kwargs)
 
