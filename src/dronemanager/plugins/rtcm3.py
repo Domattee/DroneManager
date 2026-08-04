@@ -17,6 +17,7 @@ class RTCM3Plugin(Plugin):
         self.port = int(port)
         self.idle_timeout = float(idle_timeout)
         self.reconnect_delay = float(reconnect_delay)
+        self._rtcm_sequence_id = 0
 
         self.is_connected = False
         self.total_frames_parsed = 0
@@ -141,21 +142,49 @@ class RTCM3Plugin(Plugin):
             max_payload = self.MAX_RTCM_PAYLOAD
         return [payload[i:i + max_payload] for i in range(0, len(payload), max_payload)]
 
-    def _forward_to_drones(self, packet: bytes):
-        """Send RTCM3 bytes to the connected drones via MAVLink."""
-        drones = getattr(self.dm, "drones", {})
-        if self.forward_targets:
-            selected = [name for name in self.forward_targets if name in drones]
-        else:
-            selected = list(drones.keys())
+    # def _forward_to_drones(self, packet: bytes):
+    #     """Send RTCM3 bytes to connected drones via MAVLink."""
+    #     drones = getattr(self.dm, "drones", {})
+    #     if not drones:
+    #         # self.logger.warning("RTCM3: No drones registered in DroneManager.")
+    #         return
 
-        for drone_name in selected:
+    #     selected = [name for name in self.forward_targets if name in drones] if self.forward_targets else list(drones.keys())
+
+    #     for drone_name in selected:
+    #         drone = drones[drone_name]
+            
+    #         # Diagnostic check: ensure connection state isn't blocking execution
+    #         if not getattr(drone, "is_connected", False):
+    #             # self.logger.warning(f"RTCM3: Drone '{drone_name}' is_connected is False. Packet dropped.")
+    #             continue
+                
+    #         mav_conn = getattr(drone, "mav_conn", None)
+    #         if mav_conn is None:
+    #             # self.logger.warning(f"RTCM3: Drone '{drone_name}' has no active mav_conn.")
+    #             continue
+                
+    #         self._forward_to_drone(mav_conn, packet)
+
+    def _forward_to_drones(self, packet: bytes):
+        """Send RTCM3 bytes strictly to drones explicitly added via 'send <drone>'."""
+        if not self.forward_targets:
+            return  # Standby mode: do not forward until targets are added via CLI
+
+        drones = getattr(self.dm, "drones", {})
+
+        for drone_name in list(self.forward_targets):
+            if drone_name not in drones:
+                continue
+
             drone = drones[drone_name]
             if not getattr(drone, "is_connected", False):
                 continue
+
             mav_conn = getattr(drone, "mav_conn", None)
             if mav_conn is None:
                 continue
+
             self._forward_to_drone(mav_conn, packet)
 
     def _forward_to_drone(self, mav_conn, packet: bytes) -> bool:
@@ -164,15 +193,32 @@ class RTCM3Plugin(Plugin):
 
         mav = getattr(getattr(mav_conn, "con_drone_in", None), "mav", None)
         if mav is None or not hasattr(mav, "gps_rtcm_data_encode"):
-            self.logger.debug("MAV connection does not support RTCM3 encoding")
+            self.logger.error("RTCM3: MAV connection missing gps_rtcm_data_encode method.")
             return False
+            
         if not hasattr(mav_conn, "send_as_gcs"):
-            self.logger.debug("MAV connection does not expose send_as_gcs")
+            self.logger.error("RTCM3: MAV connection missing send_as_gcs method.")
             return False
 
-        for chunk in self._chunk_packet(packet):
-            msg = mav.gps_rtcm_data_encode(0, len(chunk), chunk)
+        chunks = self._chunk_packet(packet)
+        is_fragmented = len(chunks) > 1
+
+        for frag_id, chunk in enumerate(chunks):
+            # Compute bitwise flags
+            flags = (1 if is_fragmented else 0) | ((frag_id & 0x03) << 1) | ((self._rtcm_sequence_id & 0x1F) << 3)
+            
+            # FIX 1: Pad payload buffer strictly to 180 bytes for pymavlink
+            chunk_len = len(chunk)
+            padded_payload = chunk.ljust(180, b'\x00')
+            
+            # Encode MAVLink #233 message
+            msg = mav.gps_rtcm_data_encode(flags, chunk_len, padded_payload)
+            
+            # Transmit frame as GCS
             mav_conn.send_as_gcs(msg)
+
+        # Increment rolling sequence ID (0 to 31)
+        self._rtcm_sequence_id = (self._rtcm_sequence_id + 1) % 32
         return True
 
     async def send_rtcm3_drone(self, name: str, packet: bytes | None = None):
