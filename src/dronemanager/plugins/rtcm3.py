@@ -142,30 +142,6 @@ class RTCM3Plugin(Plugin):
             max_payload = self.MAX_RTCM_PAYLOAD
         return [payload[i:i + max_payload] for i in range(0, len(payload), max_payload)]
 
-    # def _forward_to_drones(self, packet: bytes):
-    #     """Send RTCM3 bytes to connected drones via MAVLink."""
-    #     drones = getattr(self.dm, "drones", {})
-    #     if not drones:
-    #         # self.logger.warning("RTCM3: No drones registered in DroneManager.")
-    #         return
-
-    #     selected = [name for name in self.forward_targets if name in drones] if self.forward_targets else list(drones.keys())
-
-    #     for drone_name in selected:
-    #         drone = drones[drone_name]
-            
-    #         # Diagnostic check: ensure connection state isn't blocking execution
-    #         if not getattr(drone, "is_connected", False):
-    #             # self.logger.warning(f"RTCM3: Drone '{drone_name}' is_connected is False. Packet dropped.")
-    #             continue
-                
-    #         mav_conn = getattr(drone, "mav_conn", None)
-    #         if mav_conn is None:
-    #             # self.logger.warning(f"RTCM3: Drone '{drone_name}' has no active mav_conn.")
-    #             continue
-                
-    #         self._forward_to_drone(mav_conn, packet)
-
     def _forward_to_drones(self, packet: bytes):
         """Send RTCM3 bytes strictly to drones explicitly added via 'send <drone>'."""
         if not self.forward_targets:
