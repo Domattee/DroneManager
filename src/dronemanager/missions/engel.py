@@ -6,7 +6,6 @@ assorted post-processing and meta-data handling.
 """
 
 import asyncio
-import math
 import pathlib
 from collections.abc import Callable
 
@@ -220,7 +219,7 @@ class ENGELDataMission(Mission):
                 time_stamp = datetime.datetime.fromtimestamp(msg.time_utc / 1e3, datetime.UTC)
             gps = np.asarray([msg.lat / 1e7, msg.lon / 1e7, msg.alt / 1e3])
             file_url = msg.file_url
-            cur_drone_att = self.dm.drones[self.drone_name].attitude
+            cur_drone_att = self.dm.drones[self.drone_name].attitude.copy()
             cur_gimbal_att = np.asarray([self.gimbal.roll, self.gimbal.pitch, self.gimbal.yaw])
             if file_url in [self._current_capture.images[i].file_location for i in range(len(self._current_capture.images))]:
                 self.logger.debug("Camera saved over image it just took")
@@ -244,7 +243,7 @@ class ENGELDataMission(Mission):
                 weather_data = await self.weather_sensor.get_data()
             else:
                 self.logger.warning(f"No Weather sensor, using dummy data!")
-                weather_data = WeatherData()
+                weather_data = WeatherData(datetime.datetime.now(datetime.UTC))
 
             cam_params = [(param.name, param.value) for param in list(self.camera.parameters.values())]
 
