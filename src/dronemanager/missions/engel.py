@@ -333,7 +333,11 @@ class ENGELDataMission(Mission):
                     self.logger.info("Replay exceeding gimbal limit, skipping...")
                     continue
 
+                await self.gimbal.take_control()  # Make sure that we still have it.
                 await self.gimbal.set_gimbal_mode("lock")
+                await self.gimbal.set_gimbal_angles(target_gimbal_pitch, target_gimbal_yaw)
+                await asyncio.sleep(1)
+                # Repeat to sidestep seemingly random intial refusals after mode change.
                 await self.gimbal.set_gimbal_angles(target_gimbal_pitch, target_gimbal_yaw)
                 await asyncio.sleep(3)
                 # Refine position and gimbal attitude based on previous image
@@ -411,8 +415,6 @@ class ENGELDataMission(Mission):
             captures.extend(self._load_captures_from_file(in_file))
         out_file = self._normal_dir_or_other_path(output_file)
         self._save_captures_to_file(captures, out_file)
-
-    # TODO: Move/copy image functions
 
     def _save_captures_to_file(self, captures, filename: str | pathlib.Path = None, merge_existing = False,
                                make_relative = False):
@@ -510,8 +512,7 @@ class ENGELDataMission(Mission):
                     rtl_pos[2] += self.rtl_height
                     self.launch_point = Waypoint(WayPointType.POS_GLOBAL, gps=rtl_pos, yaw=cur_yaw)
                     await self.gimbal.take_control()
-                    # Set the gimbal mode to lock to ensure that we are recoding absolute pitch values from gimbal
-                    await self.gimbal.set_gimbal_mode("lock")
+                    await self.gimbal.set_gimbal_mode("follow")  # Gimbal mode follow so it points forward while flying
                     await self.gimbal.set_gimbal_angles(0.1, 0.1)
                     self._gimbal_frequency = self.dm.drones[self.drone_name].position_update_rate
                     self._register_controller_inputs()
