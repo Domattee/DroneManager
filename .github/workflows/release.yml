@@ -34,7 +34,7 @@ jobs:
 
 
   test-build:
-    name: Test build and execution on (${{ matrix.os }})
+    name: Test build and execution on (${{ matrix.os }} - ${{ matrix.python-version }})
     needs:
     - build
     runs-on: ${{ matrix.os }}
@@ -48,7 +48,7 @@ jobs:
           - "3.13"
 
     steps:
-    - name: Set up Python
+    - name: Set up Python (${{ matrix.python-version }})
       uses: actions/setup-python@v7
       with:
         python-version: ${{ matrix.python-version }}
