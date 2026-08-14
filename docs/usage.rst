@@ -18,7 +18,8 @@ DroneManager instance and terminal interface.
 
 The interface is split into three components:
 
-- A log pane on the left that shows messages, confirmations and warnings.
+- A log pane on the left that shows messages, confirmations and warnings. This and extra information is also written to
+  a log file. You can check the location by entering ``logs`` in the CLI.
 - A status pane on the right that shows key information for any connected drones, such as the position.
 - A command line on the bottom, which is the main way to interact with drone manager.
 

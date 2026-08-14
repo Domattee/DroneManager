@@ -14,7 +14,7 @@ A package to connect to and control multiple drones.
 - [Installation](#installation)
 - [Usage](#usage)
   - [Terminal Interface](#terminal-interface)
-  - [Configuration file](#configuration-file)
+  - [Configuration and logs](#configuration-and-logs)
   - [Plugins](#plugins)
 - [Examples](#examples)
   - [Holodeck](#holodeck)
@@ -98,12 +98,14 @@ Otherwise identical to `flyto`.
 
 And many more!
 
-### Configuration file
+### Configuration and logs
 
 To simply working with a variety of drones, a number of parameters can be set per-drone in a config file. This allows you 
 to save a name with connection string and a number of other parameters, such as acceleration limits, which will be loaded
 and used automatically when `connect` with a corresponding name is called.
-To view the location of the configuration file, either enter "config" in the CLI or check CONFIG_FILE attribute in utils.
+To view the location of the configuration file, either enter `config` in the CLI or check CONFIG_FILE attribute in utils.
+All information in the log pane as well as extra information, such as stacktraces, are saved in log files. Check their 
+location by entering `logs` in the CLI.
 
 ### Plugins
 
