@@ -1,11 +1,13 @@
 import asyncio
+from collections.abc import Callable
 import datetime
 import inspect
 import os
 import shlex
-import typing
+import sys
+import time
 import types
-from collections.abc import Callable
+import typing
 
 import dronemanager
 from dronemanager.core import DroneManager
@@ -636,8 +638,9 @@ class DroneApp(App):
     An app mode is essentially a different view, we can cycle between them. See the textual documentation for more 
     information."""
 
-    def __init__(self, dm: DroneManager, logger=None):
+    def __init__(self, dm: DroneManager, logger=None, smoke_test = False):
         self.dm = dm
+        self.smoke_test = smoke_test
         if logger is None:
             self.logger = logging.getLogger("App")
             self.logger.setLevel(logging.DEBUG)
@@ -657,6 +660,11 @@ class DroneApp(App):
 
     def on_mount(self):
         self.switch_mode("control")
+        if self.smoke_test:
+            self.set_timer(30, self._smoke_test_end)
+
+    def _smoke_test_end(self):
+        asyncio.create_task(self.screen.exit())
 
     def action_cycle_control(self):
         self.logger.debug("Switching between control and status screens")
@@ -816,9 +824,10 @@ def main():
         stop_cpu_checker.set()
         profile_process.join()
     else:
+        smoke_test = "--smoke-test" in sys.argv
         drone_type = DroneMAVSDK
         drone_manager = DroneManager(drone_type, log_to_console=False)
-        app = DroneApp(drone_manager, logger=drone_manager.logger)
+        app = DroneApp(drone_manager, logger=drone_manager.logger, smoke_test=smoke_test)
         app.run()
         logging.shutdown()
 
