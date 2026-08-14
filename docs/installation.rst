@@ -3,18 +3,18 @@ Installation
 
 We recommend installing DroneManager in its own virtual environment: https://docs.python.org/3/library/venv.html
 
+This package is available on PyPI::
+
+    pip install DroneManager
+
+Alternatively, you can install this repository directly:
+
 1. Clone this repository
 2. Move into the root directory of the repository
-3. On Windows only: ``python windows_setup.py``
-4. Install with pip::
+3. Install with pip::
 
-      pip install --upgrade pip
-      pip install -e .
-
-
-.. note::
-   The additional script on windows is required to install MSVC and the MAVSDK Server binary, which isn't shipped with
-   the installation.
+    pip install --upgrade pip
+    pip install -e .
 
 After installation, DroneManager can be started by typing "dm" in a terminal with the venv active. The first start-up
 can take a few moments, and then you should have a blank instance of DroneManager to work with!

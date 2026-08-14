@@ -23,23 +23,22 @@ A package to connect to and control multiple drones.
 
 ## Installation
 
-1. Clone this repository, 
-2. Move into the root directory of the repository 
-3. On Windows only: ` python windows_setup.py `
-4. Install with pip:
+This package is available on PyPI:
+```
+pip install DroneManager
+```
+
+Alternatively, you can install this repository directly:
+1. Clone this repository
+2. Move into the root directory of the repository
+3. Install with pip:
 ```
 pip install --upgrade pip
 pip install -e .
 ```
 
-
 As part of the installation a command called ```dm``` is installed, which starts the terminal interface. 
 Alternatively you can run the app.py script.
-
-> [!NOTE]  
-> The additional script on windows is required to install or update MSVC, which is required for ruckig.
-> If you are getting build errors, especially involving ruckig, please try to build directly from their repo before 
-> installing DM: `pip install ruckig@git+https://github.com/pantor/ruckig`
 
 ## Usage
 
