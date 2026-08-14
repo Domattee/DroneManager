@@ -28,7 +28,7 @@ This package is available on PyPI:
 pip install DroneManager
 ```
 
-Alternatively, you can install this repository directly:
+If you plan to develop with DroneManager we recommend an editable install from the repository:
 1. Clone this repository
 2. Move into the root directory of the repository
 3. Install with pip:
