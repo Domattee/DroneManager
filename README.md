@@ -73,7 +73,7 @@ help string for plugin commands is sparser than core commands.
 is used to refer to the drone with other commands. If a name matching an entry in the config file is used, the configuration from the file will
 be loaded. The connection string, for example "udp://192.168.0.143:14550", defines how to connect to the drone. This parameter is optional,
 by default "udp://:14540" is used. With `-t` a timeout in seconds can be specified, the default is 30s. The parameter `-f` specifies the
-telemetry frequency from the drone. A number of messenges from the are drone are requested at this rate, such as position. A number of
+telemetry frequency from the drone. A number of messenges from the drone are requested at this rate, such as position. A number of
 components also use this frequency for their own purposes, such as time discretization of trajectories. If this parameter is omitted, the
 default value from the config file is used.
 - `disconnect <names> -f`: Close the connection to the specified drones. This command will refuse if the drones are 
@@ -103,6 +103,7 @@ And many more!
 To simply working with a variety of drones, a number of parameters can be set per-drone in a config file. This allows you 
 to save a name with connection string and a number of other parameters, such as acceleration limits, which will be loaded
 and used automatically when `connect` with a corresponding name is called.
+To view the location of the configuration file, either enter "config" in the CLI or check CONFIG_FILE attribute in utils.
 
 ### Plugins
 

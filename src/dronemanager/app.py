@@ -9,7 +9,7 @@ from collections.abc import Callable
 
 from dronemanager.core import DroneManager
 from dronemanager.drone import Drone, DroneMAVSDK
-from dronemanager.utils import COMMON_FORMATTER, coroutine_awaiter
+from dronemanager.utils import COMMON_FORMATTER, coroutine_awaiter, LOG_DIR, CONFIG_FILE
 from dronemanager.navigation.rectlocalfence import RectLocalFence
 
 import textual.css.query
@@ -187,7 +187,7 @@ class CommandScreen(Screen):
         parser = ArgParser(logger = self.logger, description="Interactive command line interface to connect and control multiple drones")
         command_parsers = parser.add_subparsers(title="command", description="Command to execute.", dest="command")
 
-        connect_parser = command_parsers.add_parser("connect", help="Connect a drone", logger = self.logger)
+        connect_parser = command_parsers.add_parser("connect", help="Connect a drone", logger=self.logger)
         connect_parser.add_argument("drone", type=str, help="Name for the drone.")
         connect_parser.add_argument("drone_address", type=str, nargs='?',
                                     help="Connection string. Something like udp://:14540")
@@ -205,7 +205,7 @@ class CommandScreen(Screen):
                                          "so this can lead to performance issues with many drones due to disk write "
                                          "limits. Overwrites the equivalent entry in a configuration entry.")
 
-        disconnect_parser = command_parsers.add_parser("disconnect", help="Disconnect one or more drones.", logger = self.logger)
+        disconnect_parser = command_parsers.add_parser("disconnect", help="Disconnect one or more drones.", logger=self.logger)
         disconnect_parser.add_argument("drones", type=str, nargs="+", help="Which drones to disconnect.")
         disconnect_parser.add_argument("-f", "--force", action="store_true",
                                        help="If this flag is set, ignore any potential checks and force the disconnect.")
@@ -215,24 +215,24 @@ class CommandScreen(Screen):
         param_parser.add_argument("-r", "--raw", action="store_true",
                                   help="Print raw parameters instead. Very long!")
 
-        arm_parser = command_parsers.add_parser("arm", help="Arm the named drone(s).", logger = self.logger)
+        arm_parser = command_parsers.add_parser("arm", help="Arm the named drone(s).", logger=self.logger)
         arm_parser.add_argument("drones", type=str, nargs="+", help="Drone(s) to arm")
         arm_parser.add_argument("-s", "--schedule", action="store_true",
                                 help="Queue this action instead of executing immediately.")
 
-        disarm_parser = command_parsers.add_parser("disarm", help="Disarm the named drone(s).", logger = self.logger)
+        disarm_parser = command_parsers.add_parser("disarm", help="Disarm the named drone(s).", logger=self.logger)
         disarm_parser.add_argument("drones", type=str, nargs="+", help="Drone(s) to disarm")
         disarm_parser.add_argument("-s", "--schedule", action="store_true",
                                    help="Queue this action instead of executing immediately.")
 
-        takeoff_parser = command_parsers.add_parser("takeoff", help="Puts the drone(s) into takeoff mode.", logger = self.logger)
+        takeoff_parser = command_parsers.add_parser("takeoff", help="Puts the drone(s) into takeoff mode.", logger=self.logger)
         takeoff_parser.add_argument("drones", type=str, nargs="+", help="Drone(s) to take off with.")
         takeoff_parser.add_argument("-a", "--altitude", type=float, required=False, default=2.0,
                                     help="Takeoff altitude, default 2m, positive is up.")
         takeoff_parser.add_argument("-s", "--schedule", action="store_true", required=False,
                                     help="Queue this action instead of executing immediately.")
 
-        flight_mode_parser = command_parsers.add_parser("mode", help="Change the drone(s) flight mode", logger = self.logger)
+        flight_mode_parser = command_parsers.add_parser("mode", help="Change the drone(s) flight mode", logger=self.logger)
         flight_mode_parser.add_argument("mode", type=str,
                                         help=f"Target flight mode. Must be one of {self.dm.drone_class.VALID_FLIGHTMODES}.")
         flight_mode_parser.add_argument("drones", type=str, nargs="+",
@@ -240,7 +240,7 @@ class CommandScreen(Screen):
         flight_mode_parser.add_argument("-s", "--schedule", action="store_true",
                                         help="Queue this action instead of executing immediately.")
 
-        fence_parser = command_parsers.add_parser("fence", help="Set a geofence-type thing. VERY WIP", logger = self.logger)
+        fence_parser = command_parsers.add_parser("fence", help="Set a geofence-type thing. VERY WIP", logger=self.logger)
         fence_parser.add_argument("drones", type=str, nargs="+", help="Drone(s) to set the fence on.")
         fence_parser.add_argument("nl", type=float, help="Lower area limit along 'North' axis")
         fence_parser.add_argument("nu", type=float, help="Upper area limit along 'North' axis")
@@ -250,7 +250,7 @@ class CommandScreen(Screen):
         fence_parser.add_argument("du", type=float, help="Upper area limit along 'Down' axis")
         fence_parser.add_argument("--safety", type=int, help="Sets the safety level for the fence", required=False, default=5)
 
-        fly_to_parser = command_parsers.add_parser("flyto", help="Send the drone to a local coordinate.", logger = self.logger)
+        fly_to_parser = command_parsers.add_parser("flyto", help="Send the drone to a local coordinate.", logger=self.logger)
         fly_to_parser.add_argument("drone", type=str, help="Name of the drone")
         fly_to_parser.add_argument("x", type=float, help="Target x coordinate")
         fly_to_parser.add_argument("y", type=float, help="Target y coordinate")
@@ -262,7 +262,7 @@ class CommandScreen(Screen):
         fly_to_parser.add_argument("-s", "--schedule", action="store_true",
                                    help="Queue this action instead of executing immediately.")
 
-        fly_to_gps_parser = command_parsers.add_parser("flytogps", help="Send the drone to a GPS coordinate", logger = self.logger)
+        fly_to_gps_parser = command_parsers.add_parser("flytogps", help="Send the drone to a GPS coordinate", logger=self.logger)
         fly_to_gps_parser.add_argument("drone", type=str, help="Name of the drone")
         fly_to_gps_parser.add_argument("lat", type=float, help="Target latitude")
         fly_to_gps_parser.add_argument("long", type=float, help="Target longitude")
@@ -274,7 +274,7 @@ class CommandScreen(Screen):
         fly_to_gps_parser.add_argument("-s", "--schedule", action="store_true",
                                        help="Queue this action instead of executing immediately.")
 
-        go_to_parser = command_parsers.add_parser("goto", help="Send the drone to a GPS coordinate without offboard", logger = self.logger)
+        go_to_parser = command_parsers.add_parser("goto", help="Send the drone to a GPS coordinate without offboard", logger=self.logger)
         go_to_parser.add_argument("drone", type=str, help="Name of the drone")
         go_to_parser.add_argument("lat", type=float, help="Target latitude")
         go_to_parser.add_argument("long", type=float, help="Target longitude")
@@ -286,7 +286,7 @@ class CommandScreen(Screen):
         go_to_parser.add_argument("-s", "--schedule", action="store_true",
                                        help="Queue this action instead of executing immediately.")
 
-        move_parser = command_parsers.add_parser("move", help="Send the drones x, y, z meters north, east or down.", logger = self.logger)
+        move_parser = command_parsers.add_parser("move", help="Send the drones x, y, z meters north, east or down.", logger=self.logger)
         move_parser.add_argument("drone", type=str, help="Name of the drone")
         move_parser.add_argument("x", type=float, help="How many meters to move north (negative for south).")
         move_parser.add_argument("y", type=float, help="How many meters to move east (negative for west).")
@@ -302,36 +302,39 @@ class CommandScreen(Screen):
         move_parser.add_argument("-s", "--schedule", action="store_true",
                                  help="Queue this action instead of executing immediately.")
 
-        land_parser = command_parsers.add_parser("land", help="Land the drone(s)", logger = self.logger)
+        land_parser = command_parsers.add_parser("land", help="Land the drone(s)", logger=self.logger)
         land_parser.add_argument("drones", type=str, nargs="+", help="Drone(s) to land")
         land_parser.add_argument("-s", "--schedule", action="store_true", help="Queue this action instead of "
                                                                                "executing immediately.")
 
-        pause_parser = command_parsers.add_parser("pause", help="Pause the drone(s) task execution", logger = self.logger)
+        pause_parser = command_parsers.add_parser("pause", help="Pause the drone(s) task execution", logger=self.logger)
         pause_parser.add_argument("drones", type=str, nargs="+", help="Drone(s) to pause")
 
-        resume_parser = command_parsers.add_parser("resume", help="Resume the drone(s) task execution", logger = self.logger)
+        resume_parser = command_parsers.add_parser("resume", help="Resume the drone(s) task execution", logger=self.logger)
         resume_parser.add_argument("drones", type=str, nargs="+", help="Drone(s) to resume")
 
         stop_parser = command_parsers.add_parser("stop", help="Stops (i.e. lands) drones. If no drones are listed,"
-                                                 " stops all of them and then exits the application", logger = self.logger)
+                                                 " stops all of them and then exits the application", logger=self.logger)
         stop_parser.add_argument("drones", type=str, nargs="*", help="Drone(s) to stop.")
 
         kill_parser = command_parsers.add_parser("kill", help="Kills (i.e. disarms and stops everything) drones. "
-                                                 "If no drones are listed, kills all of them.", logger = self.logger)
+                                                 "If no drones are listed, kills all of them.", logger=self.logger)
         kill_parser.add_argument("drones", type=str, nargs="*", help="Drone(s) to kill.")
 
-        plugin_load_parser = command_parsers.add_parser("load", help="Loads a given plugin.", logger = self.logger)
+        plugin_load_parser = command_parsers.add_parser("load", help="Loads a given plugin.", logger=self.logger)
         plugin_load_parser.add_argument("plugin", type=str, help="Plugin name to load.")
 
-        plugin_load_parser = command_parsers.add_parser("unload", help="Unloads a given plugin.", logger = self.logger)
+        plugin_load_parser = command_parsers.add_parser("unload", help="Unloads a given plugin.", logger=self.logger)
         plugin_load_parser.add_argument("plugin", type=str, help="Plugin name to unload.")
 
-        available_plugin_parser = command_parsers.add_parser("plugins", help="Prints a list of available plugins", logger = self.logger)
+        available_plugin_parser = command_parsers.add_parser("plugins", help="Prints a list of available plugins", logger=self.logger)
 
-        loaded_plugin_parser = command_parsers.add_parser("loaded", help="Prints a list of loaded plugins", logger = self.logger)
+        loaded_plugin_parser = command_parsers.add_parser("loaded", help="Prints a list of loaded plugins", logger=self.logger)
 
-        exit_parser = command_parsers.add_parser("exit", aliases=self._exit_aliases, help="Exits the application", logger = self.logger)
+        exit_parser = command_parsers.add_parser("exit", aliases=self._exit_aliases, help="Exits the application", logger=self.logger)
+
+        log_parser = command_parsers.add_parser("logs", help="Prints the log directory", logger=self.logger)
+        config_parser = command_parsers.add_parser("config", help="Print the config directory", logger=self.logger)
 
         return parser, command_parsers
 
@@ -520,6 +523,10 @@ class CommandScreen(Screen):
                     func_arguments.pop("command")
                     self.logger.debug(f"Performing plugin action {command} {func_arguments}")
                     tmp = asyncio.create_task(self.dynamic_commands[command](**func_arguments))
+                elif command == "logs":
+                    self.logger.info(LOG_DIR)
+                elif command == "config":
+                    self.logger.info(CONFIG_FILE)
                 self.running_tasks.add(tmp)
                 self._awaiter_tasks.add(asyncio.create_task(coroutine_awaiter(tmp, self.logger)))
         except Exception as e:

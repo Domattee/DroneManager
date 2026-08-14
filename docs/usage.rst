@@ -242,7 +242,10 @@ Configuration file
 ------------------
 
 To prevent having to reenter commands constantly, a number of DroneManagers aspects can be adjusted permanently with the
-``config.json`` file. It has three main components. The first are parameters for DroneManager itself, such as the
+``config.json`` file. To view the location of the configuration file, either enter "config" in the CLI or check the
+value of the CONFIG_FILE attribute in utils.
+
+The config file has three main components. The first are parameters for DroneManager itself, such as the
 MAVLink system ID, or the plugins that are automatically loaded on startup. Second is a list of plugin settings.
 This entry lists each plugin and a series of parameters which are passed to the plugin when it is initialized.
 The final component is a list of drones and parameters for them::

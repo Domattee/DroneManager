@@ -16,14 +16,12 @@ import traceback
 
 from dronemanager.drone import Drone, parse_address, DroneConfigs, DroneConfig
 from dronemanager.navigation.rectlocalfence import RectLocalFence
-from dronemanager.utils import COMMON_FORMATTER, get_free_port, LOG_DIR
+from dronemanager.utils import COMMON_FORMATTER, get_free_port, LOG_DIR, get_config
 from dronemanager.navigation.core import Waypoint, Fence
 from dronemanager.plugin import Plugin
 
 import logging
 
-
-CONFIG_FILE = Path(__file__).parent.parent.parent.joinpath("config.json")
 
 # TODO: Fence class discovery
 FENCES = {
@@ -116,7 +114,7 @@ class DroneManager:
         self._on_plugin_unload_coros = set()
         self.plugins: set[str] = set()
 
-        self.config = DMConfig.from_file(CONFIG_FILE.as_posix())
+        self.config = DMConfig.from_file(get_config().as_posix())
         self.drone_configs = self.config.drone_configs
 
         self.system_id = self.config.mav_system_id

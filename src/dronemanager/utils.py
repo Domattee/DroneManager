@@ -9,10 +9,12 @@ from collections.abc import Sequence
 from urllib.parse import urlparse
 import numpy as np
 import logging
-from pathlib import Path
 import socket
 import asyncio
 from haversine import inverse_haversine, haversine, Direction, Unit
+
+from platformdirs import user_log_path, user_config_path, user_cache_path
+from importlib.resources import files
 
 COMMON_FORMATTER = logging.Formatter('%(asctime)s.%(msecs)03d %(levelname)s %(name)s - %(message)s', datefmt="%H:%M:%S")
 """The common formatter string for the loggers.
@@ -20,21 +22,43 @@ COMMON_FORMATTER = logging.Formatter('%(asctime)s.%(msecs)03d %(levelname)s %(na
 :meta hide-value:
 """
 
-CACHE_DIR = Path(__file__).parent.parent.parent.joinpath(".cache")
-"""The directory for any information that might be worth caching. Currently only used for camera definition information.
-
-:meta hide-value:
-"""
-
-LOG_DIR = Path(__file__).parent.parent.parent.joinpath("logs")
-"""The directory where all the log files are saved.
-
-:meta hide-value:
-"""
-
 EARTH_RADIUS = 6371000
 """ Used to compute an approximate NED distance between two GPS coordinates
 """
+
+NAME = "DroneManager"
+
+LOG_DIR = user_log_path(NAME, appauthor=False, ensure_exists=True)  #Path(__file__).parent.parent.parent.joinpath("logs")
+""" The directory where all the log files are saved.
+
+:meta hide-value:
+"""
+
+CACHE_DIR = user_cache_path(NAME, appauthor=False, ensure_exists=True)  #Path(__file__).parent.parent.parent.joinpath(".cache")
+""" The directory for any information that might be worth caching. Currently only used for camera definition information.
+
+:meta hide-value:
+"""
+
+CONFIG_FILE = user_config_path(NAME, appauthor=False, roaming=True, ensure_exists=True).joinpath("config.json")  #Path(__file__).parent.parent.parent.joinpath("config.json")
+""" Location of the configuration file
+
+:meta hide-value:
+"""
+
+
+def get_config():
+    if not CONFIG_FILE.exists():
+        default_config = files("dronemanager").joinpath(
+            "resources/config.json"
+        )
+
+        CONFIG_FILE.write_text(
+            default_config.read_text(),
+            encoding="utf-8",
+        )
+
+    return CONFIG_FILE
 
 
 def dist_ned(pos1: np.ndarray, pos2: np.ndarray) -> float:

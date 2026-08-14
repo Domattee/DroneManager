@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "DroneManager"
-version = "0.5.0"
+version = "0.5.1"
 authors = [
     {name="Dominik Mattern", email="dominik.mattern@thi.de"},
     {name="Konstantin Bake", email="konstantin.bake@thi.de"},
@@ -32,8 +32,8 @@ license = "Apache-2.0"
 license-files = ["LICENSE"]
 
 [project.urls]
-repository = "https://github.com/AImotion-Bavaria/DroneManager"
-documentation = "https://dronemanager.readthedocs.io/en/latest/"
+Repository = "https://github.com/AImotion-Bavaria/DroneManager"
+Documentation = "https://dronemanager.readthedocs.io/en/latest/"
 
 [project.scripts]
 dm = "dronemanager.app:main"
@@ -42,3 +42,6 @@ dm = "dronemanager.app:main"
 docs = [
     "sphinx",
     "sphinx_rtd_theme"]
+
+[tool.setuptools.package-data]
+dronemanager = ["resources/*"]
