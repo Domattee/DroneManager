@@ -7,6 +7,7 @@ import typing
 import types
 from collections.abc import Callable
 
+import dronemanager
 from dronemanager.core import DroneManager
 from dronemanager.drone import Drone, DroneMAVSDK
 from dronemanager.utils import COMMON_FORMATTER, coroutine_awaiter, LOG_DIR, CONFIG_FILE
@@ -623,7 +624,7 @@ class DroneApp(App):
     }
     """ Key Bindings """
 
-    TITLE = "DroneManager"
+    TITLE = f"DroneManager v{dronemanager.__version__}"
     """ Window Title """
 
     MODES = {
