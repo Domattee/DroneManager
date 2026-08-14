@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "DroneManager"
-version = "0.4"
+version = "0.5.0"
 authors = [
     {name="Dominik Mattern", email="dominik.mattern@thi.de"},
     {name="Konstantin Bake", email="konstantin.bake@thi.de"},
@@ -28,6 +28,12 @@ dependencies = [
 classifiers = [
     "Programming Language :: Python :: 3",
     "Operating System :: OS Independent", ]
+license = "Apache-2.0"
+license-files = ["LICENSE"]
+
+[project.urls]
+repository = "https://github.com/AImotion-Bavaria/DroneManager"
+documentation = "https://dronemanager.readthedocs.io/en/latest/"
 
 [project.scripts]
 dm = "dronemanager.app:main"
