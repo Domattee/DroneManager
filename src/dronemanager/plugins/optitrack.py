@@ -212,9 +212,10 @@ class OptitrackPlugin(Plugin):
                     drone = self.dm.drones[drone_name]
                     if drone.is_connected:
                         vis_pos_estimate = VisionPositionEstimate(0,
-                                                                PositionBody(*conv_position),
-                                                                AngleBody(*conv_rotation),
-                                                                self._covariance_matrix)
+                                                                  PositionBody(*conv_position),
+                                                                  AngleBody(*conv_rotation),
+                                                                  self._covariance_matrix,
+                                                                  0)
                         if self.log_rigid_frames and self.frame_count % self.log_every == 0:
                             self.logger.info(f"Logging every {self.log_every}th rigid body frame CONVERTED:{track_id} - {conv_position, conv_rotation}")
                         send_task = asyncio.run_coroutine_threadsafe(self._error_wrapper(drone.system.mocap.set_vision_position_estimate, self._err_count, vis_pos_estimate), self._event_loop)

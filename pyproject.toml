@@ -17,13 +17,13 @@ dependencies = [
     "numpy",
     "textual==8.2.*",
     "rich",
-    "mavsdk>=3.15,<3.18",
+    "mavsdk==3.17.*",
     "pymavlink",
     "pygame-ce",
     "haversine",
     "scipy",
     "requests",
-    "ruckig",
+    "ruckig>=0.19.4",
     "opencv-python"]
 classifiers = [
     "Programming Language :: Python :: 3",
