@@ -17,7 +17,7 @@ dependencies = [
     "numpy",
     "textual==8.2.*",
     "rich",
-    "mavsdk==3.15.*",
+    "mavsdk>=3.15,<3.18",
     "pymavlink",
     "pygame-ce",
     "haversine",
