@@ -148,13 +148,6 @@ class InputWithHistory(Input):
 class DroneOverview(Static):
     """Widget to show key values for a drones.
 
-    Args:
-        drone: Dummy text
-        update_frequency: Dummy text
-        logger: Dummy text
-        *args: Passthrough to textual Static class.
-        **kwargs: Passthrough to textual Static class.
-
     Attributes:
         drone: Dummy text
         update_frequency: Dummy text
@@ -177,6 +170,14 @@ class DroneOverview(Static):
     """(class attribute) The spacing between columns."""
 
     def __init__(self, drone: Drone, update_frequency: float, logger: logging.Logger, *args, **kwargs):
+        """
+        Args:
+            drone:
+            update_frequency:
+            logger:
+            *args:
+            **kwargs:
+        """
         super().__init__(*args, **kwargs)
         self.drone: Drone = drone
         self.update_frequency: float = update_frequency
@@ -351,17 +352,22 @@ class DroneOverview(Static):
 class TextualLogHandler(logging.Handler):
     """Logging Handler for textual log objects.
 
-    Args:
-        log_textual: The textual Log object to which we write.
-        *args: Passthrough to logging Handler class.
-        **kwargs: Passthrough to logging Handler class.
-
     Attributes:
         log_textual: The textual Log object to which we write.
     """
+
+    log_textual: Log
+
     def __init__(self, log_textual: Log, *args, **kwargs):
+        """Create TextualLogHandler.
+
+        Args:
+            log_textual: The textual Log object to which we write.
+            *args: Passthrough to logging Handler class.
+            **kwargs: Passthrough to logging Handler class.
+        """
         super().__init__(*args, **kwargs)
-        self.log_textual: Log = log_textual
+        self.log_textual = log_textual
 
     def emit(self, record: LogRecord):
         """Write the log record to the textual log pane.
