@@ -1,3 +1,6 @@
+[![CI](https://github.com/AImotion-Bavaria/DroneManager/actions/workflows/ci.yml/badge.svg)](https://github.com/AImotion-Bavaria/DroneManager/actions/workflows/ci.yml)
+[![Release](https://github.com/AImotion-Bavaria/DroneManager/actions/workflows/release.yml/badge.svg)](https://github.com/AImotion-Bavaria/DroneManager/actions/workflows/release.yml)
+
 # DroneManager
 
 A package to connect to and control multiple drones.
