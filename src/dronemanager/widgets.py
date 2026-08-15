@@ -1,3 +1,4 @@
+"""Custom textual widgets."""
 import asyncio
 import math
 import argparse
@@ -171,13 +172,14 @@ class DroneOverview(Static):
             **kwargs: Passthrough.
         """
         super().__init__(*args, **kwargs)
-        self.drone: Drone = drone
-        self.update_frequency: float = update_frequency
-        self.logger: logging.Logger = logger
+        self.drone: Drone = drone  # The drone which this overview is showing
+        self.update_frequency: float = update_frequency  # How often this widget updates
+        self.logger: logging.Logger = logger  # The logger for errors
         self.column_formats: list[str] = [f"{{:{self.COLUMN_ALIGN[i]}{self.COLUMN_WIDTHS[i]}}}"
                                           for i in range(len(self.COLUMN_NAMES))]
-        self.spacer: str = " " * self.COLUMN_SPACING
-        self.format_string: str = self.spacer.join(self.column_formats)
+        # A list of format strings for each column
+        self.spacer: str = " " * self.COLUMN_SPACING  # Spacing string
+        self.format_string: str = self.spacer.join(self.column_formats)  # The full formatted string to be filled.
 
     @classmethod
     def header_string(cls) -> str:
@@ -342,11 +344,7 @@ class DroneOverview(Static):
 
 
 class TextualLogHandler(logging.Handler):
-    """Logging Handler for textual log objects.
-
-    Attributes:
-        log_textual: The textual Log object to which we write.
-    """
+    """Logging Handler for textual log objects."""
     def __init__(self, log_textual: Log, *args, **kwargs):
         """Create TextualLogHandler.
 
@@ -356,7 +354,7 @@ class TextualLogHandler(logging.Handler):
             **kwargs: Passthrough to logging Handler class.
         """
         super().__init__(*args, **kwargs)
-        self.log_textual: Log = log_textual
+        self.log_textual: Log = log_textual  # The textual Log object to which we write.
 
     def emit(self, record: LogRecord):
         """Write the log record to the textual log pane.
