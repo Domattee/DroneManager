@@ -349,11 +349,11 @@ class DroneOverview(Static):
 
 
 class TextualLogHandler(logging.Handler):
-    """Logging Handler for textual log objects."""
+    """Logging Handler for textual log objects.
 
-    DUMMY_CLASS_VAR: ClassVar[int] = 5
-    """Dummy class var documentation."""
-
+    Attributes:
+        log_textual: The textual Log object to which we write.
+    """
     def __init__(self, log_textual: Log, *args, **kwargs):
         """Create TextualLogHandler.
 
@@ -364,7 +364,6 @@ class TextualLogHandler(logging.Handler):
         """
         super().__init__(*args, **kwargs)
         self.log_textual: Log = log_textual
-        """The textual Log object to which we write."""
 
     def emit(self, record: LogRecord):
         """Write the log record to the textual log pane.
