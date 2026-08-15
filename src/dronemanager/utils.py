@@ -1,17 +1,17 @@
-"""This module contains generic utility functions used throughout the software, mostly relating to GPS and NED
-positions.
+"""This module contains generic utility functions used throughout the software.
 
+They mostly relate to GPS and NED positions.
 Unless stated otherwise, a GPS coordinate is any indexable sequence with the latitude, longitude and AMSL in that order.
 """
 
 import math
-import pathlib
 from collections.abc import Sequence
 from urllib.parse import urlparse
 import numpy as np
 import logging
 import socket
 import asyncio
+import pathlib
 from haversine import inverse_haversine, haversine, Direction, Unit
 
 from platformdirs import user_documents_path
@@ -29,7 +29,6 @@ EARTH_RADIUS = 6371000
 
 NAME = "DroneManager"
 
-<<<<<<< HEAD
 DM_INSTALL_DIR = user_documents_path().joinpath(NAME)
 """The directory where DroneManager directories and files will be installed.
 
@@ -45,40 +44,29 @@ SRC_DIR = pathlib.Path(__file__).parent
 """
 
 LOG_DIR = DM_INSTALL_DIR.joinpath("Logs")  #Path(__file__).parent.parent.parent.joinpath("logs")
-=======
-LOG_DIR = user_documents_path().joinpath(NAME).joinpath("Logs")
->>>>>>> 2f5b465 (Added basic tests with pytest)
 """ The directory where all the log files are saved.
 
 :meta hide-value:
 """
 LOG_DIR.mkdir(parents=True, exist_ok=True)
 
-<<<<<<< HEAD
 CACHE_DIR = DM_INSTALL_DIR.joinpath(".cache")   #Path(__file__).parent.parent.parent.joinpath(".cache")
-"""The directory for any information that might be worth caching. Currently only used for camera definition information.
-=======
-CACHE_DIR = user_documents_path().joinpath(NAME).joinpath(".cache")
-""" The directory for any information that might be worth caching. Currently only used for camera definition information.
->>>>>>> 2f5b465 (Added basic tests with pytest)
+""" The directory for any information that might be worth caching.
+
+Currently only used for camera definition information.
 
 :meta hide-value:
 """
 CACHE_DIR.mkdir(parents=True, exist_ok=True)
 
-<<<<<<< HEAD
 CONFIG_FILE = DM_INSTALL_DIR.joinpath("config.json")  #Path(__file__).parent.parent.parent.joinpath("config.json")
-"""Location of the configuration file.
-=======
-CONFIG_FILE = user_documents_path().joinpath(NAME).joinpath("config.json")
-""" Location of the configuration file
->>>>>>> 2f5b465 (Added basic tests with pytest)
+""" Location of the configuration file.
 
 :meta hide-value:
 """
 
 
-def get_config():
+def get_config() -> pathlib.Path:
     """Returns the location of the configuration json.
 
     By template config is shipped with DroneManager, which is installed if the file is otherwise missing.
@@ -128,7 +116,7 @@ def dist_gps(gps1: Sequence[float], gps2: Sequence[float]) -> float:
     """
     dist_horiz = haversine((gps1[0], gps1[1]), (gps2[0], gps2[1]), unit=Unit.METERS)
     dist_alt = gps1[2] - gps2[2]
-    return math.sqrt(dist_horiz*dist_horiz + dist_alt*dist_alt)
+    return math.sqrt(dist_horiz * dist_horiz + dist_alt * dist_alt)
 
 
 def heading_ned(pos1: Sequence[float], pos2: Sequence[float]) -> float:
@@ -191,9 +179,10 @@ def relative_gps(gps: Sequence[float], offset: Sequence[float]) -> tuple[float, 
 
 def offset_from_gps(origin: Sequence[float], gps1: Sequence[float], gps2: Sequence[float]) \
         -> tuple[float, float, float]:
-    """Given two GPS points, computes the heading and distance between them and then creates a new point
-    separated fom a third GPS point by the same heading and distance.
+    """Create GPS point offset from origin by same distance and heading as two other GPS points.
 
+    Given two GPS points, computes the heading and distance between them and then creates a new point
+    separated fom a third GPS point by the same heading and distance.
     Uses haversine functions.
 
     Args:
@@ -213,6 +202,7 @@ def offset_from_gps(origin: Sequence[float], gps1: Sequence[float], gps2: Sequen
 
 def ned_from_gps(gps1: Sequence[float], gps2: Sequence[float]) -> tuple[float, float, float]:
     """Given two GPS points, compute the NED difference between the two positions.
+
     Utilizes the same algorithm as PX4 http://mathworld.wolfram.com/AzimuthalEquidistantProjection.html
 
     Args:
@@ -222,13 +212,13 @@ def ned_from_gps(gps1: Sequence[float], gps2: Sequence[float]) -> tuple[float, f
     Returns:
         A tuple with the north, east, down offset between the two GPS coordinates.
     """
-    lat1_rad = gps1[0]*math.pi / 180
-    lat2_rad = gps2[0]*math.pi / 180
-    long1_rad = gps1[1]*math.pi / 180
-    long2_rad = gps2[1]*math.pi / 180
-    cos_long_diff = math.cos(long2_rad-long1_rad)
+    lat1_rad = gps1[0] * math.pi / 180
+    lat2_rad = gps2[0] * math.pi / 180
+    long1_rad = gps1[1] * math.pi / 180
+    long2_rad = gps2[1] * math.pi / 180
+    cos_long_diff = math.cos(long2_rad - long1_rad)
 
-    arg = math.sin(lat1_rad)*math.sin(lat2_rad) + math.cos(lat1_rad)*math.cos(lat2_rad)*cos_long_diff
+    arg = math.sin(lat1_rad) * math.sin(lat2_rad) + math.cos(lat1_rad) * math.cos(lat2_rad) * cos_long_diff
     if arg > 1.0:
         arg = 1.0
     if arg < -1.0:
@@ -239,7 +229,7 @@ def ned_from_gps(gps1: Sequence[float], gps2: Sequence[float]) -> tuple[float, f
         k = c / math.sin(c)
 
     north = k * (math.cos(lat1_rad) * math.sin(lat2_rad) - math.sin(lat1_rad) * math.cos(lat2_rad) * cos_long_diff)
-    east = k * math.cos(lat2_rad) * math.sin(long2_rad-long1_rad)
+    east = k * math.cos(lat2_rad) * math.sin(long2_rad - long1_rad)
     down = gps1[2] - gps2[2]
     return north * EARTH_RADIUS, east * EARTH_RADIUS, down
 
@@ -305,7 +295,6 @@ async def coroutine_awaiter(task: asyncio.Future, logger: logging.Logger):
     Args:
         task: The task or future to await.
         logger: This logger will be used for any exception logging.
-
     """
     try:
         if isinstance(task, asyncio.Future):

@@ -295,8 +295,8 @@ class ControllerPlugin(Plugin):
             self.dm.drones[self._drone_name].cancel_action()
             action_task = asyncio.create_task(action)
             action_awaiter = coroutine_awaiter(action_task, self.logger)
-            self._running_tasks.add(action_task)
-            self._running_tasks.add(action_awaiter)
+            self.running_tasks.add(action_task)
+            self.running_tasks.add(action_awaiter)
 
         # Also perform whatever other actions are bound to this key
         if button in self._mapping.extra_button_inputs:
@@ -355,8 +355,8 @@ class ControllerPlugin(Plugin):
                     drone_name, = self.dm.drones
                     add_task = asyncio.create_task(self.set_drone(drone_name))
                     add_wait_task = coroutine_awaiter(add_task, self.logger)
-                    self._running_tasks.add(add_task)
-                    self._running_tasks.add(add_wait_task)
+                    self.running_tasks.add(add_task)
+                    self.running_tasks.add(add_wait_task)
                     continue
 
                 # If auto_set is True and there is exactly one controller available, use it automatically
@@ -366,8 +366,8 @@ class ControllerPlugin(Plugin):
                         and pygame.joystick.get_count() == 1:
                     set_task = asyncio.create_task(self.add_controller(0))
                     set_wait_task = coroutine_awaiter(set_task, self.logger)
-                    self._running_tasks.add(set_task)
-                    self._running_tasks.add(set_wait_task)
+                    self.running_tasks.add(set_task)
+                    self.running_tasks.add(set_wait_task)
                     continue
 
                 # Process inputs
@@ -395,9 +395,9 @@ class ControllerPlugin(Plugin):
                                 swap_to_manual_task = asyncio.create_task(drone.manual_control_position())
                             else:
                                 swap_to_manual_task = asyncio.create_task(drone.manual_control_altitude())
-                            self._running_tasks.add(swap_to_manual_task)
-                            self._running_tasks.add(asyncio.create_task(coroutine_awaiter(swap_to_manual_task,
-                                                                                          self.logger)))
+                            self.running_tasks.add(swap_to_manual_task)
+                            self.running_tasks.add(asyncio.create_task(coroutine_awaiter(swap_to_manual_task,
+                                                                                         self.logger)))
 
                     # If we are connected and armed, send stick inputs to drone
                     if drone.is_connected:

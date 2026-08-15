@@ -108,8 +108,8 @@ class UDPPlugin(Plugin):
                     send_task = asyncio.run_coroutine_threadsafe(self._client_sender(client), self._event_loop)
                     awaiter_task = asyncio.run_coroutine_threadsafe(coroutine_awaiter(send_task, self.logger),
                                                                     self._event_loop)
-                    self._running_tasks.add(send_task)
-                    self._running_tasks.add(awaiter_task)
+                    self.running_tasks.add(send_task)
+                    self.running_tasks.add(awaiter_task)
                     self.logger.info(f"New client @{ip, port} with frequency {frequency} "
                                      f"and duration {math.inf if duration == 0 else duration}.")
                 else:
