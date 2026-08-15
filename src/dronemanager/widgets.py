@@ -172,14 +172,14 @@ class DroneOverview(Static):
             **kwargs: Passthrough.
         """
         super().__init__(*args, **kwargs)
-        self.drone: Drone = drone  # The drone which this overview is showing
-        self.update_frequency: float = update_frequency  # How often this widget updates
-        self.logger: logging.Logger = logger  # The logger for errors
+        self.drone: Drone = drone  #: The drone which this overview is showing
+        self.update_frequency: float = update_frequency  #: How often this widget updates
+        self.logger: logging.Logger = logger  #: The logger for errors
+        #: A list of format strings for each column
         self.column_formats: list[str] = [f"{{:{self.COLUMN_ALIGN[i]}{self.COLUMN_WIDTHS[i]}}}"
                                           for i in range(len(self.COLUMN_NAMES))]
-        # A list of format strings for each column
-        self.spacer: str = " " * self.COLUMN_SPACING  # Spacing string
-        self.format_string: str = self.spacer.join(self.column_formats)  # The full formatted string to be filled.
+        self.spacer: str = " " * self.COLUMN_SPACING  #: Spacing string
+        self.format_string: str = self.spacer.join(self.column_formats)  #: The full formatted string to be filled.
 
     @classmethod
     def header_string(cls) -> str:
@@ -354,7 +354,7 @@ class TextualLogHandler(logging.Handler):
             **kwargs: Passthrough to logging Handler class.
         """
         super().__init__(*args, **kwargs)
-        self.log_textual: Log = log_textual  # The textual Log object to which we write.
+        self.log_textual: Log = log_textual  #: The textual Log object to which we write.
 
     def emit(self, record: LogRecord):
         """Write the log record to the textual log pane.
