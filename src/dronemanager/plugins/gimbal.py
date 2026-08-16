@@ -79,8 +79,8 @@ class GimbalPlugin(Plugin):
         await gimbal.close()
         del gimbal
 
-    async def status(self, drone: str):
-        if self.check_has_gimbal(drone):
+    async def status(self):
+        for drone in self.gimbals:
             self.gimbals[drone].log_status()
 
     async def take_control(self, drone: str):

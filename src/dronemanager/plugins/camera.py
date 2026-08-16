@@ -82,8 +82,8 @@ class CameraPlugin(Plugin):
         await camera.close()
         del camera
 
-    async def status(self, drone: str):
-        if self.check_has_camera(drone):
+    async def status(self):
+        for drone in self.cameras:
             self.cameras[drone].log_status()
 
     async def parameters(self, drone: str):

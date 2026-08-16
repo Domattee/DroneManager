@@ -97,6 +97,12 @@ class Plugin(abc.ABC):
             if isinstance(task, asyncio.Task):
                 task.cancel()
 
+    @abc.abstractmethod
+    async def status(self):
+        """Log status information about the plugin and its attribues.
+        """
+        raise NotImplementedError
+
 
 class MetaPlugin(Plugin, abc.ABC):
     """Plugin Class for plugins that define other plugin types, such as missions or sensors.
