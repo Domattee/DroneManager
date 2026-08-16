@@ -221,9 +221,9 @@ class ENGELDataMission(Mission):
         """
         if msg.capture_result == 1:
             if msg.time_utc < 1e12:  # Assume this is reporting time since boot if too small
-                time_stamp = datetime.datetime.now(datetime.UTC)
+                time_stamp = datetime.datetime.now(datetime.timezone.utc)
             else:
-                time_stamp = datetime.datetime.fromtimestamp(msg.time_utc / 1e3, datetime.UTC)
+                time_stamp = datetime.datetime.fromtimestamp(msg.time_utc / 1e3, datetime.timezone.utc)
             gps = np.asarray([msg.lat / 1e7, msg.lon / 1e7, msg.alt / 1e3])
             file_url = msg.file_url
             cur_drone_att = self.dm.drones[self.drone_name].attitude.copy()
@@ -250,7 +250,7 @@ class ENGELDataMission(Mission):
                 weather_data = await self.weather_sensor.get_data()
             else:
                 self.logger.warning(f"No Weather sensor, using dummy data!")
-                weather_data = WeatherData(datetime.datetime.now(datetime.UTC))
+                weather_data = WeatherData(datetime.datetime.now(datetime.timezone.utc))
 
             cam_params = [(param.name, param.value) for param in list(self.camera.parameters.values())]
 
@@ -443,7 +443,7 @@ class ENGELDataMission(Mission):
                                make_relative = False):
         """Save all capture information to a file, images will have to be downloaded separately anyway."""
         if filename is None:
-            timestamp = datetime.datetime.now(datetime.UTC)
+            timestamp = datetime.datetime.now(datetime.timezone.utc)
             filename = f"engel_captures_{timestamp.hour}{timestamp.minute}{timestamp.second}-{timestamp.day}-{timestamp.month}-{timestamp.year}.json"
         file_path = self._normal_dir_or_other_path(filename)
         # If the file already exists, append new captures to old
