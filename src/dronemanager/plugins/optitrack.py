@@ -1,5 +1,7 @@
-"""Plugin for using controllers and joysticks to control drones with DM
+"""Plugin for using Motive optitrack systems with DM.
 
+Receives rigid body information from Motive, assigns it to drones and forwards it as MAVLink messages. Generally, the
+flight controllers of the drones also need to be configured to make use of these messages.
 """
 import asyncio
 import math
