@@ -542,7 +542,7 @@ class DroneMAVSDK(Drone):
 
         # How often (per second) we request position information from the drone. The same interval is used by path
         # planning algorithms for their time resolution.
-        self.position_update_rate = config.position_rate
+        self.position_update_rate = self.config.position_rate
 
         self.mav_conn: MAVPassthrough = MAVPassthrough(loggername=f"{name}_MAVLINK", log_messages=self.config.position_rate)
 

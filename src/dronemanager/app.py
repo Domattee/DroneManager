@@ -156,7 +156,6 @@ class CommandScreen(Screen):
         super().__init__(*args, **kwargs)
         self.dm: DroneManager = self.app.dm
         self.drone_widgets: dict[str, Widget] = {}
-        self.running_tasks: set[asyncio.Task] = set()
         # self.drones acts as the list/manager of connected drones, any function that writes or deletes items should
         # protect those writes/deletes with this lock. Read only functions can ignore it.
         self._kill_counter = 0  # Require kill all to be entered twice
@@ -178,8 +177,6 @@ class CommandScreen(Screen):
         self.dm.add_plugin_unload_coro(self._unload_plugin_commands)
 
         asyncio.create_task(self._default_plugin_loading())
-
-        self._awaiter_tasks = set()
 
     async def _default_plugin_loading(self):
         plugin_tasks = []
@@ -403,6 +400,7 @@ class CommandScreen(Screen):
     async def _remove_drone_object(self, name):
         try:
             await self.drone_widgets[name].remove()
+            self.drone_widgets.pop(name)
         except KeyError:
             pass
 
@@ -532,8 +530,8 @@ class CommandScreen(Screen):
                     self.logger.info(LOG_DIR)
                 elif command == "config":
                     self.logger.info(CONFIG_FILE)
-                self.running_tasks.add(tmp)
-                self._awaiter_tasks.add(asyncio.create_task(coroutine_awaiter(tmp, self.logger)))
+                self.app.running_tasks.add(tmp)
+                self.app._awaiter_tasks.add(asyncio.create_task(coroutine_awaiter(tmp, self.logger)))
         except Exception as e:
             self.logger.error("Encountered an exception executing the CLI!")
             self.logger.debug(repr(e), exc_info=True)
@@ -560,18 +558,7 @@ class CommandScreen(Screen):
                 if self.dm.drones[name].is_armed:
                     stop_app = False
             if stop_app:
-                for task in self.running_tasks:
-                    if isinstance(task, asyncio.Task):
-                        task.cancel()
-                for task in self._awaiter_tasks:
-                    if isinstance(task, asyncio.Task):
-                        task.cancel()
-                await asyncio.sleep(0.2)  # Beauty pause
-                self.logger.info("Exiting...")
-                await self.dm.close()
-                await asyncio.sleep(1)  # Beauty pause
-                for handler in self.logger.handlers:
-                    self.logger.removeHandler(handler)
+                await self.app._close()
                 self.app.exit()
             else:
                 self.logger.warning("Can't exit the app with armed drones!")
@@ -660,8 +647,10 @@ class DroneApp(App):
             self.logger.addHandler(file_handler)
         else:
             self.logger = logger
-        self.command_screen: CommandScreen | None = None
-        self.status_screen: StatusScreen | None = None
+
+        self.running_tasks: set[asyncio.Task] = set()
+        self._awaiter_tasks = set()
+
         super().__init__()
 
     def on_mount(self):
@@ -670,15 +659,30 @@ class DroneApp(App):
             self.set_timer(10, self._smoke_test_end)
 
     def _smoke_test_end(self):
-        asyncio.create_task(self.screen.exit())
+        self.exit()
 
-    def on_unmount(self):
+    async def on_unmount(self):
         self._remove_handlers()
+        await self._close()
 
     def _remove_handlers(self):
         for handler in self._logging_handlers:
             self.logger.removeHandler(handler)
             handler.close()
+
+    async def _close(self):
+        for task in self.running_tasks:
+            if isinstance(task, asyncio.Task):
+                task.cancel()
+        for task in self._awaiter_tasks:
+            if isinstance(task, asyncio.Task):
+                task.cancel()
+        await asyncio.sleep(0.2)  # Beauty pause
+        self.logger.info("Exiting...")
+        await self.dm.close()
+        await asyncio.sleep(1)  # Beauty pause
+        for handler in self.logger.handlers:
+            self.logger.removeHandler(handler)
 
     def action_cycle_control(self):
         self.logger.debug("Switching between control and status screens")
