@@ -40,15 +40,16 @@ class CoordinateConversion:
         self.make_rotation()
 
     def convert_euler(self, tracking_pos, tracking_euler, out_sequence="XYZ", degrees=False, in_degrees=True):
-        converted_pos = self.rotation.apply(tracking_pos)
-        converted_rot = (self.rotation * Rotation.from_euler(self.rotation_sequence, tracking_euler, degrees=in_degrees)
-                         * self._inv_rotation).as_euler(out_sequence, degrees=degrees)
-        return converted_pos, converted_rot
+        tracking_rot = Rotation.from_euler(self.rotation_sequence, tracking_euler, degrees=in_degrees)
+        return self._convert(tracking_pos, tracking_rot, out_sequence=out_sequence, degrees=degrees)
 
     def convert_quat(self, tracking_pos, tracking_quat, out_sequence="XYZ", degrees=False):
+        tracking_rot = Rotation.from_quat(tracking_quat)
+        return self._convert(tracking_pos, tracking_rot, out_sequence=out_sequence, degrees=degrees)
+
+    def _convert(self, tracking_pos, tracking_rot, out_sequence="XYZ", degrees=False):
         converted_pos = self.rotation.apply(tracking_pos)
-        converted_rot = (self.rotation * Rotation.from_quat(tracking_quat) *
-                         self._inv_rotation).as_euler(out_sequence, degrees=degrees)
+        converted_rot = (self.rotation * tracking_rot * self._inv_rotation).as_euler(out_sequence, degrees=degrees)
         return converted_pos, converted_rot
 
     def _make_perm_matrix(self):
@@ -91,6 +92,7 @@ class OptitrackPlugin(Plugin):
             "add": self.add_drone,
             "remove": self.remove_drone,
             "status": self.status,
+            "check-conv": self.check_conv,
         }
         self.client: NatNetClient | None = None
         self.server_ip: str = server_ip if server_ip is not None else "127.0.0.1"
@@ -173,8 +175,8 @@ class OptitrackPlugin(Plugin):
         if self.client is None:
             self.logger.warning("Not connected to a NatNet server!")
             return
-        body_str = "\n".join([f"Track ID: {track_id}, Position {position}"
-                              for track_id, position in self.available_bodies.items()])
+        body_str = "\n".join([f"Track ID: {track_id}, Position {array[0]}"
+                              for track_id, array in self.available_bodies.items()])
         self.logger.info("Available Rigid Bodies:\n" + body_str)
 
     async def status(self):
@@ -185,6 +187,32 @@ class OptitrackPlugin(Plugin):
             self.logger.info(out_str)
         await self.log_available_bodies()
 
+    async def check_conv(self, track_id: int, out_sequence: str = "xyz"):
+        """Log coordinate conversion information for the given track id.
+
+        Useful to check that the conversion is happening properly.
+
+        Args:
+            track_id: The Motive track ID to be used.
+            out_sequence: The axis sequence for the output, following SCIPY rotation convention.
+        """
+        if track_id not in self.available_bodies:
+            self.logger.warning(f"No track ID {track_id}")
+            await self.log_available_bodies()
+        else:
+            conv = self.coordinate_transform
+            pos, quat = self.available_bodies[track_id]
+            euler = Rotation.from_quat(quat)
+            conv_pos, conv_rot = conv.convert_quat(pos, quat, out_sequence=out_sequence, degrees=False)
+            _, conv_rot_deg = conv.convert_quat(pos, quat, out_sequence=out_sequence, degrees=True)
+            self.logger.info(f"Rotation matrix from axes listing:"
+                             f"\n{conv.rotation.as_matrix()}")
+            self.logger.info(f"Initial and converted position: "
+                             f"\nInitial {pos}, converted {conv_pos}")
+            self.logger.info(f"Initial and converted angles: "
+                             f"\nQuat from Motive {quat}, Euler {euler}"
+                             f"\nQuat conv {conv_rot}, Euler conv {conv_rot_deg}")
+
     def _new_frame_callback(self, data_dict):
         try:
             if not self._stopping:
@@ -193,8 +221,8 @@ class OptitrackPlugin(Plugin):
                 for rb in rigid_body_list:
                     track_id = rb.id_num
                     position = rb.pos
-                    body_dict[track_id] = position
                     rotation = rb.rot
+                    body_dict[track_id] = np.asarray(position, rotation)
                     if track_id in self._drone_id_mapping:
                         self._process_rigid_body(track_id, position, rotation)
                 self.available_bodies = body_dict
