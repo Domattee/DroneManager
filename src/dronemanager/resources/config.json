@@ -21,7 +21,8 @@
     "optitrack": {
       "server_ip": "127.0.0.1",
       "local_ip": "127.0.0.1",
-      "axes": ["z", "-x", "-y"],
+      "world_axes": ["x", "z", "-y"],
+      "body_axes": ["x", "z", "-y"],
       "log_frames": false
     }
   },

@@ -186,8 +186,11 @@ class Drone(ABC, threading.Thread):
         self.is_paused = False
         self.mav_conn: MAVPassthrough | None = None
         self.drone_params: DroneParams | None = None
+
+        self.running_tasks = set()
+
         self.start()
-        asyncio.create_task(self._task_scheduler())
+        self.running_tasks.add(asyncio.create_task(self._task_scheduler()))
 
     def run(self):
         while not self.should_stop:
@@ -1328,6 +1331,10 @@ class DroneMAVSDK(Drone):
             if self.path_follower.is_active:
                 await self.path_follower.deactivate()
             self.path_follower.close()
+        while len(self._running_tasks) > 0:
+            task = self._running_tasks.pop()
+            if isinstance(task, asyncio.Task):
+                task.cancel()
         try:
             if self.mav_conn:
                 await self.mav_conn.stop()

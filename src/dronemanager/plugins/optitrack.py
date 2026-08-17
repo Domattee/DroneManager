@@ -17,46 +17,52 @@ from dronemanager.utils import coroutine_awaiter
 
 class CoordinateConversion:
 
-    def __init__(self, n_axis: str, e_axis: str, d_axis: str):
+    def __init__(self, n_axis: str, e_axis: str, d_axis: str, body_forward: str, body_right: str, body_down: str):
         """
 
         """
         # The drone axes expressed as a tracking system axes. The axes must be aligned, only permutation and
-        # direction can change.
+        # direction can change. Optitrack assumes YPR for its axes.
         # For example:
         # n_axis = -z  (Drone north/forward axis is aligned with negative z-axis in the tracking coordinate system)
         # e_axis = -x (Drone east/right matches negative x-axis)
         # d_axis = y (Drone down matches tracking y-axis)
+        # Also same for body. TODO: Write this out better
         # xyz can also be written as capital letters to indicate extrinsic rotations, same convention as scipy
         self._choices = ["x", "-x", "y", "-y", "z", "-z"]
         self._choices.extend([choice.upper() for choice in self._choices])
         assert n_axis in self._choices and e_axis in self._choices and d_axis in self._choices, \
             f"Invalid axis for coordinate conversion, must be one of {self._choices}"
-        self.axes = [n_axis, e_axis, d_axis]
-        self.rotation: Rotation | None = None
-        self._inv_rotation: Rotation | None = None
-        self._perm_matrix = np.zeros((3, 3))
-        self.rotation_sequence: str = ""
+        self.world_axes = [n_axis, e_axis, d_axis]
+        self.body_axes = [body_forward, body_right, body_down]
+        self.rotation_world: Rotation | None = None
+        self.rotation_body: Rotation | None = None
         self.make_rotation()
 
-    def convert_euler(self, tracking_pos, tracking_euler, out_sequence="XYZ", degrees=False, in_degrees=True):
-        tracking_rot = Rotation.from_euler(self.rotation_sequence, tracking_euler, degrees=in_degrees)
-        return self._convert(tracking_pos, tracking_rot, out_sequence=out_sequence, degrees=degrees)
+    def convert_euler(self, tracking_pos, tracking_euler, in_sequence="XYZ", out_sequence="ZYX", out_degrees=False, in_degrees=True):
+        tracking_rot = Rotation.from_euler(in_sequence, tracking_euler, degrees=in_degrees)
+        return self._convert(tracking_pos, tracking_rot, out_sequence=out_sequence, degrees=out_degrees)
 
-    def convert_quat(self, tracking_pos, tracking_quat, out_sequence="XYZ", degrees=False):
+    def convert_quat(self, tracking_pos, tracking_quat, out_sequence="ZYX", degrees=False):
         tracking_rot = Rotation.from_quat(tracking_quat)
         return self._convert(tracking_pos, tracking_rot, out_sequence=out_sequence, degrees=degrees)
 
-    def _convert(self, tracking_pos, tracking_rot, out_sequence="XYZ", degrees=False):
-        converted_pos = self.rotation.apply(tracking_pos)
-        converted_rot = (self.rotation * tracking_rot * self._inv_rotation).as_euler(out_sequence, degrees=degrees)
+    def _convert(self, tracking_pos, tracking_rot, out_sequence, degrees=False):
+        converted_pos = self.rotation_world.apply(tracking_pos)
+        converted_rot = (self.rotation_world * tracking_rot * self.rotation_body).as_euler(out_sequence, degrees=degrees)
         return converted_pos, converted_rot
 
-    def _make_perm_matrix(self):
-        self._perm_matrix = np.zeros((3, 3))
-        seq = ""
-        for i, axis in enumerate(self.axes):
-            seq += axis[-1]
+    def set_rotation_world(self, world_axes):
+        self.world_axes = world_axes
+        self.make_rotation()
+
+    def set_rotation_body(self, body_axes):
+        self.body_axes = body_axes
+        self.make_rotation()
+
+    def _make_perm_matrix(self, axes):
+        mat = np.zeros((3, 3))
+        for i, axis in enumerate(axes):
             axis = axis.lower()
             neg = axis.startswith("-")
             if axis.endswith("x"):
@@ -65,13 +71,12 @@ class CoordinateConversion:
                 pos = 1
             else:
                 pos = 2
-            self._perm_matrix[i, pos] = -1 if neg else 1
-        self.rotation_sequence = seq
+            mat[i, pos] = -1 if neg else 1
+        return mat
 
     def make_rotation(self):
-        self._make_perm_matrix()
-        self.rotation = Rotation.from_matrix(self._perm_matrix)
-        self._inv_rotation = self.rotation.inv()
+        self.rotation_world = Rotation.from_matrix(self._make_perm_matrix(self.world_axes))
+        self.rotation_body = Rotation.from_matrix(self._make_perm_matrix(self.body_axes).T)
 
 
 class OptitrackPlugin(Plugin):
@@ -81,7 +86,7 @@ class OptitrackPlugin(Plugin):
     PREFIX = "opti"
 
     def __init__(self, dm, logger, name, server_ip: str | None = None, local_ip: str | None = None,
-                 axes: list[str] | None = None, log_frames: bool = False):
+                 world_axes: list[str] | None = None, body_axes: list[str] | None = None, log_frames: bool = False):
         """
 
         """
@@ -92,21 +97,25 @@ class OptitrackPlugin(Plugin):
             "add": self.add_drone,
             "remove": self.remove_drone,
             "status": self.status,
+            "set-coords-world": self.set_coordinates_world,
+            "set-coords-body": self.set_coordinates_body,
             "check-conv": self.check_conv,
         }
         self.client: NatNetClient | None = None
         self.server_ip: str = server_ip if server_ip is not None else "127.0.0.1"
         self.local_ip: str = local_ip if local_ip is not None else "127.0.0.1"
         self._drone_id_mapping: dict[int, str] = {}
-        self.available_bodies: dict[int, np.ndarray] = {}
+        self.available_bodies: dict[int, tuple[np.ndarray, np.ndarray]] = {}
 
         self.frame_count: int = 0
         self.log_rigid_frames: bool = log_frames
         self.log_every: int = 99
 
-        if axes is None:
-            axes = ["z", "-x", "-y"]
-        self.coordinate_transform = CoordinateConversion(*axes)
+        if world_axes is None:
+            world_axes = ["x", "z", "-y"]
+        if body_axes is None:
+            body_axes = ["x", "z", "-y"]
+        self.coordinate_transform = CoordinateConversion(*world_axes, *body_axes)
         self._event_loop = asyncio.get_running_loop()
         self._stopping = False
         self._covariance_matrix = Covariance([math.nan])
@@ -179,6 +188,9 @@ class OptitrackPlugin(Plugin):
                               for track_id, array in self.available_bodies.items()])
         self.logger.info("Available Rigid Bodies:\n" + body_str)
 
+    def log_coordinate_system(self):
+        self.logger.info(f"World axes: {self.coordinate_transform.world_axes}, body axes: {self.coordinate_transform.body_axes}")
+
     async def status(self):
         if len(self._drone_id_mapping) > 0:
             out_str = "Streaming configured for following drones:\nNAME\tTRACK ID\n"
@@ -186,15 +198,34 @@ class OptitrackPlugin(Plugin):
                 out_str += f"{name}\t{track_id}\n"
             self.logger.info(out_str)
         await self.log_available_bodies()
+        self.log_coordinate_system()
 
-    async def check_conv(self, track_id: int, out_sequence: str = "xyz"):
+    async def set_coordinates_world(self, x: str = "x", y: str = "y", z: str = "z",):
+        # Change the coordinate system used by the plugin.
+        try:
+            self.coordinate_transform.set_rotation_world([x, y, z])
+        except Exception as e:
+            self.logger.error("Couldn't change world coordinate system, see log for details!")
+            self.logger.debug(repr(e), exc_info=True)
+
+    async def set_coordinates_body(self, x: str = "x", y: str = "y", z: str = "z",):
+        # Change the coordinate system used by the plugin.
+        try:
+            self.coordinate_transform.set_rotation_body([x, y, z])
+        except Exception as e:
+            self.logger.error("Couldn't change body coordinate system, see log for details!")
+            self.logger.debug(repr(e), exc_info=True)
+
+    async def check_conv(self, track_id: int, out_sequence: str = "xyz", in_sequence: str = "XYZ"):
         """Log coordinate conversion information for the given track id.
 
-        Useful to check that the conversion is happening properly.
+        Useful to check that the conversion is happening properly. All axes sequences follow scipy rotation convention.
 
         Args:
             track_id: The Motive track ID to be used.
-            out_sequence: The axis sequence for the output, following SCIPY rotation convention.
+            out_sequence: The axis sequence for the output euler angles, default "xyz" for roll, pitch and yaw.
+            in_sequence: The axis sequence to translate the optitrack quaternion to euler angles. Not used during normal
+                operation, only for this diagnostic. Default, "XYZ".
         """
         if track_id not in self.available_bodies:
             self.logger.warning(f"No track ID {track_id}")
@@ -202,16 +233,16 @@ class OptitrackPlugin(Plugin):
         else:
             conv = self.coordinate_transform
             pos, quat = self.available_bodies[track_id]
-            euler = Rotation.from_quat(quat)
-            conv_pos, conv_rot = conv.convert_quat(pos, quat, out_sequence=out_sequence, degrees=False)
+            euler = Rotation.from_quat(quat).as_euler(in_sequence, degrees=True)
+            conv_pos, _ = conv.convert_quat(pos, quat, out_sequence=out_sequence, degrees=False)
             _, conv_rot_deg = conv.convert_quat(pos, quat, out_sequence=out_sequence, degrees=True)
-            self.logger.info(f"Rotation matrix from axes listing:"
-                             f"\n{conv.rotation.as_matrix()}")
+            self.logger.info(f"Rotation matrices from axes listing:"
+                             f"\nWorld matrix {conv.rotation_world.as_matrix()}\tBody matrix {conv.rotation_body.as_matrix()}")
             self.logger.info(f"Initial and converted position: "
-                             f"\nInitial {pos}, converted {conv_pos}")
+                             f"\nInitial {pos}\nConverted: {conv_pos}")
             self.logger.info(f"Initial and converted angles: "
-                             f"\nQuat from Motive {quat}, Euler {euler}"
-                             f"\nQuat conv {conv_rot}, Euler conv {conv_rot_deg}")
+                             f"\nQuat from Motive: {quat}\nEuler Motive: {euler}"
+                             f"\nEuler (RPY) converted {conv_rot_deg}")
 
     def _new_frame_callback(self, data_dict):
         try:
@@ -222,7 +253,7 @@ class OptitrackPlugin(Plugin):
                     track_id = rb.id_num
                     position = rb.pos
                     rotation = rb.rot
-                    body_dict[track_id] = np.asarray(position, rotation)
+                    body_dict[track_id] = (position, rotation)
                     if track_id in self._drone_id_mapping:
                         self._process_rigid_body(track_id, position, rotation)
                 self.available_bodies = body_dict
