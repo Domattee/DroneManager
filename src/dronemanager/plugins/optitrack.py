@@ -156,7 +156,7 @@ class OptitrackPlugin(Plugin):
         #: Error counter for MAVLink mocap error. These tend to occur in clusters, so this reduces log spam.
         self._err_count = [0]
 
-    async def connect_server(self, remote: str = None, local: str = None):
+    async def connect_server(self, remote: str = None, local: str = None) -> bool:
         """Connect to a Motive server.
 
         Note that the Motive app must be configured for streaming.
@@ -164,10 +164,13 @@ class OptitrackPlugin(Plugin):
         Args:
             remote: The IP address of the Motive server.
             local: The IP of the machine running DroneManager.
+
+        Returns:
+            Whether we connected to the server or not.
         """
         if self.client is not None:
             self.logger.warning("Already connected to a NatNetserver, aborting.")
-
+            return False
         if remote is not None:
             self.server_ip = remote
         if local is not None:
@@ -183,7 +186,6 @@ class OptitrackPlugin(Plugin):
             is_running = client.run("d")
             if not is_running:
                 self.logger.error("Couldn't start the client!")
-
             else:
                 await asyncio.sleep(1)
                 if not client.connected():
@@ -196,8 +198,10 @@ class OptitrackPlugin(Plugin):
         if conn_good:
             self.client = client
             self.logger.info("Connected to NatNet Server!")
+            return True
         else:
             client.shutdown()
+            return False
 
     async def add_drone(self, name: str, track_id: int):
         """Assign a track to a drone to forward data from the track to the drone.
