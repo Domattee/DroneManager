@@ -1,4 +1,4 @@
-"""Plugin for using Motive OptiTrack systems with DM.
+"""Plugin for integrating OptiTrack systems with Motive into DM.
 
 Connects to a Motive app with streaming enabled, receives pose information for the drones through the stream, performs
 coordinate transformations from the Motive to a drone compatible system, assigns it to connected drones and forwards it
@@ -36,10 +36,11 @@ Usage:
 
     For the world conversion, you can theoretically pick any permutation you desire, but in practice flight
     controllers expect a SO(3) system with the z-axis down. An example system with Motives Z-up setting might be
-    ["y", "-x", "-z"].
+    ``["y", "-x", "-z"]``.
 
-    The conversion axes can be used with the commands "set-coords-body" or "set-coords-world", or in the
-    configuration file. Note that changes in the configuration file require DroneManger to be rebooted to take effect.
+    The conversion axes can be used with the commands "set-coords-body" or "set-coords-world", e.g.
+    ``opti-set-coords-body --x=x --y=-y --z=-z``, or in the configuration file.
+    Note that changes in the configuration file require DroneManger to be rebooted to take effect.
     The same set of coordinate conversions is used for all drones, so they should have the same setup in Motive.
 
     With the coordinate conversions set, you can do ``opti-check-conv <track_id>`` with the track for your drone
@@ -483,8 +484,9 @@ class CoordinateConversion:
         self._choices.extend([choice.upper() for choice in self._choices])
         assert world_x in self._choices and world_y in self._choices and world_z in self._choices, \
             f"Invalid axis for coordinate conversion, must be one of {self._choices}"
-        self.world_axes = [world_x, world_y, world_z]  #: The axes of the target world coordinate system.
-        self.body_axes = [drone_forward, drone_right, drone_down]  #: The axes of the drone coordinate system.
+        self.world_axes: list[str] = [world_x, world_y, world_z]  #: The axes of the target world coordinate system.
+        #: The axes of the drone coordinate system.
+        self.body_axes: list[str] = [drone_forward, drone_right, drone_down]
         self.rotation_world: Rotation | None = None  #: Scipy rotation for the motive-world conversion.
         self.rotation_body: Rotation | None = None  #: Scipy rotation for the rigid-body to drone conversion.
         self._make_rotation()
