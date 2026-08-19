@@ -1,8 +1,10 @@
+import argparse
 import asyncio
 from collections.abc import Callable
 import datetime
 import inspect
 import os
+import pathlib
 import shlex
 import types
 import typing
@@ -11,7 +13,7 @@ import dronemanager
 from dronemanager.core import DroneManager
 from dronemanager.drone import Drone, DroneMAVSDK
 from dronemanager.utils import COMMON_FORMATTER, coroutine_awaiter, \
-    LOG_DIR, CONFIG_FILE
+    LOG_DIR, get_config
 from dronemanager.navigation.rectlocalfence import RectLocalFence
 
 import textual.css.query
@@ -529,7 +531,7 @@ class CommandScreen(Screen):
                 elif command == "logs":
                     self.logger.info(LOG_DIR)
                 elif command == "config":
-                    self.logger.info(CONFIG_FILE)
+                    self.logger.info(get_config())
                 self.app.running_tasks.add(tmp)
                 self.app._awaiter_tasks.add(asyncio.create_task(coroutine_awaiter(tmp, self.logger)))
         except Exception as e:
@@ -632,7 +634,7 @@ class DroneApp(App):
     def __init__(self, dm: DroneManager, logger=None, smoke_test = False):
         self.dm = dm
         self.smoke_test = smoke_test
-        self._logging_handlers = []
+        self.logging_handlers = []
         if logger is None:
             self.logger = logging.getLogger("App")
             self.logger.setLevel(logging.DEBUG)
@@ -643,7 +645,7 @@ class DroneApp(App):
             file_handler = logging.FileHandler(os.path.join(logdir, filename))
             file_handler.setLevel(logging.DEBUG)
             file_handler.setFormatter(COMMON_FORMATTER)
-            self._logging_handlers.append(file_handler)
+            self.logging_handlers.append(file_handler)
             self.logger.addHandler(file_handler)
         else:
             self.logger = logger
@@ -666,7 +668,7 @@ class DroneApp(App):
         await self._close()
 
     def _remove_handlers(self):
-        for handler in self._logging_handlers:
+        for handler in self.logging_handlers:
             self.logger.removeHandler(handler)
             handler.close()
 
@@ -841,6 +843,14 @@ def main():
         stop_cpu_checker.set()
         profile_process.join()
     else:
+        script_parser = argparse.ArgumentParser()
+        script_parser.add_argument("--config", type=str, help="Path to the config file.", required=False)
+        args = script_parser.parse_args()
+
+        if args.config is not None:
+            dronemanager.utils._CONFIG_FILE = pathlib.Path(args.config)
+            print("Using non-standard config location.")
+
         drone_type = DroneMAVSDK
         drone_manager = DroneManager(drone_type, log_to_console=False)
         app = DroneApp(drone_manager, logger=drone_manager.logger)
