@@ -12,7 +12,8 @@ class RTCM3Plugin(Plugin):
     MAX_RTCM_PAYLOAD = 180
     
     # RTCM3 message types important for RTK
-    CRITICAL_MESSAGE_TYPES = {1001, 1002, 1003, 1004, 1005, 1009, 1019, 1020, 1071, 1074, 1084, 1094, 1124, 1230}
+    #CRITICAL_MESSAGE_TYPES = {1004, 1005, 1006, 1008, 1012, 1019, 1020, 1033, 1042, 1045, 1046, 1077, 1087, 1097, 1107, 1127, 1230} # default RTKbase MSM7 messages
+    CRITICAL_MESSAGE_TYPES = {1005, 1074, 1084, 1094, 1124, 1230} # reduced RTKbase MSM4 messages
 
     def __init__(self, dm, logger, name, host="192.168.1.40", port=5016,
                  idle_timeout=30.0, reconnect_delay=2.0, **kwargs):
@@ -339,7 +340,6 @@ class RTCM3Plugin(Plugin):
         """Comprehensive RTCM3 debug information for RTK fix troubleshooting."""
         self.logger.info("\n" + "="*70)
         self.logger.info("RTCM3 DEBUG STATUS - RTK FIX TROUBLESHOOTING")
-        self.logger.info("="*70)
         
         # Connection Status
         self.logger.info("\n[CONNECTION STATUS]")

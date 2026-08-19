@@ -316,9 +316,16 @@ class RTCM3Status(Static):
         self.rtcm3_plugin = rtcm3_plugin
         self.update_frequency = update_frequency
         self.logger = logger
+        self._update_task: asyncio.Task | None = None
 
     def on_mount(self) -> None:
-        asyncio.create_task(self.update_display())
+        self._update_task = asyncio.create_task(self.update_display())
+
+    def on_unmount(self) -> None:
+        """Stop refreshing once this status widget is no longer displayed."""
+        if self._update_task is not None:
+            self._update_task.cancel()
+            self._update_task = None
 
     def _text_connection_status(self):
         """Display RTCM3 connection status."""
@@ -369,13 +376,19 @@ class RTCM3Status(Static):
     async def update_display(self):
         while True:
             try:
-                text_output = Text.assemble(
-                    self._text_connection_status(), "\n",
-                    self._text_frame_count(), "\n",
-                    self._text_critical_messages(), "\n",
-                    self._text_forward_targets(), "\n",
-                    self._text_errors(), "\n",
-                )
+                if self.rtcm3_plugin.is_connected:
+                    # Show detailed information when connected
+                    text_output = Text.assemble(
+                        self._text_connection_status(), "\n",
+                        self._text_frame_count(), "\n",
+                        self._text_critical_messages(), "\n",
+                        self._text_forward_targets(), "\n",
+                        self._text_errors(), "\n",
+                    )
+                else:
+                    # Show only connection status when disconnected
+                    text_output = self._text_connection_status()
+                
                 self.update(text_output)
             except Exception as e:
                 self.logger.debug(f"Exception updating RTCM3 status pane: {repr(e)}", exc_info=True)

@@ -392,6 +392,11 @@ class CommandScreen(Screen):
         """Mount the RTCM3 status widget when the plugin is loaded."""
         try:
             status_field = self.query_one("#rtcm3_status", expect_type=Static)
+            # Plugin reloads can request another mount before the old widget is
+            # explicitly unloaded. Remove it first so stale status lines cannot
+            # remain alongside the current connection state.
+            if self.rtcm3_widget is not None:
+                await self.rtcm3_widget.remove()
             self.rtcm3_widget = RTCM3Status(rtcm3_plugin, UPDATE_RATE, self.logger)
             await status_field.mount(self.rtcm3_widget)
             self.logger.debug("RTCM3 status widget mounted")
