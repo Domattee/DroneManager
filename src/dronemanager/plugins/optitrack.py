@@ -227,7 +227,7 @@ class OptitrackPlugin(Plugin):
         Args:
             name: The name of the drone
         """
-        if name not in self._drone_id_mapping.values():
+        if name not in list(self._drone_id_mapping.values()):
             self.logger.warning(f"No drone named {name} in the tracking system!")
         else:
             self._remove_drone(name)
@@ -242,7 +242,7 @@ class OptitrackPlugin(Plugin):
         for key, value in self._drone_id_mapping.items():
             if value == name:
                 to_remove = key
-        if to_remove:
+        if to_remove is not None:
             self._drone_id_mapping.pop(to_remove)
 
     async def log_available_bodies(self):
