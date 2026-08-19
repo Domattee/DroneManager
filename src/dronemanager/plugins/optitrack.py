@@ -51,20 +51,15 @@ Usage:
     You should see the position and orientation of the drone jump to that reported by ``opti-check-conv``
 """
 import asyncio
+import concurrent
 import logging
-import math
-from collections.abc import Callable
-from typing import Any
-
 import numpy as np
 from scipy.spatial.transform import Rotation
-
-from mavsdk.mocap import VisionPositionEstimate, PositionBody, AngleBody, MocapError, Covariance, MocapResult
+from typing import Any, Callable
 
 import dronemanager.core
 from dronemanager.plugin import Plugin
-from .NatNet.NatNetClient import NatNetClient
-from dronemanager.utils import coroutine_awaiter
+from dronemanager.plugins.NatNet.NatNetClient import NatNetClient
 
 
 class OptitrackPlugin(Plugin):
@@ -151,10 +146,9 @@ class OptitrackPlugin(Plugin):
         self.coordinate_transform = CoordinateConversion(*world_axes, *body_axes)
         self._event_loop = asyncio.get_running_loop()  #: Reference to main event loop for callbacks to use.
         self._stopping = False  #: Set to `True` when we close.
-        self._covariance_matrix = Covariance([math.nan])  #: Dummy covariance matrix for MAVLink message.
 
         #: Error counter for MAVLink mocap error. These tend to occur in clusters, so this reduces log spam.
-        self._err_count = [0]
+        self._err_count = 0
 
     async def connect_server(self, remote: str = None, local: str = None) -> bool:
         """Connect to a Motive server.
@@ -385,20 +379,14 @@ class OptitrackPlugin(Plugin):
                 try:
                     drone = self.dm.drones[drone_name]
                     if drone.is_connected:
-                        vis_pos_estimate = VisionPositionEstimate(0,
-                                                                  PositionBody(*conv_position),
-                                                                  AngleBody(*conv_rotation),
-                                                                  self._covariance_matrix,
-                                                                  0)
+
                         if self.log_rigid_frames and self.frame_count % self.log_every == 0:
                             self.logger.info(f"Logging every {self.log_every}th rigid body frame CONVERTED: "
                                              f"{track_id} - {conv_position, conv_rotation}")
-                        send_task = asyncio.run_coroutine_threadsafe(
-                            self._error_wrapper(drone.system.mocap.set_vision_position_estimate,
-                                                self._err_count,
-                                                vis_pos_estimate),
-                            self._event_loop)
-                        asyncio.run_coroutine_threadsafe(coroutine_awaiter(send_task, self.logger), self._event_loop)
+                        send_task = asyncio.run_coroutine_threadsafe(drone.send_external_tracking_data(conv_position,
+                                                                                                       conv_rotation),
+                                                                     self._event_loop)
+                        asyncio.run_coroutine_threadsafe(self._mocap_awaiter(send_task, self.logger), self._event_loop)
                 except KeyError:
                     self.logger.warning(f"Received tracking data for drone '{drone_name}' "
                                         f"which is no longer connected, removing...")
@@ -418,32 +406,28 @@ class OptitrackPlugin(Plugin):
         if self.client is not None:
             self.client.shutdown()
 
-    async def _error_wrapper(self, func: Callable, err_count: list[int], *args: any, **kwargs: any)\
-            -> MocapResult | bool:
-        """Wrapper for MAVSDK mocap functions.
+    async def _mocap_awaiter(self, task: asyncio.Future, logger: logging.Logger):
+        """Awaits the mocap sending coroutine.
 
-        Intended for use with MAVSDK mocap coroutines. Catches exceptions and returns False instead.
+        Used to track exceptions while reducing log spam, as tracking exceptions tend to come in clusters.
 
         Args:
-            func: The coroutine, as a callable.
-            err_count: Single entry list with the error count. As a list to pass by reference.
-            *args: Passed to the coroutine being executed.
-            **kwargs: Passed to the coroutine being executed.
-
-        Returns:
-            The result of the mocap functions, or False if ``MocapError`` was raised.
+            task: The task being awaited.
+            logger: The logger for errors and output.
         """
         try:
-            res = await func(*args, **kwargs)
-            err_count[0] = 0
-        except MocapError as e:
-            err_count[0] += 1
-            if err_count[0] == 1:
-                self.logger.error(f"MocapError: {e._result.result_str}")
-            elif err_count[0] % 100 == 0:
-                self.logger.error(f"{err_count[0]} MocapErrors: {e._result.result_str}")
-            return False
-        return res
+            if isinstance(task, concurrent.Future):
+                res = await task
+                self.logger.error(f"{res}")
+                if res:
+                    self._err_count = 0
+        except asyncio.CancelledError:
+            pass
+        except Exception as e:
+            if self._err_count % self.log_every == 0:
+                logger.error("Encountered an exception in a coroutine! See the log for more details")
+                logger.debug(repr(e), exc_info=True)
+            self._err_count += 1
 
 
 class CoordinateConversion:
@@ -497,7 +481,7 @@ class CoordinateConversion:
 
     def convert_euler(self, tracking_pos: np.ndarray, tracking_euler: np.ndarray, in_sequence: str = "XYZ",
                       out_sequence: str = "ZYX", out_degrees: bool = False, in_degrees: bool = True) \
-            -> tuple[np.ndarray, list[float]]:
+            -> tuple[np.ndarray, np.ndarray]:
         """Perform the coordinate conversions for a position and euler angles.
 
         We use the scipy Rotation class for the conversions. For euler angles, the sequence strings define the order in
@@ -520,7 +504,7 @@ class CoordinateConversion:
 
     def convert_quat(self, tracking_pos: np.ndarray, tracking_quat: np.ndarray,
                      out_sequence: str = "ZYX", degrees: bool = False) \
-            -> tuple[np.ndarray, list[float]]:
+            -> tuple[np.ndarray, np.ndarray]:
         """Perform the coordinate conversions for a position and a quaternion.
 
         We use the scipy Rotation class for the conversions. For euler angles, the sequence strings define the order in
@@ -540,7 +524,7 @@ class CoordinateConversion:
         return self._convert(tracking_pos, tracking_rot, out_sequence=out_sequence, degrees=degrees)
 
     def _convert(self, tracking_pos: np.ndarray, tracking_rot: Rotation, out_sequence: str, degrees: bool = False) \
-            -> tuple[np.ndarray, list[float]]:
+            -> tuple[np.ndarray, np.ndarray]:
         """Performs the actual conversion.
 
         Args:
@@ -553,8 +537,8 @@ class CoordinateConversion:
             A tuple with the converted position and orientation as euler angles.
         """
         converted_pos = self.rotation_world.apply(tracking_pos)
-        converted_rot = (self.rotation_world * tracking_rot * self.rotation_body).as_euler(out_sequence,
-                                                                                           degrees=degrees)
+        converted_rot = np.asarray((self.rotation_world * tracking_rot * self.rotation_body).as_euler(out_sequence,
+                                                                                                      degrees=degrees))
         return converted_pos, converted_rot
 
     def set_rotation_world(self, world_axes: list[str]):

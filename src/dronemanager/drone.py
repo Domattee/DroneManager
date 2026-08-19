@@ -4,9 +4,8 @@ from collections import deque
 import math
 import os.path
 import threading
-import platform
 import time
-from subprocess import Popen, DEVNULL
+from subprocess import Popen
 from abc import ABC, abstractmethod
 from typing import Coroutine
 
@@ -20,6 +19,7 @@ from mavsdk.action import ActionError, OrbitYawBehavior
 from mavsdk.offboard import PositionNedYaw, PositionGlobalYaw, VelocityNedYaw, AccelerationNed, OffboardError, \
     VelocityBodyYawspeed
 from mavsdk.manual_control import ManualControlError
+from mavsdk.mocap import VisionPositionEstimate, PositionBody, AngleBody, MocapError, Covariance
 
 from dronemanager.utils import dist_ned, dist_gps, relative_gps, coroutine_awaiter
 from dronemanager.utils import parse_address, COMMON_FORMATTER, get_free_port
@@ -479,6 +479,11 @@ class Drone(ABC, threading.Thread):
 
     @abstractmethod
     async def kill(self) -> bool:
+        pass
+
+    @abstractmethod
+    async def send_external_tracking_data(self, position: np.ndarray, rotation: np.ndarray,
+                                          covariance: np.ndarray | None = None):
         pass
 
     def clear_queue(self) -> None:
@@ -1322,6 +1327,17 @@ class DroneMAVSDK(Drone):
         result = await self._error_wrapper(self.system.manual_control.set_manual_control_input, ManualControlError, x, y, z, r)
         return result
 
+    async def send_external_tracking_data(self, position: list[float], rotation: list[float], covariance: np.ndarray = None):
+        covariance = Covariance([math.nan]) if covariance is None else covariance
+        vis_pos_estimate = VisionPositionEstimate(0,
+                                                  PositionBody(*position),
+                                                  AngleBody(*rotation),
+                                                  covariance,
+                                                  0)
+        res = await self._error_wrapper(self.system.mocap.set_vision_position_estimate, MocapError,
+                                        vis_pos_estimate, reraise=True)
+        return res
+
     async def stop_execution(self):
         """Stops all coroutines, closes all connections, etc.
 
@@ -1365,10 +1381,27 @@ class DroneMAVSDK(Drone):
         await super().kill()
         return True
 
-    async def _error_wrapper(self, func, error_type, *args, **kwargs):
+    async def _error_wrapper(self, func, error_type, *args, reraise = False, **kwargs):
+        """Wrapper for MAVSDK functions.
+
+        Intended for use with MAVSDK coroutines. Catches exceptions and returns False instead.
+
+        Args:
+            func: The coroutine, as a callable.
+            error_type: The type of error raised by func.
+            *args: Passed to the coroutine being executed.
+            reraise: If ``True``, exceptions are reraised.
+            **kwargs: Passed to the coroutine being executed.
+
+        Returns:
+            ``True`` if the MAVSDK call succeeds or ``False`` if the error type was raised.
+        """
         try:
             await func(*args, **kwargs)
         except error_type as e:
-            self.logger.error(e._result.result_str)
-            return False
+            if reraise:
+                raise
+            else:
+                self.logger.error(e._result.result_str)
+                return False
         return True

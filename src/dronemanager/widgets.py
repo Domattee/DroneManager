@@ -1,16 +1,14 @@
 """Custom textual widgets."""
-import asyncio
-import math
 import argparse
-from logging import LogRecord
-
-from textual.widgets import Input, Log, Static
-from dronemanager.drone import FlightMode, FixType, Drone
-from textual.binding import Binding
+import asyncio
+import logging
+import math
 from rich.text import Text
+from textual.binding import Binding
+from textual.widgets import Input, Log, Static
 from typing import IO
 
-import logging
+from dronemanager.drone import FlightMode, FixType, Drone
 
 
 class ArgumentParserError(Exception):
@@ -420,7 +418,7 @@ class TextualLogHandler(logging.Handler):
         super().__init__(*args, **kwargs)
         self.log_textual: Log = log_textual  #: The textual Log object to which we write.
 
-    def emit(self, record: LogRecord):
+    def emit(self, record: logging.LogRecord):
         """Write the log record to the textual log pane.
 
         Args:

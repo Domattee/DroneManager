@@ -3,19 +3,18 @@
 They mostly relate to GPS and NED positions.
 Unless stated otherwise, a GPS coordinate is any indexable sequence with the latitude, longitude and AMSL in that order.
 """
-
-import math
-from collections.abc import Sequence
-from urllib.parse import urlparse
-import numpy as np
-import logging
-import socket
 import asyncio
-import pathlib
+from collections.abc import Sequence
 from haversine import inverse_haversine, haversine, Direction, Unit
-
-from platformdirs import user_documents_path
 from importlib.resources import files
+import logging
+import math
+import numpy as np
+import pathlib
+from platformdirs import user_documents_path
+import socket
+from urllib.parse import urlparse
+
 
 COMMON_FORMATTER = logging.Formatter('%(asctime)s.%(msecs)03d %(levelname)s %(name)s - %(message)s', datefmt="%H:%M:%S")
 """The common formatter string for the loggers.
