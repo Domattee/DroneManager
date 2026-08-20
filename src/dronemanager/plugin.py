@@ -5,15 +5,16 @@ their own commands to the CLI.
 """
 import abc
 import asyncio
+from concurrent.futures import Future
 import importlib.util
 import inspect
 import logging
 import pathlib
 import sys
-from typing import Awaitable, Callable, Coroutine
+from typing import Callable, Coroutine
 
 import dronemanager.core
-from dronemanager.utils import DM_INSTALL_DIR, SRC_DIR
+from dronemanager.utils import DM_INSTALL_DIR, SRC_DIR, cancel_running_tasks
 
 
 # TODO: Figure out scheduling
@@ -72,7 +73,7 @@ class Plugin(abc.ABC):
         self.background_functions: list[Coroutine] = []
         """A list with coroutines which will be launched automatically once the
            plugin has loaded. These coroutines should be complete, i.e. ``coro(args)`` and not ``coro``."""
-        self.running_tasks: set[Awaitable] = set()
+        self.running_tasks: set[Future | asyncio.Future] = set()
         """A set of awaitables currently running. These are automatically cancelled if the plugin is closed."""
 
     def start_background_functions(self):
@@ -90,12 +91,9 @@ class Plugin(abc.ABC):
     async def close(self):
         """Close the plugin.
 
-        By default, stops any running functions
+        By default, stops any running functions.
         """
-        while len(self.running_tasks) > 0:
-            task = self.running_tasks.pop()
-            if isinstance(task, asyncio.Task):
-                task.cancel()
+        cancel_running_tasks(self.running_tasks)
 
     @abc.abstractmethod
     async def status(self):
@@ -286,6 +284,10 @@ class MetaPlugin(Plugin, abc.ABC):
 
 
 class PluginLoader(MetaPlugin):
+    """Core plugin loader.
+
+    Does not offer any CLI commands as those are covered by the app directly.
+    """
 
     EXAMPLE_DIR: pathlib.Path = SRC_DIR.joinpath("plugins")
     """Directory in the source tree with shipped components."""
@@ -294,19 +296,14 @@ class PluginLoader(MetaPlugin):
     """Directory in the DroneManager install directory where new sub-plugins should be located."""
 
     VALID_CLASS_SUFFIX: str = "Plugin"
-    """Valid sub-plugins must have class names ending with this string.
-
-    :meta hide-value:"""
+    """Valid sub-plugins must have class names ending with this string."""
 
     NAMESPACE: str = "plugins"
-    """Modules with subplugins have this prepended to their import to reduce collisions.
-
-    :meta hide-value:"""
+    """Modules with subplugins have this prepended to their import to reduce collisions."""
 
     SUBTYPE: type = Plugin
-    """The type that subplugins must subclass to be valid.
-
-    :meta hide-value:"""
+    """The type that subplugins must subclass to be valid."""
 
     async def status(self):
+        """Dummy implementation."""
         pass

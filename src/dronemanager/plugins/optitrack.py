@@ -51,7 +51,7 @@ Usage:
     You should see the position and orientation of the drone jump to that reported by ``opti-check-conv``
 """
 import asyncio
-import concurrent
+from concurrent.futures import Future
 import logging
 import numpy as np
 from scipy.spatial.transform import Rotation
@@ -416,7 +416,7 @@ class OptitrackPlugin(Plugin):
             logger: The logger for errors and output.
         """
         try:
-            if isinstance(task, concurrent.Future):
+            if isinstance(task, Future) or isinstance(task, asyncio.Future):
                 res = await task
                 self.logger.error(f"{res}")
                 if res:

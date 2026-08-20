@@ -4,7 +4,8 @@ They mostly relate to GPS and NED positions.
 Unless stated otherwise, a GPS coordinate is any indexable sequence with the latitude, longitude and AMSL in that order.
 """
 import asyncio
-from collections.abc import Sequence
+from collections.abc import Sequence, MutableSet
+from concurrent.futures import Future
 from haversine import inverse_haversine, haversine, Direction, Unit
 from importlib.resources import files
 import logging
@@ -284,7 +285,7 @@ def parse_address(string: str) -> tuple[str, str, int]:
     return scheme, loc, append
 
 
-async def coroutine_awaiter(task: asyncio.Future, logger: logging.Logger):
+async def coroutine_awaiter(task: asyncio.Future | Future, logger: logging.Logger):
     """Awaits the provided coroutine, logging any exceptions.
 
     In DroneManager, there are many functions that run indefinitely without a concrete return value. These functions
@@ -304,6 +305,21 @@ async def coroutine_awaiter(task: asyncio.Future, logger: logging.Logger):
     except Exception as e:
         logger.error("Encountered an exception in a coroutine! See the log for more details")
         logger.debug(repr(e), exc_info=True)
+
+
+def cancel_running_tasks(running_tasks: MutableSet[asyncio.Future | Future]):
+    """Cancel all tasks in a collection of tasks.
+
+    This is a common pattern in DroneManager, which is why the functionality is bundled here.
+
+    Args:
+        running_tasks: A set of tasks to be cancelled.
+    """
+    while len(running_tasks) > 0:
+        task = running_tasks.pop()
+        if isinstance(task, asyncio.Future) or isinstance(task, Future):
+            task.cancel()
+
 
 # The first haversine/ inverse_haversine calls are slow, because of numba stuff, so do it here
 dist_gps([10, 20, 300], [20, 10, 400])
