@@ -185,7 +185,7 @@ class CommandScreen(Screen):
         for plugin_name in self.dm.config.default_plugins:
             plugin_tasks.append(asyncio.create_task(self.dm.load(plugin_name)))
         await asyncio.gather(*plugin_tasks)
-        self.logger.info(f"Loaded startup plugins: {self.dm.plugins}")
+        self.logger.info(f"Loaded startup plugins: {self.dm.plugins.keys}")
 
     def _base_parser(self):
         parser = ArgParser(logger = self.logger, description="Interactive command line interface to connect and control multiple drones")
@@ -516,7 +516,7 @@ class CommandScreen(Screen):
                 elif command == "unload":
                     tmp = asyncio.create_task(self.dm.unload_plugin(args.plugin))
                 elif command == "loaded":
-                    self.logger.info(f"Currently loaded plugins: {self.dm.plugins}")
+                    self.logger.info(f"Currently loaded plugins: {self.dm.plugins.keys()}")
                 elif command == "plugins":
                     available_but_not_loaded = [item for item in self.dm.plugin_options
                                                 if item not in self.dm.plugins]
