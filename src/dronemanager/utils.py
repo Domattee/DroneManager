@@ -5,6 +5,7 @@ Unless stated otherwise, a GPS coordinate is any indexable sequence with the lat
 """
 
 import math
+import pathlib
 from collections.abc import Sequence
 from urllib.parse import urlparse
 import numpy as np
@@ -23,12 +24,24 @@ COMMON_FORMATTER = logging.Formatter('%(asctime)s.%(msecs)03d %(levelname)s %(na
 """
 
 EARTH_RADIUS = 6371000
-""" Used to compute an approximate NED distance between two GPS coordinates
+"""Used to compute an approximate NED distance between two GPS coordinates.
 """
 
 NAME = "DroneManager"
 
 DM_INSTALL_DIR = user_documents_path().joinpath(NAME)
+"""The directory where DroneManager directories and files will be installed.
+
+Defaults to the user "documents" folder.
+
+:meta hide-value:
+"""
+
+SRC_DIR = pathlib.Path(__file__).parent
+"""The source directory for DroneManager.
+
+:meta hide-value:
+"""
 
 LOG_DIR = DM_INSTALL_DIR.joinpath("Logs")  #Path(__file__).parent.parent.parent.joinpath("logs")
 """ The directory where all the log files are saved.
@@ -38,14 +51,14 @@ LOG_DIR = DM_INSTALL_DIR.joinpath("Logs")  #Path(__file__).parent.parent.parent.
 LOG_DIR.mkdir(parents=True, exist_ok=True)
 
 CACHE_DIR = DM_INSTALL_DIR.joinpath(".cache")   #Path(__file__).parent.parent.parent.joinpath(".cache")
-""" The directory for any information that might be worth caching. Currently only used for camera definition information.
+"""The directory for any information that might be worth caching. Currently only used for camera definition information.
 
 :meta hide-value:
 """
 CACHE_DIR.mkdir(parents=True, exist_ok=True)
 
 CONFIG_FILE = DM_INSTALL_DIR.joinpath("config.json")  #Path(__file__).parent.parent.parent.joinpath("config.json")
-""" Location of the configuration file
+"""Location of the configuration file.
 
 :meta hide-value:
 """

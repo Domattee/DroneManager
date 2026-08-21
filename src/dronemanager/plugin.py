@@ -5,7 +5,6 @@ their own commands to the CLI.
 """
 import abc
 import asyncio
-import shutil
 from collections.abc import Coroutine
 import importlib.util
 import inspect
@@ -13,14 +12,13 @@ import pathlib
 import sys
 
 import dronemanager.core
-from dronemanager.utils import DM_INSTALL_DIR
+from dronemanager.utils import DM_INSTALL_DIR, SRC_DIR
 
 
 # TODO: Figure out scheduling
 #   Have to interact with drone queues ("Move to position X, then turn gimbal, then move to position Y)
 #   BUT, also want to perform plugin actions immediately mid flight without killing other drone tasks, (except if we do)
 # TODO: Figure out how to do help strings for plugins, choices, store_true, etc... general CLI information.
-# TODO: Move a bunch of the plugin handling from DroneManager to here.
 
 class Plugin(abc.ABC):
     """ Generic plugin class.
@@ -86,94 +84,76 @@ class MetaPlugin(Plugin, abc.ABC):
     """
 
     EXAMPLE_DIR: pathlib.Path | None = None
-    """Directory in the source tree with example modules."""
+    """Directory in the source tree with shipped components."""
 
     USER_DIR: pathlib.Path | None = None
-    """Directory in the DroneManager install directory where the subplugins should be located."""
+    """Directory in the DroneManager install directory where new sub-plugins should be located."""
 
     VALID_CLASS_SUFFIX: str = ""
-    """Valid subplugins must have class names ending with this string."""
+    """Valid sub-plugins must have class names ending with this string."""
 
     NAMESPACE: str = ""
-    """Modules with subplugins have this prepended to their import to reduce collisions."""
+    """Modules with sub-plugins have this prepended to their import to reduce collisions."""
 
     SUBTYPE: type = Plugin
-    """The type that subplugins must subclass to be valid"""
+    """The type that sub-plugins must subclass to be valid."""
+
+    ON_LOAD_COROS = set()
+    ON_UNLOAD_COROS = set()
 
     def __init__(self, dm: "dronemanager.core.DroneManager", logger, name, *args, **kwargs):
         super().__init__(dm, logger, name, *args, **kwargs)
         self._loaded = set()
         self._first_time_setup()
-        self.on_load_coros = set()
-        self.on_unload_coros = set()
 
     @property
     def loaded(self):
         return self._loaded
 
     def _first_time_setup(self):
-        # If we have a user dir and an example dir, but user dir doesn't exist, copy examples over to the user dir
-        if self.USER_DIR is not None and self.EXAMPLE_DIR is not None and not self.USER_DIR.exists():
-            shutil.copytree(self.EXAMPLE_DIR, self.USER_DIR)
+        # If we have don't have a user dir, create it. In the future, maybe also move examples there.
+        #if self.USER_DIR is not None and self.EXAMPLE_DIR is not None and not self.USER_DIR.exists():
+        #    self.logger.debug(f"Moving examples from {self.EXAMPLE_DIR} to {self.USER_DIR}")
+        #    shutil.copytree(self.EXAMPLE_DIR, self.USER_DIR)
         # If we have a user dir, but no example dir, just create it.
-        elif self.USER_DIR is not None and self.EXAMPLE_DIR is None:
+        if self.USER_DIR is not None:
+            self.logger.debug(f"Creating user folder {self.USER_DIR}")
             self.USER_DIR.mkdir(exist_ok=True)
 
+    @property
+    def _module_dirs_list(self):
+        module_dirs = list(self.USER_DIR.iterdir())
+        module_dirs.extend(list(self.EXAMPLE_DIR.iterdir()))
+        return module_dirs
+
     def plugin_options(self):
+        module_dirs = self._module_dirs_list
         # List every potential plugin file or directory in the directory
-        modules = [name.stem for name in self.USER_DIR.iterdir()
-                   if (name.is_file() and name.suffix == ".py" and not name.stem.startswith("_"))
-                   or name.is_dir() and name.joinpath("__init__.py").is_file()]
+        modules = [name.stem for name in module_dirs
+                   if name.is_file() and name.suffix == ".py" and not name.stem.startswith("_")]
         return modules
 
-    # TODO: If plugin is a package, find main file and get plugin class out of it
-    # TODO: Define that whole process
-
     def import_plugin_module(self, module: str):
-        module_path = self.USER_DIR.joinpath(module)
-        module_path_file = self.USER_DIR.joinpath(module + ".py")
+        loaded_module = importlib.import_module("." + module, f"dronemanager.{self.NAMESPACE}")
+        return loaded_module
 
-        module_name = f"{self.NAMESPACE}.{module}"
-
-        is_file = module_path_file.is_file()
-        is_package = module_path.is_dir() and module_path.joinpath("__init__.py").is_file()
-
-        if is_file and is_package:
-            raise ValueError(
-                f"Plugin {module} is ambiguous: both {module_path.as_posix()} and "
-                f"{module_path_file.as_posix()} exist."
-            )
-
-        if not is_file and not is_package:
-            raise ValueError(f"Plugin {module} was not found. Plugins of this type must be in {self.USER_DIR.as_posix()}")
-
-        if module_name in sys.modules:
-            raise ValueError(f"Plugin name {module} is already in use. Please rename the plugin."
-            )
-
-        if is_file:
-            spec = importlib.util.spec_from_file_location(module_name, module_path_file)
-        else:
-            spec = importlib.util.spec_from_file_location(
-                module_name,
-                module_path.joinpath("__init__.py"),
-                submodule_search_locations=[module_path.as_posix()],
-            )
-
-        module = importlib.util.module_from_spec(spec)
-        sys.modules[module_name] = module
-
-        try:
-            spec.loader.exec_module(module)
-        except Exception:
-            sys.modules.pop(module_name, None)
-            raise
-
-        return module
+    def import_user_module(self, module: str):
+        user_path = self.USER_DIR.joinpath(f"{module}.py")
+        module_name = f"dronemanager.{self.NAMESPACE}.user.{module}"
+        spec = importlib.util.spec_from_file_location(module_name, user_path)
+        if spec is None or spec.loader is None:
+            raise ImportError(f"Could not create import spec for {user_path}")
+        loaded_module = importlib.util.module_from_spec(spec)
+        sys.modules[module_name] = loaded_module
+        spec.loader.exec_module(loaded_module)
+        return loaded_module
 
     def get_plugin_class(self, module: str) -> type[Plugin]:
         try:
-            plugin_mod = self.import_plugin_module(module)
+            if self.EXAMPLE_DIR.joinpath(f"{module}.py").is_file():
+                plugin_mod = self.import_plugin_module(module)
+            else:
+                plugin_mod = self.import_user_module(module)
             plugin_classes = [member[1] for member in inspect.getmembers(plugin_mod, inspect.isclass)
                               if issubclass(member[1], self.SUBTYPE)  # Must be appropriate subtype
                               and not member[1] in [self.SUBTYPE, MetaPlugin]  # Must strictly be subclass
@@ -229,7 +209,7 @@ class MetaPlugin(Plugin, abc.ABC):
                 else:
                     kwargs = {}
                 plugin = plugin_class(self.dm, self.logger, name, **kwargs)
-                setattr(self, name, plugin)
+                setattr(self.dm, name, plugin)
                 self._loaded.add(name)
                 await plugin.start()
             except Exception as e:
@@ -237,13 +217,13 @@ class MetaPlugin(Plugin, abc.ABC):
                 self.logger.debug(repr(e), exc_info=True)
                 if plugin is not None:
                     await plugin.close()
-                if hasattr(self, name):
-                    delattr(self, name)
+                if hasattr(self.dm, name):
+                    delattr(self.dm, name)
                 if name in self._loaded:
                     self._loaded.remove(name)
                 return False
             self.logger.debug(f"Performing callbacks for plugin loading...")
-            for func in self.on_load_coros:
+            for func in self.ON_LOAD_COROS:
                 res = await asyncio.create_task(func(name, plugin))
                 if isinstance(res, Exception):
                     self.logger.warning(f"Couldn't perform a callback {func} for this plugin due to an exception {repr(res)}!")
@@ -252,30 +232,56 @@ class MetaPlugin(Plugin, abc.ABC):
             self.logger.error(repr(e), exc_info=True)
         return plugin
 
-    async def unload(self, name):
+    async def unload(self, name: str):
         if name not in self._loaded:
-            self.logger.warning(f"No plugin named {name} loaded!")
+            self.logger.warning(f"No loaded plugin named {name}!")
             return False
         self.logger.info(f"Unloading plugin {name}")
         self._loaded.remove(name)
-        plugin = getattr(self, name)
+        plugin = getattr(self.dm, name)
+        self.logger.debug(f"Attr object{plugin}")
         unload_tasks = set()
-        for func in self.on_unload_coros:
+        for func in self.ON_UNLOAD_COROS:
             unload_tasks.add(func(name, plugin))
         await asyncio.gather(*unload_tasks, return_exceptions=True)
         await plugin.close()
-        delattr(self, name)
+        delattr(self.dm, name)
         return True
+
+    @abc.abstractmethod
+    async def status(self):
+        raise NotImplementedError
+
+    async def close(self):
+        while len(self._loaded) > 0:
+            plugin = self._loaded.pop()
+            self._loaded.add(plugin)
+            await self.unload(plugin)
+        await super().close()
 
 
 class PluginLoader(MetaPlugin):
 
-    EXAMPLE_DIR = pathlib.Path(__file__).parent.joinpath("plugins")
+    EXAMPLE_DIR: pathlib.Path = SRC_DIR.joinpath("plugins")
+    """Directory in the source tree with shipped components."""
 
-    USER_DIR = DM_INSTALL_DIR.joinpath("plugins")
+    USER_DIR: pathlib.Path = DM_INSTALL_DIR.joinpath("plugins")
+    """Directory in the DroneManager install directory where new sub-plugins should be located."""
 
-    VALID_CLASS_SUFFIX = "Plugin"
+    VALID_CLASS_SUFFIX: str = "Plugin"
+    """Valid sub-plugins must have class names ending with this string.
 
-    NAMESPACE = "plugins"
+    :meta hide-value:"""
 
-    SUBTYPE = Plugin
+    NAMESPACE: str = "plugins"
+    """Modules with subplugins have this prepended to their import to reduce collisions.
+
+    :meta hide-value:"""
+
+    SUBTYPE: type = Plugin
+    """The type that subplugins must subclass to be valid.
+
+    :meta hide-value:"""
+
+    async def status(self):
+        pass

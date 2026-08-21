@@ -522,9 +522,8 @@ class DroneManager:
         self._on_drone_connect_coros.add(func)
 
     async def close(self):
-        for plugin in list(self.plugins):
-            await self.unload_plugin(plugin)
         await self.disconnect(self.drones)
+        await self.plugin_loader.close()
 
 # PLUGINS ##############################################################################################################
 
@@ -538,17 +537,17 @@ class DroneManager:
 
     def add_plugin_load_coro(self, func: Callable):
         """Func should be a naked coroutine."""
-        self.plugin_loader.on_load_coros.add(func)
+        self.plugin_loader.ON_LOAD_COROS.add(func)
 
     def remove_plugin_load_coro(self, func: Callable):
         """Func should be a naked coroutine."""
-        self.plugin_loader.on_load_coros.remove(func)
+        self.plugin_loader.ON_LOAD_COROS.remove(func)
 
     def add_plugin_unload_coro(self, func: Callable):
-        self.plugin_loader.on_unload_coros.add(func)
+        self.plugin_loader.ON_UNLOAD_COROS.add(func)
 
     def remove_plugin_unload_coro(self, func: Callable):
-        self.plugin_loader.on_unload_coros.remove(func)
+        self.plugin_loader.ON_UNLOAD_COROS.remove(func)
 
     async def load(self, plugin_module: str, plugin_name: str | None = None):
         return await self.plugin_loader.load(plugin_module, plugin_name)
