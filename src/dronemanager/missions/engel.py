@@ -1,4 +1,4 @@
-""" Mission for ENGEL data collection.
+"""Mission for ENGEL data collection.
 
 Capture images and combine with weather data and position information from the capturing drone, storing them.
 Also includes functions to retake the same position as in a previous image and capture another image, as well as
@@ -102,7 +102,7 @@ class ENGELCaptureInfo:
 
 
 class ENGELDataMission(Mission):
-    """ Data collection mission for ENGEL
+    """Data collection mission for ENGEL
 
     """
 
@@ -170,14 +170,14 @@ class ENGELDataMission(Mission):
         await super().close()
 
     async def connect(self):
-        """ Connect to the Leitstand sensor"""
+        """Connect to the Leitstand sensor"""
         connected = await self.dm.ecowitt.connect("192.168.1.41")
         if connected:
             self.weather_sensor = self.dm.ecowitt
         return connected
 
     async def configure_cam(self):
-        """ Set parameters for our camera (Workswell WIRIS enterprise), won't work with others"""
+        """Set parameters for our camera (Workswell WIRIS enterprise), won't work with others"""
         # Standard Parameter Set:
         # IMG_RAD_TIFF      1
         # IMG_RAD_JPEG      0
@@ -207,7 +207,7 @@ class ENGELDataMission(Mission):
         await self.camera.set_parameter("ZOOM_VISIBLE_I", self.camera.parse_param_value("ZOOM_VISIBLE_I", "1.0"))
 
     async def _imaged_captured_callback(self, msg):
-        """ Check CAMERA_IMAGE_CAPTURED messages for capture_result and save info if success, log failure otherwise
+        """Check CAMERA_IMAGE_CAPTURED messages for capture_result and save info if success, log failure otherwise
 
         This message contains this info:
         time_utc, milliseconds since epoch or boot (unfortunately boot for our camera). Used
@@ -239,7 +239,7 @@ class ENGELDataMission(Mission):
             self.logger.debug(msg.to_dict())
 
     async def do_capture(self, reference_capture: ENGELCaptureInfo | None = None):
-        """ Capture an image and store relevant data. """
+        """Capture an image and store relevant data."""
         try:
             if self.capturing:
                 self.logger.warning("Already doing a capture, skipping")
@@ -306,7 +306,7 @@ class ENGELDataMission(Mission):
         await self._replay_captures() # Can't actually just queue _replay captures, as it cancels itself during moves
 
     async def _replay_captures(self):
-        """ Function to take the position from previous captures saved to file and capture them all again."""
+        """Function to take the position from previous captures saved to file and capture them all again."""
         # For each loaded capture: Set camera parameters, fly to position, optionally refine position, take new capture
         # Currently just prints loaded info for debug purposes
         drone = self.drones[self.drone_name]
@@ -377,7 +377,7 @@ class ENGELDataMission(Mission):
                 self.logger.debug(repr(e), exc_info=True)
 
     async def transfer(self, drive_letter: str):
-        """ Load images from camera and do assorted metadata processing.
+        """Load images from camera and do assorted metadata processing.
 
         Loads images from camera and stores them in a folder named after their capture ID. The capture information file
         is also rewritten to account for this. This is intended to be done after flights with the camera directly
@@ -441,7 +441,7 @@ class ENGELDataMission(Mission):
 
     def _save_captures_to_file(self, captures, filename: str | pathlib.Path = None, merge_existing = False,
                                make_relative = False):
-        """ Save all capture information to a file, images will have to be downloaded separately anyway. """
+        """Save all capture information to a file, images will have to be downloaded separately anyway."""
         if filename is None:
             timestamp = datetime.datetime.now(datetime.UTC)
             filename = f"engel_captures_{timestamp.hour}{timestamp.minute}{timestamp.second}-{timestamp.day}-{timestamp.month}-{timestamp.year}.json"
@@ -477,8 +477,7 @@ class ENGELDataMission(Mission):
         return file_path
 
     async def load_captures_from_file(self, filename: str):
-        """ Load capture information from a file for the purpose of replaying it. """
-
+        """Load capture information from a file for the purpose of replaying it."""
         file_path = self._normal_dir_or_other_path(filename)
         captures = self._load_captures_from_file(file_path)
         self.loaded_captures = captures
@@ -486,7 +485,7 @@ class ENGELDataMission(Mission):
         self.logger.info(f"Loaded past captures from file {file_path}")
 
     async def reset(self):
-        """ Clear capture info """
+        """Clear capture info"""
         # Resets variables as if the mission was just loaded. Useful for replay testing.
         self.captures = []
         self.loaded_captures = []
@@ -496,7 +495,7 @@ class ENGELDataMission(Mission):
         await self._done()  # Same issue as with _replay
 
     async def _done(self):
-        """ Save any captures, reset and fly back to base and land"""
+        """Save any captures, reset and fly back to base and land"""
         await self.save_captures_to_file()
         await self.reset()
         await self.dm.fly_to(self.drone_name, waypoint=self.drones[self.drone_name].return_position)
@@ -504,7 +503,7 @@ class ENGELDataMission(Mission):
         await self.dm.disarm(self.drone_name)
 
     async def status(self):
-        """ Print information, such as how many captures we have taken"""
+        """Print information, such as how many captures we have taken"""
         self.logger.info(f"Drone {self.drones}. {len(self.captures)} current, {len(self.loaded_captures)} old captures.")
 
     def _register_controller_inputs(self):
@@ -516,7 +515,7 @@ class ENGELDataMission(Mission):
         self._added_controller_axis_methods.add(self._get_gimbal_rate)
 
     async def add_drones(self, names: list[str]):
-        """ Adds camera and gimbal objects and stores current position for rtl"""
+        """Adds camera and gimbal objects and stores current position for rtl"""
         if len(names) + len(self.drones) > 1:
             self.logger.warning("This mission only supports single drones!")
             return False
@@ -550,7 +549,7 @@ class ENGELDataMission(Mission):
         return False
 
     async def remove_drones(self, names: list[str]):
-        """ Removes camera and gimbal objects """
+        """Removes camera and gimbal objects"""
         for name in names:
             try:
                 self.drones.pop(name)

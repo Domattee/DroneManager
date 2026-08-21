@@ -1,4 +1,4 @@
-""" Plugin for using controllers and joysticks to control drones with DM
+"""Plugin for using controllers and joysticks to control drones with DM
 
 """
 import asyncio
@@ -28,24 +28,25 @@ class CoordinateConversion:
         # xyz can also be written as capital letters to indicate extrinsic rotations, same convention as scipy
         self._choices = ["x", "-x", "y", "-y", "z", "-z"]
         self._choices.extend([choice.upper() for choice in self._choices])
-        assert n_axis in self._choices and e_axis in self._choices and d_axis in self._choices, f"Invalid axis for coordinate conversion, must be one of {self._choices}"
+        assert n_axis in self._choices and e_axis in self._choices and d_axis in self._choices, \
+            f"Invalid axis for coordinate conversion, must be one of {self._choices}"
         self.axes = [n_axis, e_axis, d_axis]
         self.rotation: Rotation | None = None
         self._inv_rotation: Rotation | None = None
-        self._perm_matrix = np.zeros((3,3))
+        self._perm_matrix = np.zeros((3, 3))
         self.rotation_sequence: str = ""
         self.make_rotation()
 
-    def convert_euler(self, tracking_pos, tracking_euler, out_sequence = "XYZ", degrees = False, in_degrees = True):
+    def convert_euler(self, tracking_pos, tracking_euler, out_sequence="XYZ", degrees=False, in_degrees=True):
         converted_pos = self.rotation.apply(tracking_pos)
         converted_rot = (self.rotation * Rotation.from_euler(self.rotation_sequence, tracking_euler, degrees=in_degrees)
                          * self._inv_rotation).as_euler(out_sequence, degrees=degrees)
         return converted_pos, converted_rot
 
-    def convert_quat(self, tracking_pos, tracking_quat, out_sequence = "XYZ", degrees = False):
+    def convert_quat(self, tracking_pos, tracking_quat, out_sequence="XYZ", degrees=False):
         converted_pos = self.rotation.apply(tracking_pos)
         converted_rot = (self.rotation * Rotation.from_quat(tracking_quat) *
-                         self._inv_rotation).as_euler(out_sequence,degrees=degrees)
+                         self._inv_rotation).as_euler(out_sequence, degrees=degrees)
         return converted_pos, converted_rot
 
     def _make_perm_matrix(self):
@@ -109,7 +110,7 @@ class OptitrackPlugin(Plugin):
         self._err_count = [0]  # Stick in a list so we can pass by reference sort of work around
 
     async def connect_server(self, remote: str = None, local: str = None):
-        """ Connect to a NatNet server at the given IP remote and local IP addresses. Localhost by default. """
+        """Connect to a NatNet server at the given IP remote and local IP addresses. Localhost by default."""
         if self.client is not None:
             self.logger.warning("Already connected to a NatNetserver, aborting.")
             return
@@ -138,24 +139,23 @@ class OptitrackPlugin(Plugin):
                     conn_good = True
         except ConnectionResetError as e:
             self.logger.warning("Couldn't connect to the server!")
-            self.logger.debug(repr(e), exc_info = True)
+            self.logger.debug(repr(e), exc_info=True)
             return
         if conn_good:
             self.client = client
             self.logger.info("Connected to NatNet Server!")
-            
         else:
             client.shutdown()
 
     async def add_drone(self, name: str, track_id: int):
-        """ Add a drone to the data forwarding system by name and track ID"""
+        """Add a drone to the data forwarding system by name and track ID"""
         if name not in self.dm.drones:
             self.logger.warning(f"No drone named {name}")
         else:
             self._drone_id_mapping[track_id] = name
 
     async def remove_drone(self, name: str):
-        """ Remove a drone from the data forwarding system by name"""
+        """Remove a drone from the data forwarding system by name"""
         self._remove_drone(name)
 
     def _remove_drone(self, name):
@@ -167,11 +167,12 @@ class OptitrackPlugin(Plugin):
             self._drone_id_mapping.pop(to_remove)
 
     async def log_available_bodies(self):
-        """ Print available rigid bodies on the NatNet server"""
+        """Print available rigid bodies on the NatNet server"""
         if self.client is None:
             self.logger.warning("Not connected to a NatNet server!")
             return
-        body_str = "\n".join([f"Track ID: {track_id}, Position {position}" for track_id, position in self.available_bodies.items()])
+        body_str = "\n".join([f"Track ID: {track_id}, Position {position}"
+                              for track_id, position in self.available_bodies.items()])
         self.logger.info("Available Rigid Bodies:\n" + body_str)
 
     async def status(self):
@@ -197,17 +198,21 @@ class OptitrackPlugin(Plugin):
                 self.available_bodies = body_dict
         except Exception as e:
             self.logger.error("Exception in new frame callback, see log for details.")
-            self.logger.debug(repr(e), exc_info = True)
+            self.logger.debug(repr(e), exc_info=True)
 
     def _process_rigid_body(self, track_id, position, rotation):
         try:
             self.frame_count += 1
             self.frame_count = self.frame_count % 1000000
             if self.log_rigid_frames and self.frame_count % self.log_every == 0:
-                self.logger.debug(f"Logging every {self.log_every}th rigid body frame RAW: {track_id} - {position, rotation}")
+                self.logger.debug(f"Logging every {self.log_every}th rigid body frame RAW: "
+                                  f"{track_id} - {position, rotation}")
             if track_id in self._drone_id_mapping:
                 drone_name = self._drone_id_mapping[track_id]
-                conv_position, conv_rotation = self.coordinate_transform.convert_quat(position, rotation, out_sequence="xyz", degrees=False)
+                conv_position, conv_rotation = self.coordinate_transform.convert_quat(position,
+                                                                                      rotation,
+                                                                                      out_sequence="xyz",
+                                                                                      degrees=False)
                 try:
                     drone = self.dm.drones[drone_name]
                     if drone.is_connected:
@@ -217,17 +222,23 @@ class OptitrackPlugin(Plugin):
                                                                   self._covariance_matrix,
                                                                   0)
                         if self.log_rigid_frames and self.frame_count % self.log_every == 0:
-                            self.logger.info(f"Logging every {self.log_every}th rigid body frame CONVERTED:{track_id} - {conv_position, conv_rotation}")
-                        send_task = asyncio.run_coroutine_threadsafe(self._error_wrapper(drone.system.mocap.set_vision_position_estimate, self._err_count, vis_pos_estimate), self._event_loop)
-                        send_task_awaiter = asyncio.run_coroutine_threadsafe(coroutine_awaiter(send_task, self.logger), self._event_loop)
+                            self.logger.info(f"Logging every {self.log_every}th rigid body frame CONVERTED: "
+                                             f"{track_id} - {conv_position, conv_rotation}")
+                        send_task = asyncio.run_coroutine_threadsafe(
+                            self._error_wrapper(drone.system.mocap.set_vision_position_estimate,
+                                                self._err_count,
+                                                vis_pos_estimate),
+                            self._event_loop)
+                        asyncio.run_coroutine_threadsafe(coroutine_awaiter(send_task, self.logger), self._event_loop)
                 except KeyError:
-                    self.logger.warning(f"Received tracking data for drone '{drone_name}' which is no longer connected, removing...")
+                    self.logger.warning(f"Received tracking data for drone '{drone_name}' "
+                                        f"which is no longer connected, removing...")
                     self._remove_drone(drone_name)
         except UnboundLocalError:
             pass
         except Exception as e:
             self.logger.error("Exception in rigid body callback, see log for details.")
-            self.logger.debug(repr(e), exc_info = True)
+            self.logger.debug(repr(e), exc_info=True)
 
     async def close(self):
         if self.client is not None:

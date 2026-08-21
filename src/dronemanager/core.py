@@ -32,8 +32,7 @@ pane_formatter = logging.Formatter('%(asctime)s %(levelname)s %(name)s - %(messa
 
 
 class DMConfig:
-    """
-    Configuration class for DroneManager
+    """Configuration class for DroneManager
 
     """
 
@@ -91,8 +90,7 @@ class DMConfig:
 
 
 class DroneManager:
-    """
-    Core class of the library.
+    """Core class of the library.
 
     """
     # TODO: Handle MAVSDK crashes - Not sure at all what causes them
@@ -353,7 +351,7 @@ class DroneManager:
                                           "Landing drone(s) {}.", schedule=schedule)
 
     def set_fence(self, names: str | Collection[str], fence: Fence):
-        """ Set a fence on drones"""
+        """Set a fence on drones"""
         if isinstance(names, str):
             names = [names]
         try:
@@ -413,7 +411,7 @@ class DroneManager:
     async def move(self, names: str | Collection[str], offset: Collection[float], yaw: Collection[float] | float | None = None,
                    use_gps: bool | Collection[bool] = True, tol: float | Collection[float] = 0.25,
                    schedule: bool = True):
-        """ Move the drones by offsets meters from their current positions. Which coordinate system is used depends on
+        """Move the drones by offsets meters from their current positions. Which coordinate system is used depends on
         no_gps.
 
         :param names:
@@ -451,7 +449,7 @@ class DroneManager:
     async def go_to(self, names: str | Collection[str], local: Collection[float] | None = None,
                      gps: Collection[float] | None = None, waypoint: list[Waypoint] | None = None,
                      yaw: Collection[float] | float | None = None, tol: float | Collection[float] = 0.25, schedule=True):
-        """ Note that this uses the GO TO Mavlink command instead of offboard mode."""
+        """Note that this uses the GO TO Mavlink command instead of offboard mode."""
         assert local is not None or gps is not None or waypoint is not None, ("Must provide either waypoints, gps or "
                                                                               "local coordinates!")
         # Maybe allow for single args and then duplicate those for all drones?

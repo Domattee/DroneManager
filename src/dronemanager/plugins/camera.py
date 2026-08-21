@@ -1,4 +1,4 @@
-""" Plugin for controlling MAVSDK Cameras """
+"""Plugin for controlling MAVSDK Cameras"""
 import asyncio
 import os
 import struct
@@ -42,7 +42,7 @@ class CameraPlugin(Plugin):
         await super().start()
 
     async def close(self):
-        """ Removes all cameras """
+        """Removes all cameras"""
         await super().close()
         coros = [self.remove_camera(drone) for drone in self.cameras]
         await asyncio.gather(*coros)
@@ -54,7 +54,7 @@ class CameraPlugin(Plugin):
         return True
 
     async def add_camera(self, drone: str, camera_id: int = 100):
-        """ Add cameras from/for a given drone to the plugin"""
+        """Add cameras from/for a given drone to the plugin"""
         self.logger.info(f"Adding camera to drone {drone}")
         try:
             drone_object = self.dm.drones.get(drone, None)
@@ -76,7 +76,7 @@ class CameraPlugin(Plugin):
             return False
 
     async def remove_camera(self, drone: str):
-        """ Remove a camera from the plugin"""
+        """Remove a camera from the plugin"""
         self.logger.info(f"Removing camera from drone {drone}")
         camera = self.cameras.pop(drone)
         await camera.close()
