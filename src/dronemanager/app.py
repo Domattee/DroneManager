@@ -5,7 +5,6 @@ import inspect
 import os
 import shlex
 import sys
-import time
 import types
 import typing
 
@@ -172,8 +171,8 @@ class CommandScreen(Screen):
         self.dm.add_connect_func(self._add_drone_object)
         self.dm.add_remove_func(self._remove_drone_object)
 
-        self.dm.add_plugin_load_func(self._load_plugin_commands)
-        self.dm.add_plugin_unload_func(self._unload_plugin_commands)
+        self.dm.add_plugin_load_coro(self._load_plugin_commands)
+        self.dm.add_plugin_unload_coro(self._unload_plugin_commands)
 
         asyncio.create_task(self._default_plugin_loading())
 
@@ -182,9 +181,9 @@ class CommandScreen(Screen):
     async def _default_plugin_loading(self):
         plugin_tasks = []
         for plugin_name in self.dm.config.default_plugins:
-            plugin_tasks.append(asyncio.create_task(self.dm.load_plugin(plugin_name)))
+            plugin_tasks.append(asyncio.create_task(self.dm.load(plugin_name)))
         await asyncio.gather(*plugin_tasks)
-        self.logger.info(f"Loaded startup plugins: {self.dm.currently_loaded_plugins()}")
+        self.logger.info(f"Loaded startup plugins: {self.dm.plugins}")
 
     def _base_parser(self):
         parser = ArgParser(logger = self.logger, description="Interactive command line interface to connect and control multiple drones")
@@ -510,14 +509,14 @@ class CommandScreen(Screen):
                     else:
                         tmp = asyncio.create_task(self.dm.kill(args.drones))
                 elif command == "load":
-                    tmp = asyncio.create_task(self.dm.load_plugin(args.plugin))
+                    tmp = asyncio.create_task(self.dm.load(args.plugin))
                 elif command == "unload":
                     tmp = asyncio.create_task(self.dm.unload_plugin(args.plugin))
                 elif command == "loaded":
-                    self.logger.info(f"Currently loaded plugins: {self.dm.currently_loaded_plugins()}")
+                    self.logger.info(f"Currently loaded plugins: {self.dm.plugins}")
                 elif command == "plugins":
-                    available_but_not_loaded = [item for item in self.dm.plugin_options()
-                                                if item not in self.dm.currently_loaded_plugins()]
+                    available_but_not_loaded = [item for item in self.dm.plugin_options
+                                                if item not in self.dm.plugins]
                     self.logger.info(f"Available plugins to load: {available_but_not_loaded}")
                 elif command == "exit" or command in self._exit_aliases:
                     exit_task = asyncio.create_task(self.exit())

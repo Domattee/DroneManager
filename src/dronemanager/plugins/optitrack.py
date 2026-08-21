@@ -9,7 +9,7 @@ from scipy.spatial.transform import Rotation
 from mavsdk.mocap import VisionPositionEstimate, PositionBody, AngleBody, MocapError, Covariance
 
 from dronemanager.plugin import Plugin
-from dronemanager.plugins.NatNet.NatNetClient import NatNetClient
+from .NatNet.NatNetClient import NatNetClient
 from dronemanager.utils import coroutine_awaiter
 
 
