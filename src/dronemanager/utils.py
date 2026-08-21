@@ -13,7 +13,7 @@ import socket
 import asyncio
 from haversine import inverse_haversine, haversine, Direction, Unit
 
-from platformdirs import user_log_path, user_config_path, user_cache_path, user_documents_path
+from platformdirs import user_documents_path
 from importlib.resources import files
 
 COMMON_FORMATTER = logging.Formatter('%(asctime)s.%(msecs)03d %(levelname)s %(name)s - %(message)s', datefmt="%H:%M:%S")
@@ -28,21 +28,23 @@ EARTH_RADIUS = 6371000
 
 NAME = "DroneManager"
 
-LOG_DIR = user_documents_path().joinpath(NAME).joinpath("Logs")  #Path(__file__).parent.parent.parent.joinpath("logs")
+DM_INSTALL_DIR = user_documents_path().joinpath(NAME)
+
+LOG_DIR = DM_INSTALL_DIR.joinpath("Logs")  #Path(__file__).parent.parent.parent.joinpath("logs")
 """ The directory where all the log files are saved.
 
 :meta hide-value:
 """
 LOG_DIR.mkdir(parents=True, exist_ok=True)
 
-CACHE_DIR = user_documents_path().joinpath(NAME).joinpath(".cache")   #Path(__file__).parent.parent.parent.joinpath(".cache")
+CACHE_DIR = DM_INSTALL_DIR.joinpath(".cache")   #Path(__file__).parent.parent.parent.joinpath(".cache")
 """ The directory for any information that might be worth caching. Currently only used for camera definition information.
 
 :meta hide-value:
 """
 CACHE_DIR.mkdir(parents=True, exist_ok=True)
 
-CONFIG_FILE = user_documents_path().joinpath(NAME).joinpath("config.json")  #Path(__file__).parent.parent.parent.joinpath("config.json")
+CONFIG_FILE = DM_INSTALL_DIR.joinpath("config.json")  #Path(__file__).parent.parent.parent.joinpath("config.json")
 """ Location of the configuration file
 
 :meta hide-value:
