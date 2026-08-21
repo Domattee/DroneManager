@@ -200,8 +200,8 @@
       "max_h_jerk": 0.5,
       "max_v_jerk": 0.5,
       "max_yaw_vel": 60,
-      "max_yaw_acc": 30,
-      "max_yaw_jerk": 30,
+      "max_yaw_acc": 15,
+      "max_yaw_jerk": 15,
       "log_telemetry": true,
       "rtsp": "rtsp://192.168.0.10:8554/test",
       "size": 3.0

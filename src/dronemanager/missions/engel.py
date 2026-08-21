@@ -156,6 +156,12 @@ class ENGELDataMission(Mission):
         self._control_gimbal_pitch = True  # If false, control gimbal yaw instead
         self._gimbal_frequency = 20  # Default frequency until we get an actual drone
 
+    async def start(self):
+        await super().start()
+        sensor_good = await self.connect()
+        if not sensor_good:
+            self.logger.warning("Couldn't connect to weather sensor, using dummy values!")
+
     async def close(self):
         for button, func in self._added_controller_buttons.items():
             PS4Mapping.remove_method_from_button(button, func)
@@ -168,6 +174,7 @@ class ENGELDataMission(Mission):
         connected = await self.dm.ecowitt.connect("192.168.1.41")
         if connected:
             self.weather_sensor = self.dm.ecowitt
+        return connected
 
     async def configure_cam(self):
         """ Set parameters for our camera (Workswell WIRIS enterprise), won't work with others"""
@@ -317,12 +324,21 @@ class ENGELDataMission(Mission):
                 # Fly to position and point gimbal
                 # Have to reset gimbal position to drone-relative 0 to prevent running into gimbal limit
                 await self.gimbal.set_gimbal_mode("follow")
-                await self.gimbal.set_gimbal_angles(0.1, 0.1)
+                res = False
+                while not res:
+                    res = await self.gimbal.set_gimbal_angles(0.1, 0.1)
+                await asyncio.sleep(1.5)  # Sleep a little to allow gimbal to move
                 if drone.is_armed and drone.in_air:
                     # Fly to position
                     # We only try to fly if we are armed an in the air. This is convenient for ground testing.
                     await self.dm.fly_to(self.drone_name, gps=reference_image.gps, yaw=reference_image.drone_att[2])
 
+                # Move gimbal to the relative angle, should match absolute pretty close
+                await self.gimbal.set_gimbal_mode("follow")
+                res = False
+                while not res:
+                    res = await self.gimbal.set_gimbal_angles(reference_image.gimbal_att[1], reference_image.gimbal_att[2])  # Set a non-zero to make sure gimbal responds
+                await asyncio.sleep(1.5)  # Short sleep so gimbal has time to physically move.
                 # Wait until camera parameters are set
                 await cam_set_task
                 # Point gimbal
@@ -333,12 +349,10 @@ class ENGELDataMission(Mission):
                     self.logger.info("Replay exceeding gimbal limit, skipping...")
                     continue
 
-                await self.gimbal.take_control()  # Make sure that we still have it.
                 await self.gimbal.set_gimbal_mode("lock")
-                await self.gimbal.set_gimbal_angles(target_gimbal_pitch, target_gimbal_yaw)
-                await asyncio.sleep(1)
-                # Repeat to sidestep seemingly random intial refusals after mode change.
-                await self.gimbal.set_gimbal_angles(target_gimbal_pitch, target_gimbal_yaw)
+                res = False
+                while not res:
+                    res = await self.gimbal.set_gimbal_angles(target_gimbal_pitch, target_gimbal_yaw)
                 await asyncio.sleep(3)
                 # Refine position and gimbal attitude based on previous image
                 # TODO: Integrate from other repo, more eval on simulation first
@@ -348,7 +362,16 @@ class ENGELDataMission(Mission):
 
                 # Reset gimbal
                 await self.gimbal.set_gimbal_mode("follow")
-                await self.gimbal.set_gimbal_angles(0.1, 0.1) # Set a non-zero to make sure gimbal responds
+                res = False
+                while not res:
+                    res = await self.gimbal.set_gimbal_angles(0.1, 0.1) # Set a non-zero to make sure gimbal responds
+                await asyncio.sleep(1)  # Short sleep so gimbal has time to physically move.
+                # Do it twice so we are definitely pointed forward.
+                await self.gimbal.set_gimbal_mode("follow")
+                res = False
+                while not res:
+                    res = await self.gimbal.set_gimbal_angles(0.1, 0.1) # Set a non-zero to make sure gimbal responds
+                await asyncio.sleep(1)  # Short sleep so gimbal has time to physically move.
             except Exception as e:
                 self.logger.warning(f"Exception with replay for capture {capture.capture_id}")
                 self.logger.debug(repr(e), exc_info=True)
