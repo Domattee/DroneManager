@@ -20,6 +20,15 @@ MAX_FREQUENCY = 100
 MIN_FREQUENCY = 1
 MAX_DURATION = 60
 
+# --- Benchmark instrumentation (throwaway; see benchmarks/e2e_latency_bench.py) ---
+# Every outgoing telemetry packet carries a monotonically increasing sequence number. Unity
+# echoes back the seq of the packet it has just rendered, which lets the benchmark correlate
+# "stick moved at t0" -> "twin showed the resulting motion" entirely within one clock.
+# SENT_LOG maps seq -> {t_send, vel}, so the benchmark can find the first packet that actually
+# carried post-stick motion. Not for the main branch.
+SENT_LOG: dict = {}
+_seq_counter = 0
+
 class UDPClient:
 
     def __init__(self, ip, port, frequency, duration):
@@ -178,7 +187,18 @@ class UDPPlugin(Plugin):
                 "fence": fence_list,
                 "target": target_list,
             }
-        data = {"drones": drone_data, "t_send": time.time()}
+        # Benchmark instrumentation: perf_counter gives ~100ns resolution (vs. time.time()'s
+        # ~1-15ms on Windows) and is valid here because the in-process benchmark sampler reads
+        # it against the same monotonic epoch. Throwaway; not for the main branch.
+        global _seq_counter
+        seq = _seq_counter
+        _seq_counter += 1
+        t_send = time.perf_counter()
+        SENT_LOG[seq] = {
+            "t_send": t_send,
+            "vel": {name: d["velocity"] for name, d in drone_data.items()},
+        }
+        data = {"drones": drone_data, "t_send": t_send, "seq": seq}
         if hasattr(self.dm, "mission"):  # Check that the mission plugin is actually loaded
             mission_data = {}
             data["missions"] = mission_data

@@ -48,16 +48,19 @@ class TelemetrySampler:
 
         subscribe_msg = json.dumps({"duration": self.duration, "frequency": self.frequency}).encode("utf-8")
         sock.sendto(subscribe_msg, ("127.0.0.1", self.server_port))
-        last_recv_resub = time.time()
+        # perf_counter (monotonic, ~100ns resolution) matches the sender's t_send stamp, which is
+        # taken from the same in-process epoch. time.time() has ~1-15ms resolution on Windows and
+        # quantized 62% of samples to exactly 0ms in the earlier measurement.
+        last_recv_resub = time.perf_counter()
 
-        end_time = time.time() + self.duration + 2.0
+        end_time = time.perf_counter() + self.duration + 2.0
         last_recv = None
-        while time.time() < end_time:
+        while time.perf_counter() < end_time:
             try:
                 data, _ = await loop.run_in_executor(None, sock.recvfrom, 65536)
             except (socket.timeout, OSError):
                 continue
-            recv_time = time.time()
+            recv_time = time.perf_counter()
             # Re-send the subscribe handshake periodically, mirroring Unity's requestInterval
             if recv_time - last_recv_resub > 15.0:
                 sock.sendto(subscribe_msg, ("127.0.0.1", self.server_port))

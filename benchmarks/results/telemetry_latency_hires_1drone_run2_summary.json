@@ -1,0 +1,14 @@
+{
+  "n_samples": 891,
+  "requested_frequency_hz": 20.0,
+  "achieved_frequency_hz": 21.275685411863492,
+  "latency_ms_mean": 0.3769175084178988,
+  "latency_ms_median": 0.3363000000149441,
+  "latency_ms_stdev": 0.43654133529756983,
+  "latency_ms_p95": 0.5934799999920415,
+  "latency_ms_p99": 0.7149999999933243,
+  "latency_ms_max": 11.961299999995845,
+  "jitter_ms_stdev": 2.996735856089438,
+  "payload_bytes_mean": 448.90460157126824,
+  "tag": "hires_1drone_run2"
+}

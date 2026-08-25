@@ -1,0 +1,11 @@
+{
+  "tag": "e2e_nounity_run1",
+  "trials": 8,
+  "telemetry_hz": 50.0,
+  "command_call_ms_mean": 0.8376173213414879,
+  "command_call_ms_p95": 1.0552599998845835,
+  "motion_ms_thr0.02_mean": 1321.7670999997608,
+  "motion_ms_thr0.02_median": 1321.7670999997608,
+  "motion_ms_thr0.02_stdev": 0.0,
+  "motion_ms_thr0.02_n": 1
+}
