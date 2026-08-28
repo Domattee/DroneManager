@@ -23,6 +23,7 @@ from mavsdk.offboard import PositionNedYaw, PositionGlobalYaw, VelocityNedYaw, A
     VelocityBodyYawspeed
 from mavsdk.manual_control import ManualControlError
 from mavsdk.mavlink_direct import MavlinkMessage
+from mavsdk.param import ProtocolVersion
 
 from dronemanager.utils import dist_ned, dist_gps, relative_gps, coroutine_awaiter
 from dronemanager.utils import parse_address, COMMON_FORMATTER
@@ -585,6 +586,7 @@ class DroneMAVSDK(Drone):
 
         self._message_callbacks: dict[str, set] = dict()
         self._message_listeners: dict[tuple[str, int], set] = dict()
+        self._ack_listeners: dict[tuple[int, int, int, int, int], list] = dict()
 
         # How often (per second) we request position information from the drone. The same interval is used by path
         # planning algorithms for their time resolution.
@@ -738,7 +740,18 @@ class DroneMAVSDK(Drone):
             self._message_listeners[msg_tuple] = {fut}
         return fut
 
-    async def send_command(self, command_msg_id, target_component_id, confirmation, param1=0, param2=0, param3=0, param4=0, param5=0, param6=0, param7=0):
+    def _listen_ack(self, command_msg_id, target_component_id):
+        fut = asyncio.Future()
+        drone_system_id, drone_component_id = self.drone_identifier
+        system_id, component_id = self.gcs_ident
+        msg_tuple = (command_msg_id, drone_system_id, target_component_id, system_id, component_id)
+        if msg_tuple in self._ack_listeners:
+            self._ack_listeners[msg_tuple].append(fut)
+        else:
+            self._ack_listeners[msg_tuple] = [fut]
+        return fut
+
+    def send_command(self, command_msg_id, target_component_id, confirmation, param1=0, param2=0, param3=0, param4=0, param5=0, param6=0, param7=0) -> asyncio.Future[bool]:
         drone_system_id, drone_component_id = self.drone_identifier
         system_id, component_id = self.gcs_ident
         fields = {
@@ -756,11 +769,14 @@ class DroneMAVSDK(Drone):
         }
         msg = MavlinkMessage("COMMAND_LONG", system_id, component_id, drone_system_id, target_component_id,
                              fields_json=json.dumps(fields))
-        return await self.send_message(msg)
+        send_task = asyncio.create_task(self.send_message(msg))
+        self._running_tasks.add(send_task)
+        self._running_tasks.add(coroutine_awaiter(send_task, self.logger))
+        return self._listen_ack(command_msg_id, target_component_id)
 
     def request_message(self, msg_id: int, message_name: str, target_component_id: int):
         listen_result = self.listen_next_message(message_name, target_component_id)
-        self._running_tasks.add(asyncio.create_task(self.send_command(512, target_component_id, 0, param1=msg_id, param7=1)))
+        request_ack = self.send_command(512, target_component_id, 0, param1=msg_id, param7=1)
         return listen_result
 
     async def _process_messages(self):
@@ -772,6 +788,19 @@ class DroneMAVSDK(Drone):
                 if (self.drone_identifier is None or message.system_id == self.drone_identifier[0]) \
                         and (message.target_system_id == 0 or message.target_system_id == self.gcs_ident[0]) \
                         and (message.target_component_id == 0 or message.target_component_id == self.gcs_ident[1]):
+                    # Do command acks
+                    if message.message_name == "COMMAND_ACK":
+                        fields = json.loads(message.fields_json)
+                        msg_tuple = (fields["command"], message.system_id, message.component_id, fields["target_system"], fields["target_component"])
+                        if msg_tuple in self._ack_listeners:
+                            futs = self._ack_listeners[msg_tuple]
+                            if len(futs) > 0:
+                                fut = futs.pop(0)
+                                if fields["result"] == 0:
+                                    fut.set_result(True)
+                                else:
+                                    fut.set_result(False)
+
                     # Do message waiters
                     msg_tuple = (message.message_name, message.component_id)
                     if msg_tuple in self._message_listeners:
@@ -812,6 +841,7 @@ class DroneMAVSDK(Drone):
     async def load_parameters(self):
         self.logger.info(f"Loading parameters...")
         try:
+            await self.system.param.select_component(1, ProtocolVersion.V1)
             parameters = await self.system.param.get_all_params()
             raw_params = {}
             for param in parameters.int_params:

@@ -10,12 +10,12 @@ from lxml import etree
 import mavsdk.camera
 from mavsdk.mavlink_direct import MavlinkMessage
 
+import dronemanager.drone
 from dronemanager.plugin import Plugin
 from dronemanager.utils import CACHE_DIR, coroutine_awaiter
 
-# TODO: Overlooked the mavsdk param plugin, check if that makes the camera plugin work properly
+# TODO: Maybe replace this param handling with mavsdk param plugin?
 # TODO: Parameterrange in the cam def xml parsing function
-# TODO: Passthroughremoval: Check references to mav_conn and msg
 
 
 class CameraPlugin(Plugin):
@@ -257,7 +257,7 @@ class Camera:
         self._running_tasks.add(asyncio.create_task(coroutine_awaiter(capture_info_task, self.logger)))
 
     @property
-    def drone(self):
+    def drone(self) -> dronemanager.drone.DroneMAVSDK:
         try:
             return self.dm.drones[self.drone_name]
         except KeyError:
@@ -284,7 +284,7 @@ class Camera:
 
     async def close(self):
         if self.drone is not None and self.drone in self.dm.drones.values():
-            self.drone.mav_conn.remove_drone_message_callback(322, self._listen_param_updates)
+            self.drone.remove_message_callback("PARAM_EXT_VALUE", self._listen_param_updates)
         for task in self._running_tasks:
             if isinstance(task, asyncio.Task):
                 task.cancel()
@@ -298,25 +298,25 @@ class Camera:
         self.logger.info(f"Camera {camera_id}, parameters {'not ' if self.params_loaded else ''}loaded")
 
     async def take_picture(self,):
-        res = await self.drone.mav_conn.send_cmd_long(target_component=100, cmd=2000, param3=1.0, param5=math.nan)
+        res = await self.drone.send_command(2000, self.camera_id, 0, param3=1.0, param5=math.nan)
         if not res:
             self.logger.warning("Couldn't take picture!")
         return res
 
     async def start_video(self):
-        res = await self.drone.mav_conn.send_cmd_long(target_component=self.camera_id, cmd=2500, param2=1)
+        res = await self.drone.send_command(2500, self.camera_id, 0, param2=1)
         if not res:
             self.logger.warning("Couldn't start video!")
         return res
 
     async def stop_video(self):
-        res = await self.drone.mav_conn.send_cmd_long(target_component=self.camera_id, cmd=2501)
+        res = await self.drone.send_command(2501, self.camera_id, 0)
         if not res:
             self.logger.warning("Couldn't stop video!")
         return res
 
     async def set_zoom(self, zoom):
-        res = await self.drone.mav_conn.send_cmd_long(target_component=self.camera_id, cmd=203, param2=zoom, param5=0)
+        res = await self.drone.send_command(203, self.camera_id, 0, param2=zoom, param5=0)
         if not res:
             self.logger.warning("Couldn't set the zoom!")
         return res
@@ -457,8 +457,17 @@ class Camera:
 
     def _get_cam_params(self):
         self.logger.debug("Listening to camera parameters")
-        self.drone.mav_conn.send_param_ext_request_list(self.camera_id)
-        self.drone.mav_conn.add_drone_message_callback(322, self._listen_param_updates)
+        system_id, component_id = self.drone.gcs_ident
+        fields = {
+            "target_system": self.drone.drone_identifier[0],
+            "target_component": self.camera_id,
+        }
+        request_ext_params_msg = MavlinkMessage("PARAM_EXT_REQUEST_LIST", system_id, component_id,
+                                                self.drone.drone_identifier[0], self.camera_id, json.dumps(fields))
+        request_params_task = asyncio.create_task(self.drone.send_message(request_ext_params_msg))
+        self._running_tasks.add(request_params_task)
+        self._running_tasks.add(coroutine_awaiter(request_params_task, self.logger))
+        self.drone.add_message_callback("PARAM_EXT_VALUE", self._listen_param_updates)
         checker_task = asyncio.create_task(self._param_receive_checker())
         self._running_tasks.add(checker_task)
         self._running_tasks.add(coroutine_awaiter(checker_task, self.logger))
@@ -466,15 +475,28 @@ class Camera:
     async def _param_receive_checker(self):
         while len(self._received_params) < self._param_count:
             for param_index in range(self._param_count):
+                await asyncio.sleep(1)
                 if param_index not in self._received_params:
                     self.logger.debug(f"Missing parameter {param_index}, requesting again")
-                    self.drone.mav_conn.send_param_ext_request_read(self.camera_id, "", param_index)
-                    await asyncio.sleep(0.5)
+                    system_id, component_id = self.drone.gcs_ident
+                    fields = {
+                        "target_system": self.drone.drone_identifier[0],
+                        "target_component": self.camera_id,
+                        "param_id": "",
+                        "param_index": param_index,
+                    }
+                    request_param_ext_read_msg = MavlinkMessage("PARAM_EXT_REQUEST_READ ", system_id,
+                                                                component_id, self.drone.drone_identifier[0],
+                                                                self.camera_id, json.dumps(fields))
+                    await self.drone.send_message(request_param_ext_read_msg)
 
-    def _parse_param_update_values(self, msg):
-        param_name = msg.param_id
-        param_type = msg.param_type
-        raw_param_value = msg._param_value_raw
+    def _parse_param_update_values(self, fields):
+        param_name = fields["param_id"]
+        param_type = fields["param_type"]
+        raw_param_value = fields["param_value"]
+        #param_name = msg.param_id
+        #param_type = msg.param_type
+        #raw_param_value = msg._param_value_raw
         if param_type < 9:
             length = 2 ** int(param_type / 2)
         elif param_type == 9:
@@ -495,7 +517,7 @@ class Camera:
             self.logger.warning("Camera sending custom parameter type, not supported!")
             parsed_param_value = None
         self.logger.debug(f"Received parameter update message: "
-                          f"{param_name, parsed_param_value, raw_param_value[:length], msg.param_type}")
+                          f"{param_name, parsed_param_value, raw_param_value[:length], param_type}")
         return param_name, parsed_param_value
 
     def _update_param_value(self, param_name, param_value, param_type_id):
@@ -505,12 +527,13 @@ class Camera:
                 self.parameters[param_name].value = param_value
             self.parameters[param_name].param_type_id = param_type_id
 
-    async def _listen_param_updates(self, msg):
-        if msg.get_srcComponent() == self.camera_id and msg.get_srcSystem() == self.drone.mav_conn.drone_system:
-            param_name, param_value = self._parse_param_update_values(msg)
-            self._update_param_value(param_name, param_value, msg.param_type)
-            self._param_count = msg.param_count
-            self._received_params.add(msg.param_index)
+    async def _listen_param_updates(self, message):
+        if message.component_id == self.camera_id and message.system == self.drone.drone_identifier[0]:
+            fields = json.loads(message.json_fields)
+            param_name, param_value = self._parse_param_update_values(fields)
+            self._update_param_value(param_name, param_value, fields["param_type"])
+            self._param_count = fields["param_count"]
+            self._received_params.add(fields["param_index"])
 
     async def print_parameters(self):
         if len(self.parameters) == 0:
