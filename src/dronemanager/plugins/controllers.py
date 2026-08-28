@@ -2,70 +2,223 @@
 
 """
 import asyncio
+from collections import OrderedDict
 import math
-from collections.abc import Callable
-
 import pygame
+import time
+from typing import Callable
 
 from dronemanager.drone import FlightMode
 from dronemanager.plugin import Plugin
 from dronemanager.utils import coroutine_awaiter
 
 
-DEFAULT_FREQUENCY = 50
+DEFAULT_FREQUENCY: float = 100
+"""Default frequency for the control loop."""
+
+DEFAULT_HOLD_DURATION: float = 2
+"""Default duration for which a button must be pressed continuously to count as a "long press"."""
 
 
 class InputMapping:
-    """Map actions to controller axis"""
-    # TODO: UI for keybinds
+    """Mapping that assigns actions to controller axes and buttons.
 
-    thrust_axis: int = None
-    yaw_axis: int = None
-    forward_axis: int = None
-    right_axis: int = None
-    arm_button: int = None
-    disarm_button: int = None
-    land_button: int = None
-    takeoff_button: int = None
-    control_button: int = None
-    arm_hold_duration: float = 1.0
-    # How long the thrust/yaw stick should be held down left/right for disarm/arm. Not implemented at the moment.
+    Axes or buttons are assigned by integer IDs. For axes, negative IDs indicate a negative response, e.g. a "-2" for
+    the forward axis means that moving the stick for axis "2" in the positive direction moves the drone backward.
+    For buttons, a negative ID indicates that the button should be pressed for a long duration to trigger the action.
 
-    extra_button_inputs: dict[int, set[Callable]] = {}
-    # Functions in this dict are called every time their button is pressed. They should not take any arguments. These
-    # should be simple functions, not coroutines. They should also complete very quickly. Note that no check is
-    # performed to see if the drone is controllable!
+    # TODO: Describe key arguments, in particular labels, which list all possible inputs for a controller type
+    # TODO: Describe common axis meaning.
+    # TODO: Describe how bindings can be set in the CLI.
+    # TODO: Describe axis / button constraints. Axes actions won't be executed unless all inputs are bound.
+    # TODO: Button and axis IDs are not raw controller button or axis ids. Instead they are incremented by 1 to be 1-indexed.
+    """
 
-    extra_axis_inputs: dict[Callable, list[int]] = {}
-    # Functions in this dict are called every timestep in the control loop. They should take one argument,
-    # corresponding to the output of the axis. These should be simple functions, not coroutines. They should also
-    # complete very quickly. Note that no check is performed to see if the drone is controllable!
+    def __init__(self, name: str, thrust_axis: int, yaw_axis: int, forward_axis: int, right_axis: int,
+                 arm_button: int, disarm_button: int, takeoff_button: int, land_button: int, control_button: int,
+                 axes_labels: list[tuple[int, str]], button_labels: list[tuple[int, str]],
+                 flight_mode_button: int | None = None, hold_duration: float = DEFAULT_HOLD_DURATION):
+        """
 
-    @classmethod
-    def add_method_to_button(cls, button: int, method: Callable):
-        if button in cls.extra_button_inputs:
-            cls.extra_button_inputs[button].add(method)
+        Args:
+            name:
+            thrust_axis:
+            yaw_axis:
+            forward_axis:
+            right_axis:
+            arm_button:
+            disarm_button:
+            takeoff_button:
+            land_button:
+            control_button:
+            axes_labels:
+            button_labels:
+            flight_mode_button:
+            hold_duration:
+        """
+        self.name = name
+        self.thrust_axis: int = thrust_axis
+        self.yaw_axis: int = yaw_axis
+        self.forward_axis: int = forward_axis
+        self.right_axis: int = right_axis
+        self.arm_button: int = arm_button
+        self.disarm_button: int = disarm_button
+        self.takeoff_button: int = takeoff_button
+        self.land_button: int = land_button
+        self.control_button: int = control_button
+
+        self.axes_labels: dict[int, str] = {}  #: Human readable labels for the axes.
+        self.button_labels: dict[int, str] = {}  #: Human readable names for the buttons.
+
+        # Check that no duplicate, missing or invalid axes
+        #: A set of the core input axes.
+        self.base_axis_inputs: set[int] = {self.thrust_axis, self.yaw_axis, self.forward_axis, self.right_axis}
+        assert len(self.base_axis_inputs) == 4, "Duplicate or missing controller bindings for base axes!"
+        assert all([axis in self.axes_labels for axis in self.base_axis_inputs]), \
+            "A base axes binding is not available for this controller!"
+
+        # Check that no duplicate, missing or invalid buttons
+        # A set of the core input buttons.
+        self.base_button_inputs: set[int] = {self.arm_button, self.disarm_button,
+                                             self.land_button, self.takeoff_button,
+                                             self.control_button}
+        assert len(self.base_button_inputs) == 5, "Duplicate or missing controller bindings for base actions!"
+        assert all([button in self.button_labels for button in self.base_button_inputs]), \
+            "A base button binding is not available for this controller!"
+
+        #: Human readable labels for the core axis actions.
+        self._base_axis_action_labels: OrderedDict[int, str] = OrderedDict()
+        self._base_axis_action_labels[self.thrust_axis] = "Thrust"
+        self._base_axis_action_labels[self.yaw_axis] = "Yaw"
+        self._base_axis_action_labels[self.forward_axis] = "Forward"
+        self._base_axis_action_labels[self.right_axis] = "Right"
+
+        #: Human readable labels for the core button actions.
+        self._base_button_action_labels: OrderedDict[int, str] = OrderedDict()
+        self._base_button_action_labels[self.control_button] = "Control"
+        self._base_button_action_labels[self.arm_button] = "Arm"
+        self._base_button_action_labels[self.disarm_button] = "Disarm"
+        self._base_button_action_labels[self.takeoff_button] = "Takeoff"
+        self._base_button_action_labels[self.land_button] = "Land"
+
+        # TODO: "Actions", which are functions that should have a binding, but might not have one
+        #  Other plugins can thus "register" functions which the user might want to bind.
+        # TODO: Functions to change the binding for a given action
+        # TODO: Check that extra buttons/axes dont overwrite existing labels
+
+        #: A dictionary with button IDs as keys and function-label pairs as values.
+        #: Functions in this dictionary are called every time their button is pressed. The functions should not take any
+        #: arguments. These should be simple functions, not coroutines. They should also complete very quickly. Note
+        #: that no check is performed to see if the drone is controllable!
+        #: The button can be None, i.e. the action is unbound.
+        self._extra_button_actions_by_button: dict[int | None, set[tuple[Callable, str]]] = {}
+        self._extra_button_actions_by_function: dict[Callable, tuple[int | None, str]] = {}
+
+        #: Functions in this dict are called every timestep in the control loop. They should take one argument,
+        #: a list of floats, corresponding to the output of the their axes. These should be simple functions, not
+        #: coroutines. They should also complete very quickly. Note that no check is performed to see if the drone is
+        #: controllable! The values are a list of axes, which are passed as an argument, and a human-readable label for
+        #: the action.
+        self._extra_axis_actions_by_function: dict[Callable, tuple[list[int | None], str]] = {}
+
+        self.hold_duration: float = hold_duration  #: How long a button must be pressed to count as a long press.
+
+        # TODO: Register flight mode as "extra" action
+        if flight_mode_button is not None:
+            pass
+            # self.flight_mode_button: int = flight_mode_button
+
+    def action_input_mapping(self) -> OrderedDict[str, str | list[str]]:
+        """Get a mapping from action labels to button or axis labels.
+
+        Returns:
+            A dictionary listing the button, axis or axes for each registered action.
+        """
+        output = OrderedDict()
+        # Add base axis and button actions
+        for axis, action_label in self._base_axis_action_labels.items():
+            output[action_label] = self._get_axis_label(axis)
+        for button, action_label in self._base_button_action_labels.items():
+            output[action_label] = self._get_button_label(button)
+        # Add extra axis actions
+        for func in self._extra_axis_actions_by_function:
+            axes, action_label = self._extra_axis_actions_by_function[func]
+            axis_labels = [self._get_axis_label(axis) for axis in axes]
+            output[action_label] = axis_labels
+        # Add extra button actions
+        for func in self._extra_button_actions_by_function:
+            button, action_label = self._extra_button_actions_by_function[func]
+            button_label = self._get_button_label(button)
+            output[action_label] = button_label
+        return output
+
+    # TODO: Functions to get button/axis label > action label
+    def input_action_mapping(self) -> OrderedDict[str | list[str], str | list[str]]:
+
+    def _get_axis_label(self, axis_id: int | None) -> str:
+        if axis_id is None:
+            axis_label = "Unbound!"
+        elif axis_id not in self.axes_labels:
+            raise RuntimeError(f"Axis ID {axis_id} is not a valid axis for binding {self.name}!"
+                               f"Valid axes: {self.axes_labels}")
         else:
-            cls.extra_button_inputs[button] = {method}
+            axis_label = self.axes_labels[abs(axis_id)]
+            if axis_id < 0:
+                axis_label += " - Inverted"
+        return axis_label
 
-    @classmethod
-    def add_axis_method(cls, method: Callable, axes: list[int]):
-        cls.extra_axis_inputs[method] = axes
+    def _get_button_label(self, button_id: int | None) -> str:
+        if button_id is None:
+            button_label = "Unbound!"
+        elif button_id not in self.button_labels:
+            raise RuntimeError(f"Button ID {button_id} is not a valid axis for binding {self.name}!"
+                               f"Valid buttons: {self.button_labels}")
+        else:
+            button_label = self.button_labels[abs(button_id)]
+            if button_id < 0:
+                button_label = f"Hold {button_label}"
+        return button_label
 
-    @classmethod
-    def remove_method_from_button(cls, button: int, method: Callable):
+    def get_raw_controller_id(self, button_or_axis_id: int):
+        return abs(button_or_axis_id) - 1
+
+    # TODO: Functions to get input id -> button/axis label
+
+    # TODO: Hold disarm for kill
+
+    # TODO: Minus axis for hold
+
+    def add_button_action(self, action: Callable, action_name: str, button: int | None = None):
+
+
+
+    # Keep these for usage finding
+    def add_method_to_button(self, button: int, method: Callable, action_name: str = "No label!"):
+        if button in self.extra_button_inputs:
+            self.extra_button_inputs[button].add(method)
+            self.extra_button_action_labels[method] = action_name
+        else:
+            self.extra_button_inputs[button] = {method}
+            self.extra_button_action_labels[method] = {action_name}
+
+    def remove_method_from_button(self, button: int, method: Callable):
         try:
-            cls.extra_button_inputs[button].remove(method)
+            self.extra_button_inputs[button].remove(method)
+            self.extra_button_action_labels.pop(method)
         except KeyError:
             pass
 
-    @classmethod
-    def remove_axis_method(cls, method: Callable):
+    def add_axis_method(self, method: Callable, axes: list[int]):
+        self.extra_axis_inputs[method] = axes
+
+    def remove_axis_method(self, method: Callable):
         try:
-            cls.extra_axis_inputs.pop(method)
+            self.extra_axis_inputs.pop(method)
         except KeyError:
             pass
 
+
+# TODO: Mapping per control mode?
 
 class PS4Mapping(InputMapping):
 
@@ -75,9 +228,10 @@ class PS4Mapping(InputMapping):
     right_axis = 2          # Right stick right
     arm_button = 0          # X
     disarm_button = 1       # Circle
-    land_button = 12        # D-Pad Down
+    land_button = 12        # D-Pad down
     takeoff_button = 11     # D-Pad up
     control_button = 5      # PS Button
+    flight_mode_button = 13 # D-Pad left
 
     # All buttons:
     # X: 0
@@ -106,13 +260,27 @@ class PS4Mapping(InputMapping):
     # Right Trigger: 5
 
 
+class Controller:
+    # TODO: generic base class for controllers, should handle the control loop and have functions for setting/getting
+    #  mappings
+
+    def __init__(self, mapping: InputMapping):
+        pass
+
+
 class ControllerPlugin(Plugin):
     """
     """
 
     PREFIX = "control"
 
-    def __init__(self, dm, logger, name, auto_set=False, auto_drone=False):
+    # TODO: Load mappings from config
+
+    # TODO: Functions to print action -> button/axis label
+    # TODO: Functions to print button/axis label > action
+    # TODO: Functions to print input id -> button/axis label
+
+    def __init__(self, dm, logger, name, auto_set=False, auto_drone=False, control_frequency: float = DEFAULT_FREQUENCY):
         """
 
         """
@@ -138,8 +306,8 @@ class ControllerPlugin(Plugin):
                                  pygame.JOYBALLMOTION,
                                  pygame.JOYDEVICEADDED,
                                  pygame.JOYDEVICEREMOVED]
-        self._frequency = DEFAULT_FREQUENCY
-        self._control_frequency = DEFAULT_FREQUENCY
+        self._frequency = 100
+        self._control_frequency = control_frequency
         self._drone_name: str | None = None
         self._in_control = False
         self._mapping: InputMapping | None = None
@@ -188,6 +356,7 @@ class ControllerPlugin(Plugin):
     async def status(self):
         """Log current configuration of the controller plugin."""
         self.logger.info(f"Drone: {self._drone_name}. Control {self._in_control}. Controller: {self.controller}")
+        self.logger.info(f"Control scheme: {self._mapping}")
 
     async def set_drone(self, drone: str):
         """Set which drone is controlled by the controller."""
@@ -198,7 +367,7 @@ class ControllerPlugin(Plugin):
             self.logger.warning("Can't swap drones while in control of another drone!")
             return False
         self._drone_name = drone
-        self._control_frequency = self.dm.drones[drone].position_update_rate
+        #self._control_frequency = self.dm.drones[drone].position_update_rate
         self.logger.info(f"Now set for drone {self._drone_name}")
         return True
 
@@ -346,10 +515,16 @@ class ControllerPlugin(Plugin):
         Actions are performed as soon as the button press is detected, but continuous inputs, such as sticks, are
         updated here at self._control_frequency.
         """
-        # TODO: Usual arm and disarm with moving stick bottom right and bottom left
         while True:
+            next_loop_time = time.monotonic()
             try:
-                await asyncio.sleep(1/self._control_frequency)
+                prev_loop_time = next_loop_time
+                next_loop_time = prev_loop_time + 1 / self._control_frequency
+                loop_interval = max(0.0, next_loop_time - time.monotonic())
+                # If the loop interval gets short, throw a warning.
+                if loop_interval < 1 / (3 * self._control_frequency):
+                    self.logger.warning("Controller loop saturating! Controls might become sluggish or unresponsive.")
+                await asyncio.sleep(loop_interval)
                 # If auto_drone is True and there is one drone in drone manager, control it automatically
                 if self.auto_drone and self._drone_name is None and len(self.dm.drones) == 1:
                     drone_name, = self.dm.drones
@@ -378,14 +553,6 @@ class ControllerPlugin(Plugin):
                     yaw_input = self.stick_response(self._mapping.yaw_axis)
                     right_input = self.stick_response(self._mapping.right_axis)
                     forward_input = self.stick_response(self._mapping.forward_axis)
-
-                    # TODO: If we are landed and disarmed, left stick down and to the right should arm
-                    # Should have to hold for 1 second, prevent any inputs until ...
-                    #   Stick is centered?
-                    #   Allow only vertical until we are in air?
-
-                    # TODO: If we are landed and armed, left stick down and to the left should disarm
-                    # Should have to hold for 1 second, block any inputs except stick down or up while landed and armed?
 
                     # If we have non-zero inputs, and we aren't in the appropriate mode, put us into appropriate mode
                     if abs(vertical_input) > 0.01 or abs(yaw_input) > 0.01 \
@@ -437,7 +604,7 @@ class ControllerPlugin(Plugin):
     def stick_response(self, axis: int) -> float:
         """Linear stick response with -10 to 10% dead zone.
 
-        Axis should be the joystick axis. A negative number means that the response is inverted.
+        Axis should be the joystick axis being scaled. A negative number means that the response is inverted.
         """
         value = self.controller.get_axis(abs(axis))
         dz = 0.1

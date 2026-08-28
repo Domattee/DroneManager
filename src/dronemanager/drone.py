@@ -482,6 +482,10 @@ class Drone(ABC, threading.Thread):
         pass
 
     @abstractmethod
+    async def set_manual_control_input(self, x, y, z, r):
+        pass
+
+    @abstractmethod
     async def send_external_tracking_data(self, position: np.ndarray, rotation: np.ndarray,
                                           covariance: np.ndarray | None = None):
         pass
