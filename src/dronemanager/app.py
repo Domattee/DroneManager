@@ -32,7 +32,12 @@ import logging
 
 # TODO: Fence, path generator and path follower managing somehow
 
-pane_formatter = logging.Formatter('%(asctime)s %(levelname)s %(name)s '
+class LastNameElementFilter(logging.Filter):
+    def filter(self, record):
+        record.name_last = record.name.rsplit('.', 1)[-1]
+        return True
+
+pane_formatter = logging.Formatter('%(asctime)s %(levelname)s %(name_last)s '
                                    '- %(message)s', datefmt="%H:%M:%S")
 
 
@@ -580,9 +585,10 @@ class CommandScreen(Screen):
                 await asyncio.sleep(0.1)
         handler = TextualLogHandler(output)
         handler.setLevel(logging.INFO)
+        handler.addFilter(LastNameElementFilter())
         handler.setFormatter(pane_formatter)
         self.logger.addHandler(handler)
-        self.app._logging_handlers.append(handler)
+        self.app.logging_handlers.append(handler)
 
     def _on_mount(self, event: events.Mount) -> None:
         super()._on_mount(event)

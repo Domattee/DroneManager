@@ -21,12 +21,15 @@ from dronemanager.plugins.mission import Mission
 from dronemanager.sensors.ecowitt import WeatherData
 from dronemanager.plugins.camera import CameraParameter, Camera
 from dronemanager.plugins.gimbal import Gimbal
-from dronemanager.plugins.controllers import PS4Mapping
+from dronemanager.plugins.controllers import ActionInputType
 from dronemanager.utils import LOG_DIR, coroutine_awaiter
 
 
 CAPTURE_DIR = os.path.join(LOG_DIR, "engel_data_captures")
 os.makedirs(CAPTURE_DIR, exist_ok=True)
+
+
+# TODO: Figure out controller setup, bindings, controller types, etc.
 
 
 class EngelImageInfo:
@@ -147,8 +150,8 @@ class ENGELDataMission(Mission):
         self._gimbal_min_pitch = -44
 
         # Controller stuff
-        self._added_controller_buttons: dict[int, Callable] = {}
-        self._added_controller_axis_methods: set[Callable] = set()
+        self.controller = None
+        self._added_controller_actions: set[str] = set()
 
         # Gimbal is controlled with triggers, press more to move more. Press square to switch between pitch and yaw control.
         self._gimbal_rate = 0
@@ -163,10 +166,8 @@ class ENGELDataMission(Mission):
             self.logger.warning("Couldn't connect to weather sensor, using dummy values!")
 
     async def close(self):
-        for button, func in self._added_controller_buttons.items():
-            PS4Mapping.remove_method_from_button(button, func)
-        for func in self._added_controller_axis_methods:
-            PS4Mapping.remove_axis_method(func)
+        for action_name in self._added_controller_actions:
+            self.controller.mapping.remove_action(action_name)
         await super().close()
 
     async def connect(self):
@@ -507,12 +508,18 @@ class ENGELDataMission(Mission):
         self.logger.info(f"Drone {self.drones}. {len(self.captures)} current, {len(self.loaded_captures)} old captures.")
 
     def _register_controller_inputs(self):
-        PS4Mapping.add_method_to_button(3, self._do_capture_controller)  # Do capture on Triangle
-        self._added_controller_buttons[3] = self._do_capture_controller
-        PS4Mapping.add_method_to_button(2, self._swap_gimbal_axis)
-        self._added_controller_buttons[2] = self._swap_gimbal_axis
-        PS4Mapping.add_axis_method(self._get_gimbal_rate, [4, 5])
-        self._added_controller_axis_methods.add(self._get_gimbal_rate)
+        if self.controller.mapping.name == "PS4 Controller":
+            # Do capture on Triangle
+            self.controller.mapping.add_action("Engel.Capture", ActionInputType.Button, self._do_capture_controller, 3)
+            self._added_controller_actions.add("Engel.Capture")
+            # Swap gimbal axis with Square
+            self.controller.mapping.add_action("Engel.SwapGimbalAxis", ActionInputType.Button, self._swap_gimbal_axis, 2)
+            self._added_controller_actions.add("Engel.SwapGimbalAxis")
+            # Control gimbal rates with triggers.
+            self.controller.mapping.add_action("Engel.GimbalRate", ActionInputType.Axis, self._get_gimbal_rate, [4, 5])
+            self._added_controller_actions.add("Engel.GimbalRate")
+        else:
+            self.logger.warning("Engel controller functions do not support this controller!")
 
     async def add_drones(self, names: list[str]):
         """Adds camera and gimbal objects and stores current position for rtl"""
@@ -537,8 +544,8 @@ class ENGELDataMission(Mission):
                     await self.gimbal.set_gimbal_mode("follow")  # Gimbal mode follow so it points forward while flying
                     await self.gimbal.set_gimbal_angles(0.1, 0.1)
                     self._gimbal_frequency = self.dm.drones[self.drone_name].position_update_rate
+                    self.controller = self.dm.controllers.set_drone(self.drone_name)
                     self._register_controller_inputs()
-                    self.dm.controllers.set_drone(self.drone_name)
                     self.logger.info(f"Added drone {name} to mission!")
                     return True
                 else:
@@ -588,7 +595,7 @@ class ENGELDataMission(Mission):
         self._gimbal_rate = final_value * self._gimbal_max_rate
 
     def _trigger_response_function(self, value):
-        # Controllers start at -1 and go to +1
+        # Controller triggers start at -1 and go to +1
         value = (value + 1) / 2
         if value < 0.05:
             value = 0
