@@ -22,6 +22,7 @@ from mavsdk.action import ActionError, OrbitYawBehavior
 from mavsdk.offboard import PositionNedYaw, PositionGlobalYaw, VelocityNedYaw, AccelerationNed, OffboardError, \
     VelocityBodyYawspeed
 from mavsdk.manual_control import ManualControlError
+from mavsdk.mavlink_direct import MavlinkMessage
 
 from dronemanager.utils import dist_ned, dist_gps, relative_gps, coroutine_awaiter
 from dronemanager.utils import parse_address, COMMON_FORMATTER
@@ -151,9 +152,10 @@ class Drone(ABC, threading.Thread):
     VALID_FLIGHTMODES = set()
     VALID_SETPOINT_TYPES = set()
 
-    def __init__(self, name, *args, log_to_file=True, config: DroneConfig | None = None, **kwargs):
+    def __init__(self, name, gcs_ident, *args, log_to_file=True, config: DroneConfig | None = None, **kwargs):
         threading.Thread.__init__(self)
         self.name = name
+        self.gcs_ident = gcs_ident
         self.drone_addr = None
         self.drone_identifier = None
         self.autopilot = None
@@ -365,7 +367,7 @@ class Drone(ABC, threading.Thread):
         return self.drone_params is not None
 
     @abstractmethod
-    async def connect(self, drone_addr, *args, **kwargs):
+    async def connect(self, drone_address, *args, **kwargs):
         pass
 
     @abstractmethod
@@ -557,11 +559,11 @@ class DroneMAVSDK(Drone):
     # What type of path setpoints this classes fly_<> commands can follow. This limits what Trajectory generators
     # can be used.
 
-    def __init__(self, name, mavsdk_server_address: str | None = None, mavsdk_server_port: int = 50051,
+    def __init__(self, name, gcs_ident, mavsdk_server_address: str | None = None, mavsdk_server_port: int = 50051,
                  config: DroneConfig | None = None):
         # TODO: Currently exceptions in this block are not logged to drone manager, as the handler is added only after
         #  connecting.
-        super().__init__(name, config=config)
+        super().__init__(name, gcs_ident, config=config)
         self.system: System | None = None
         self.server_addr = mavsdk_server_address
         self.server_port = mavsdk_server_port
@@ -582,6 +584,7 @@ class DroneMAVSDK(Drone):
         self._have_drone_info = asyncio.Event()
 
         self._message_callbacks: dict[str, set] = dict()
+        self._message_listeners: dict[tuple[str, int], set] = dict()
 
         # How often (per second) we request position information from the drone. The same interval is used by path
         # planning algorithms for their time resolution.
@@ -668,7 +671,7 @@ class DroneMAVSDK(Drone):
     def batteries(self) -> dict[int, Battery]:
         return self._batteries
 
-    async def connect(self, drone_address, gcs_system_id=0, gcs_component_id=0, log_telemetry=None) -> bool:
+    async def connect(self, drone_address, *args, log_telemetry=None, **kwargs) -> bool:
         # If we are on windows, we can't rely on the MAVSDK to have the binary installed.
         # If we use serial, loc is the path and appendix the baudrate, if we use udp it is IP and port
         scheme, loc, appendix = parse_address(string=drone_address)
@@ -683,6 +686,7 @@ class DroneMAVSDK(Drone):
             self.config.log_telemetry = log_telemetry
 
         try:
+            gcs_system_id, gcs_component_id = self.gcs_ident
             if self.server_addr is None:
                 self.logger.debug(f"Starting up own MAVSDK Server instance with app port {self.server_port} and remote "
                                   f"connection {mavsdk_passthrough_string}")
@@ -722,35 +726,85 @@ class DroneMAVSDK(Drone):
         if message_name in self._message_callbacks:
             self._message_callbacks[message_name].remove(callback)
 
+    async def send_message(self, msg: MavlinkMessage):
+        return await self.system.mavlink_direct.send_message(msg)
+
+    def listen_next_message(self, msg_name: str, target_component: int):
+        fut = asyncio.Future()
+        msg_tuple = (msg_name, target_component)
+        if msg_tuple in self._message_listeners:
+            self._message_listeners[msg_tuple].add(fut)
+        else:
+            self._message_listeners[msg_tuple] = {fut}
+        return fut
+
+    async def send_command(self, command_msg_id, target_component_id, confirmation, param1=0, param2=0, param3=0, param4=0, param5=0, param6=0, param7=0):
+        drone_system_id, drone_component_id = self.drone_identifier
+        system_id, component_id = self.gcs_ident
+        fields = {
+            "target_system": drone_system_id,
+            "target_component": target_component_id,
+            "command": command_msg_id,
+            "confirmation": confirmation,
+            "param1": param1,
+            "param2": param2,
+            "param3": param3,
+            "param4": param4,
+            "param5": param5,
+            "param6": param6,
+            "param7": param7,
+        }
+        msg = MavlinkMessage("COMMAND_LONG", system_id, component_id, drone_system_id, target_component_id,
+                             fields_json=json.dumps(fields))
+        return await self.send_message(msg)
+
+    def request_message(self, msg_id: int, message_name: str, target_component_id: int):
+        listen_result = self.listen_next_message(message_name, target_component_id)
+        self._running_tasks.add(asyncio.create_task(self.send_command(512, target_component_id, 0, param1=msg_id, param7=1)))
+        return listen_result
+
     async def _process_messages(self):
         try:
             async for message in self.system.mavlink_direct.message(""):
                 if self.config.log_telemetry:
-                    self.telem_logger.debug(f"Received {message.message_name} from {message.system_id, message.component_id}: {message.fields_json}")
-                if message.message_name in self._message_callbacks:
-                    for callback in self._message_callbacks[message.message_name]:
-                        try:
-                            callback(message)
-                        except Exception as e:
-                            self.logger.error(f"Couldn't perform a message callback {callback} for message "
-                                              f"{message.message_name} from {message.system_id, message.component_id}: "
-                                              f"{message.fields_json}")
-                            self.logger.debug(repr(e), exc_info=True)
+                    self.telem_logger.debug(f"Received {message.message_name} from {message.system_id, message.component_id} to {message.target_system_id, message.target_component_id}: {message.fields_json}")
+                # Check that the message is for us
+                if (self.drone_identifier is None or message.system_id == self.drone_identifier[0]) \
+                        and (message.target_system_id == 0 or message.target_system_id == self.gcs_ident[0]) \
+                        and (message.target_component_id == 0 or message.target_component_id == self.gcs_ident[1]):
+                    # Do message waiters
+                    msg_tuple = (message.message_name, message.component_id)
+                    if msg_tuple in self._message_listeners:
+                        futs = self._message_listeners.pop(msg_tuple)
+                        for fut in futs:
+                            fut.set_result(message)
+
+                    # Do callbacks
+                    if message.message_name in self._message_callbacks:
+                        for callback in self._message_callbacks[message.message_name]:
+                            try:
+                                callback(message)
+                            except Exception as e:
+                                self.logger.error(f"Couldn't perform a message callback {callback} for message "
+                                                  f"{message.message_name} from {message.system_id, message.component_id}: "
+                                                  f"{message.fields_json}")
+                                self.logger.debug(repr(e), exc_info=True)
         except Exception as e:
             self.logger.debug("An exception occurred in the _process_message function. If this happened during "
                               "disconnection, it is not concerning")
             self.logger.debug(repr(e), exc_info=True)
 
     def _get_drone_info_callback(self, message):
-        self.drone_identifier = (message.system_id, message.component_id)
-        fields = json.loads(message.fields_json)
-        match fields["autopilot"]:
-            case 3:
-                self.autopilot = "ArduPilot"
-                self._have_drone_info.set()
-            case 12:
-                self.autopilot = "PX4"
-                self._have_drone_info.set()
+        if message.component_id == 1:
+            self.drone_identifier = (message.system_id, message.component_id)
+            fields = json.loads(message.fields_json)
+            match fields["autopilot"]:
+                case 3:
+                    self.autopilot = "ArduPilot"
+                    self._have_drone_info.set()
+                case 12:
+                    self.autopilot = "PX4"
+                    self._have_drone_info.set()
 
     def _get_drone_info(self):
         self.add_message_callback("HEARTBEAT", self._get_drone_info_callback)

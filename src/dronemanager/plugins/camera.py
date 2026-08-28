@@ -1,5 +1,6 @@
 """ Plugin for controlling MAVSDK Cameras """
 import asyncio
+import json
 import os
 import struct
 import requests
@@ -7,14 +8,14 @@ import math
 from lxml import etree
 
 import mavsdk.camera
+from mavsdk.mavlink_direct import MavlinkMessage
 
 from dronemanager.plugin import Plugin
 from dronemanager.utils import CACHE_DIR, coroutine_awaiter
 
-import pymavlink.dialects.v20.ardupilotmega
-
 # TODO: Overlooked the mavsdk param plugin, check if that makes the camera plugin work properly
 # TODO: Parameterrange in the cam def xml parsing function
+# TODO: Passthroughremoval: Check references to mav_conn and msg
 
 
 class CameraPlugin(Plugin):
@@ -128,7 +129,7 @@ class CameraPlugin(Plugin):
 
 def _xml_cache_filepath(uri, version):
     pathsafe_uri = uri.replace("/", "_").replace("\\", "_").replace(":", "_").replace("?", "_").replace("\n", "")
-    filename = f"{version}_{pathsafe_uri}.xml"
+    filename = f"{version}_{pathsafe_uri}"
     cache_dir = CACHE_DIR.joinpath("camera_definitions")
     return cache_dir.joinpath(filename)
 
@@ -329,14 +330,16 @@ class Camera:
         return res
 
     async def init_cam_info(self):
-        cam_info = await self.drone.mav_conn.request_message(target_component=self.camera_id, message_id=259)
+        cam_info = await self.drone.request_message(259, "CAMERA_INFORMATION", self.camera_id)
         if not cam_info:
             self.logger.warning("No camera found!")
         else:
-            self.vendor_name = bytearray(cam_info.vendor_name).rstrip(b"\x00").decode("ascii")
-            self.model_name = bytearray(cam_info.model_name).rstrip(b"\x00").decode("ascii")
-            self.cam_def_uri = cam_info.cam_definition_uri
-            self.cam_def_version = cam_info.cam_definition_version
+            fields = json.loads(cam_info.fields_json)
+            self.vendor_name = bytearray(fields["vendor_name"]).rstrip(b"\x00").decode("ascii")
+            self.model_name = bytearray(fields["model_name"]).rstrip(b"\x00").decode("ascii")
+            self.cam_def_uri = fields["cam_definition_uri"]
+            self.cam_def_version = fields["cam_definition_version"]
+            self.logger.debug(f"Received camera information: {self.vendor_name}, {self.model_name}, {self.cam_def_uri}, {self.cam_def_version}")
             return True
         return False
 
@@ -380,7 +383,7 @@ class Camera:
         filepath = _xml_cache_filepath(uri, version)
         self.logger.debug(f"Saving camera definition xml {filepath}")
         os.makedirs(filepath.parent, exist_ok=True)
-        with open(filepath, "wt", encoding="utf-8") as f:
+        with open(filepath, "wb") as f:
             f.write(xml_str)
 
     def _load_xml(self, uri, version):
@@ -502,7 +505,7 @@ class Camera:
                 self.parameters[param_name].value = param_value
             self.parameters[param_name].param_type_id = param_type_id
 
-    async def _listen_param_updates(self, msg:pymavlink.dialects.v20.ardupilotmega.MAVLink_param_ext_value_message):
+    async def _listen_param_updates(self, msg):
         if msg.get_srcComponent() == self.camera_id and msg.get_srcSystem() == self.drone.mav_conn.drone_system:
             param_name, param_value = self._parse_param_update_values(msg)
             self._update_param_value(param_name, param_value, msg.param_type)

@@ -185,16 +185,14 @@ class DroneManager:
                         self.logger.error("Can't have a telemetry rate of less than 2!")
                     else:
                         config.position_rate = telemetry_frequency
-                drone = self.drone_class(name, mavsdk_server_address, mavsdk_server_port, config=config)
+                drone = self.drone_class(name, (self.system_id, self.component_id), mavsdk_server_address, mavsdk_server_port, config=config)
                 connected = None
                 try:
                     if scheme == "serial":
                         self.logger.info(f"Trying to connect to drone {name} @{scheme}://{parsed_addr} with baud {parsed_port}")
                     else:
                         self.logger.info(f"Trying to connect to drone {name} @{scheme}://{parsed_addr}:{parsed_port}")
-                    connected = await asyncio.wait_for(drone.connect(drone_address, gcs_system_id=self.system_id,
-                                                                     gcs_component_id=self.component_id,
-                                                                     log_telemetry=log_telemetry),
+                    connected = await asyncio.wait_for(drone.connect(drone_address, log_telemetry=log_telemetry),
                                                        timeout)
                 except (CancelledError, TimeoutError, OSError, socket.gaierror, AssertionError) as e:
                     if isinstance(e, CancelledError):
