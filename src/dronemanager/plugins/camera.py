@@ -257,7 +257,7 @@ class Camera:
         self._running_tasks.add(asyncio.create_task(coroutine_awaiter(capture_info_task, self.logger)))
 
     @property
-    def drone(self) -> dronemanager.drone.DroneMAVSDK:
+    def drone(self) -> dronemanager.drone.DroneMAVSDK | None:
         try:
             return self.dm.drones[self.drone_name]
         except KeyError:
@@ -405,15 +405,11 @@ class Camera:
             for param in params:
                 name = param.get("name")
                 param_type = param.get("type")
-                param_type_id = 1
                 if param_type == "float":
                     cast_type = float
-                    param_type_id = 9  # Assume 9 unless we get an update with different param type
                 elif param_type == "bool":
                     cast_type = bool
-                    param_type_id = 1
                 else:
-                    param_type_id = 1  # Assume 1 until we get an update with different param type
                     cast_type = int
                 default = cast_type(param.get("default"))
                 control = param.get("control") is None or param.get("control") == "1"
@@ -472,22 +468,26 @@ class Camera:
         self._running_tasks.add(checker_task)
         self._running_tasks.add(coroutine_awaiter(checker_task, self.logger))
 
+    def _make_param_ext_request_read_msg(self, param_name = "", param_index = -1):
+        system_id, component_id = self.drone.gcs_ident
+        fields = {
+            "target_system": self.drone.drone_identifier[0],
+            "target_component": self.camera_id,
+            "param_id": param_name,
+            "param_index": param_index,
+        }
+        request_param_ext_read_msg = MavlinkMessage("PARAM_EXT_REQUEST_READ", system_id,
+                                                    component_id, self.drone.drone_identifier[0],
+                                                    self.camera_id, json.dumps(fields))
+        return request_param_ext_read_msg
+
     async def _param_receive_checker(self):
         while len(self._received_params) < self._param_count:
             for param_index in range(self._param_count):
                 await asyncio.sleep(1)
                 if param_index not in self._received_params:
                     self.logger.debug(f"Missing parameter {param_index}, requesting again")
-                    system_id, component_id = self.drone.gcs_ident
-                    fields = {
-                        "target_system": self.drone.drone_identifier[0],
-                        "target_component": self.camera_id,
-                        "param_id": "",
-                        "param_index": param_index,
-                    }
-                    request_param_ext_read_msg = MavlinkMessage("PARAM_EXT_REQUEST_READ ", system_id,
-                                                                component_id, self.drone.drone_identifier[0],
-                                                                self.camera_id, json.dumps(fields))
+                    request_param_ext_read_msg = self._make_param_ext_request_read_msg(param_index=param_index)
                     await self.drone.send_message(request_param_ext_read_msg)
 
     def _parse_param_update_values(self, fields):
@@ -607,24 +607,37 @@ class Camera:
 
         self.logger.debug(f"Trying to set option {param_name}, {parameter.param_type_id} to {param_value}")
 
-        self.drone.mav_conn.send_param_ext_set(self.camera_id, param_name, param_value, parameter.param_type_id)
-        ack_msg = await self.drone.mav_conn.listen_message(324, self.camera_id)
-        if ack_msg.param_result == 1:
+        system_id, component_id = self.drone.gcs_ident
+        fields = {
+            "target_system": self.drone.drone_identifier[0],
+            "target_component": self.camera_id,
+            "param_id": param_name,
+            "param_value": param_value,
+            "param_type": parameter.param_type_id,
+        }
+        param_ext_set_msg = MavlinkMessage("PARAM_EXT_SET", system_id, component_id,
+                                           self.drone.drone_identifier[0], self.camera_id, json.dumps(fields))
+        await self.drone.send_message(param_ext_set_msg)
+        ack_msg = await self.drone.listen_next_message("PARAM_EXT_ACK", self.camera_id)
+        ack_fields = json.loads(ack_msg.fields_json)
+        ack_res = ack_fields["param_result"]
+        if ack_res == 1:
             self.logger.warning("Camera denied parameter change, unsupported value!")
             return False
-        elif ack_msg.param_result == 2:
+        elif ack_res == 2:
             self.logger.warning("Camera denied parameter change, failed to set!")
             return False
-        elif ack_msg.param_result in [0,3]:
-            if ack_msg.param_result == 3:
+        elif ack_res in [0,3]:
+            if ack_res == 3:
                 self.logger.info("Parameter change in progress...")
-            param_name, param_value = self._parse_param_update_values(ack_msg)
-            self._update_param_value(param_name, param_value, ack_msg.param_type)
+            param_name, param_value = self._parse_param_update_values(ack_fields)
+            self._update_param_value(param_name, param_value, ack_fields["param_type"])
             parameter = self.parameters[param_name]
             self.logger.info(f"Set Parameter {param_name} to "
                              f"{param_value if not parameter.is_option else parameter.get_current_otion().name}")
 
         # Request updates on any params that might have changed.
         for updated_param_name in parameter.updates:
-            self.drone.mav_conn.send_param_ext_request_read(self.camera_id, updated_param_name)
+            request_param_ext_read_msg = self._make_param_ext_request_read_msg(param_name=updated_param_name)
+            await self.drone.send_message(request_param_ext_read_msg)
         return True
