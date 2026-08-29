@@ -6,6 +6,7 @@
 import asyncio
 import copy
 import enum
+import json
 from collections import OrderedDict
 import math
 import pygame
@@ -51,6 +52,19 @@ class Action:
         self.input_id = input_id
         self.func = func
 
+    def __eq__(self, other):
+        if not isinstance(other, self.__class__):
+            return NotImplemented
+        if self.label == other.label \
+                and self.input_type is other.input_type \
+                and self.input_id == other.input_id \
+                and self.func == other.func:
+            return True
+        return False
+
+    def __str__(self):
+        return f"{self.label}: {self.input_type, self.input_id}, {self.func}"
+
     @property
     def controller_id(self):
         """The actual ID used by the controller directly.
@@ -84,7 +98,7 @@ class InputMapping:
     For buttons, a negative ID indicates that the button should be pressed for a long duration to trigger the action.
 
     # TODO: Describe key arguments, in particular labels, which list all possible inputs for a controller type
-    # TODO: Describe common axis meaning.
+    # TODO: Describe common axis meanin, in particular thrust -> down in pos control
     # TODO: Describe how bindings can be set in the CLI.
     # TODO: Describe axis / button constraints. Axes actions won't be executed unless all inputs are bound.
     # TODO: Button and axis IDs are not raw controller button or axis ids. Instead they are incremented by 1 to be 1-indexed.
@@ -94,7 +108,7 @@ class InputMapping:
     """String representation for missing bindings."""
 
     def __init__(self, name: str, thrust_axis: int, yaw_axis: int, forward_axis: int, right_axis: int,
-                 arm_button: int, disarm_button: int, takeoff_button: int, land_button: int, control_button: int,
+                 control_button: int, arm_button: int, disarm_button: int, takeoff_button: int, land_button: int,
                  axes_labels: dict[int, str], button_labels: dict[int, str],
                  hold_duration: float = DEFAULT_HOLD_DURATION):
         """
@@ -143,13 +157,13 @@ class InputMapping:
             # Check that the input axes or buttons are defined for this controller.
             if action.input_type is ActionInputType.Button:
                 assert abs(action.input_id) in self.button_labels, (f"Invalid controller mapping! Action {action.label}"
-                                                                    f"is bound to button {abs(action.input_id)}, which"
-                                                                    f"does not exist in mapping {self.name}!"
+                                                                    f" is bound to button {abs(action.input_id)}, which"
+                                                                    f" does not exist in mapping {self.name}! "
                                                                     f"Available buttons: {self.button_labels}")
             else:
-                assert abs(action.input_id) in self.axes_labels, (f"Invalid controller mapping! Action {action.label}"
+                assert abs(action.input_id) in self.axes_labels, (f"Invalid controller mapping! Action {action.label} "
                                                                   f"is bound to axis {abs(action.input_id)}, which does"
-                                                                  f"not exist in mapping {self.name}!"
+                                                                  f" not exist in mapping {self.name}! "
                                                                   f"Available axes: {self.axes_labels}")
 
         # Check that base axes actions are unique. Inverted axes are not allowed as duplicates.
@@ -159,24 +173,36 @@ class InputMapping:
                                             "normal inputs referring to the same input axis are not allowed!")
 
         # Check that core button actions are unique. Unlike actions, holds are allowed.
-        base_button_inputs: set[int] = set([action.input_id for action in CORE_ACTIONS
+        base_button_inputs: set[int] = set([action.input_id for action in core_actions
                                             if action.input_type is ActionInputType.Button])
         assert len(base_button_inputs) == 5, "Duplicate or missing controller bindings for base actions!"
 
         # Two extra dictionaries for faster access: button actions by their button id and axis actions by their function
-        self._button_actions_by_button: dict[int | None, set[Action]] = {}
+        self._button_actions_by_button: dict[int | None, list[Action]] = {}
         self._axis_actions_by_function: dict[Callable, Action] = {}
 
         #: A set of action names with the core actions. These actions are protected.
         self._core_actions: set[str] = set()
 
-        for action_label, action in self._actions:
+        for action_label, action in self._actions.items():
             self._core_actions.add(action_label)
             if action.input_type is ActionInputType.Button:
-                self._button_actions_by_button[abs(action.input_id)] = {action}
+                self._button_actions_by_button[abs(action.input_id)] = [action]
             else:
                 if action.func is not None:
                     self._axis_actions_by_function[action.func] = action
+
+    def __eq__(self, other):
+        if type(other) is not type(self):
+            return False
+        if self.name == other.name \
+                and self._actions == other._actions \
+                and self.axes_labels == other.axes_labels \
+                and self.button_labels == other.button_labels \
+                and self.hold_duration == other.hold_duration \
+                and self._core_actions == other._core_actions:
+            return True
+        return False
 
     def action_input_mapping(self) -> OrderedDict[str, str | list[str]]:
         """Get a mapping from actions to button or axis labels.
@@ -186,7 +212,7 @@ class InputMapping:
         """
         output = OrderedDict()
         # Add base axis and button actions
-        for action_name, action in self._actions:
+        for action_name, action in self._actions.items():
             if action.input_type is ActionInputType.Button:
                 input_label = self._get_button_label(action.input_id)
             else:
@@ -201,22 +227,47 @@ class InputMapping:
             A dictionary listing the registered action for each button or axis.
         """
         output = OrderedDict()
-        for axis_id, axis_label in self.axes_labels:
+        for axis_id, axis_label in self.axes_labels.items():
             output[axis_label] = []
-        for button_id, button_label in self.button_labels:
+        for button_id, button_label in self.button_labels.items():
             output[button_label] = []
 
         # Go through each registered action and add them here
-        for action_label, input_label in self.action_input_mapping():
-            if isinstance(input_label, str):
+        for action_name, action in self._actions.items():
+            if action.input_type is ActionInputType.Button:
+                input_label = self._get_button_label(abs(action.input_id))
+                if action.input_id < 0:
+                    action_name += " - on Hold"
                 if input_label in output:
-                    output[input_label].append(action_label)
+                    output[input_label].append(action_name)
             else:
-                for single_label in input_label:
-                    if single_label in output:
-                        output[single_label].append(action_label)
+                if action.input_id is None:
+                    continue
+                elif isinstance(action.input_id, int):
+                    input_label = self._get_axes_label(abs(action.input_id))
+                    if action.input_id < 0:
+                        action_name += " - Inverted"
+                    if input_label in output:
+                        output[input_label].append(action_name)
+                else:
+                    for i, single_axis in enumerate(action.input_id):
+                        axis_name = action_name
+                        input_label = self._get_axes_label(abs(single_axis))
+                        if action.input_id[i] < 0:
+                            axis_name += " - Inverted"
+                        if input_label in output:
+                            output[input_label].append(axis_name)
 
-        for label, action_labels in output:
+        #for action_label, input_label in self.action_input_mapping().items():
+        #    if isinstance(input_label, str):
+        #        if input_label in output:
+        #            output[input_label].append(action_label)
+        #    else:
+        #        for single_label in input_label:
+        #            if single_label in output:
+        #                output[single_label].append(action_label)
+
+        for label, action_labels in output.items():
             if len(action_labels) == 0:
                 output[label] = self.UNBOUND_STRING
         return output
@@ -256,7 +307,7 @@ class InputMapping:
         """Add an action to this binding.
 
         Can be used to perform two different actions: Either to add a completely new action, or to add a function to
-        an already existing action.
+        an already existing action which doesn't have one.
         If no action with the provided name exists, a new one is created with the passed function and input ids.
         if an action with the name already exists, but doesn't have a function, insert the passed function into that
         action. In this case the arguments ``action_type`` and ``input_id`` are ignored.
@@ -271,10 +322,12 @@ class InputMapping:
             input_id: The inputs bound for this action, or ``None``.
 
         Raises:
-            RuntimeError: When trying to overwrite the function of an existing action.
+            RuntimeError: When trying to overwrite the function of an existing action or a core action.
             ValueError: If the combination of inputs is invalid as described above.
         """
         if action_name in self._actions:
+            if action_name in self._core_actions:
+                raise RuntimeError(f"Can't overwrite core action {action_name}!")
             action = self._actions[action_name]
             if action.func is not None:
                 raise RuntimeError(f"Can't overwrite function of already registered action {action_name}!")
@@ -288,17 +341,30 @@ class InputMapping:
                 raise ValueError("Must provide an action input type if creating new actions!")
             if action_type is ActionInputType.Axis and input_id is not None:
                 if not isinstance(input_id, list):
-                    raise ValueError("Must provide a list of axes inputs or None for axis actions!")
+                    raise ValueError("Must provide a list of integers or Nones for axis actions!")
+                for input_item in input_id:
+                    if not isinstance(input_item, int) or input_item is None:
+                        raise ValueError("Must provide a list of integers or Nones for axis actions!")
+                    if isinstance(input_item, int) and abs(input_item) not in self.axes_labels:
+                        raise ValueError(f"Couldn't add action {action_name} since input {input_item} is not available"
+                                         f" for this mapping!")
             elif action_type is ActionInputType.Button and input_id is not None:
                 if not isinstance(input_id, int):
                     raise ValueError("Must provide a single integer or None for button actions!")
+                else:
+                    if abs(input_id) not in self.button_labels:
+                        raise ValueError(f"Couldn't add action {action_name} since input {input_id} is not available"
+                                         f" for this mapping!")
             action = Action(action_name, action_type, input_id=input_id, func=func)
             self._actions[action_name] = action
             if action_type is ActionInputType.Button:
-                if input_id in self._button_actions_by_button:
-                    self._button_actions_by_button[input_id].add(action)
+                button_dict_id = input_id
+                if button_dict_id is not None:
+                    button_dict_id = abs(button_dict_id)
+                if button_dict_id in self._button_actions_by_button:
+                    self._button_actions_by_button[button_dict_id].append(action)
                 else:
-                    self._button_actions_by_button[input_id] = {action}
+                    self._button_actions_by_button[button_dict_id] = [action]
             else:
                 if func is not None:
                     self._axis_actions_by_function[func] = action
@@ -319,7 +385,8 @@ class InputMapping:
                 raise RuntimeError(f"Can't remove core action {action_name}!")
             action = self._actions.pop(action_name)
             if action.input_type is ActionInputType.Button:
-                self._button_actions_by_button[action.input_id].remove(action)
+                if action.input_id is not None:
+                    self._button_actions_by_button[action.input_id].remove(action)
             else:
                 if action.func is not None:
                     self._axis_actions_by_function.pop(action.func)
@@ -351,13 +418,16 @@ class InputMapping:
             # Update button_dict
             self._button_actions_by_button[action.input_id].remove(action)
             action.input_id = input_id
-            self._button_actions_by_button[action.input_id].add(action)
-        if action.input_type is ActionInputType.Axis:
+            if action.input_id in self._button_actions_by_button:
+                self._button_actions_by_button[action.input_id].append(action)
+            else:
+                self._button_actions_by_button[action.input_id] = [action]
+        elif action.input_type is ActionInputType.Axis:
             if not isinstance(input_id, list):
                 raise ValueError(f"Axis action {action_name} must receive a list of input IDs or Nones!")
             else:
                 for input_entry in input_id:
-                    if input_entry is not None or not isinstance(input_id, int):
+                    if input_entry is not None and not isinstance(input_entry, int):
                         raise ValueError(f"Must provide a list of axes IDs or None for axis action {action_name}!")
                 action.input_id = input_id
 
@@ -379,12 +449,29 @@ class InputMapping:
             raise RuntimeError(f"Can't change the bindings for core action {action_name}!")
         self._actions[action_name].input_id = None
 
-    def to_json(self):
+    def to_json(self) -> str:
         """Create a json string for saving the current mapping."""
-        # TODO: All of this
+        output_dict = self.to_dict()
+        return json.dumps(output_dict)
+
+    def to_dict(self) -> dict:
+        """Create a serializable dictionary of this mapping."""
+        output_dict = {
+            "name": self.name,
+            "axes_labels": list(self.axes_labels.items()),
+            "button_labels": list(self.button_labels.items()),
+            "hold_duration": self.hold_duration,
+            "actions": {}
+        }
+        for action_name, action in self._actions.items():
+            output_dict["actions"][action_name] = {
+                "input_type": action.input_type.name,
+                "input_id": action.input_id
+            }
+        return output_dict
 
     @classmethod
-    def from_json(cls, json_string: str):
+    def from_json(cls, json_string: str) -> "InputMapping":
         """Create an InputMapping object from a json string.
 
         Args:
@@ -393,47 +480,46 @@ class InputMapping:
         Returns:
             The new InputMapping object.
         """
-        # TODO: All of this
+        input_dict = json.loads(json_string)
+        return cls.from_dict(input_dict)
 
+    @classmethod
+    def from_dict(cls, input_dict: dict) -> "InputMapping":
+        """Create an InputMapping object from a dictionary with key entries.
 
-class PS4Mapping(InputMapping):
+        Intended to be used with the structure from the DroneManager configuration file.
 
-    thrust_axis = 1         # Left stick down
-    yaw_axis = 0            # Left stick right
-    forward_axis = -3       # Right stick down
-    right_axis = 2          # Right stick right
-    arm_button = 0          # X
-    disarm_button = 1       # Circle
-    land_button = 12        # D-Pad down
-    takeoff_button = 11     # D-Pad up
-    control_button = 5      # PS Button
-    flight_mode_button = 13 # D-Pad left
+        Args:
+            input_dict: The source dictionary.
 
-    # All buttons:
-    # X: 0
-    # Circle: 1
-    # Square: 2
-    # Triangle: 3
-    # Share button: 4
-    # PS button: 5
-    # Options button: 6
-    # Pressing left stick: 7
-    # Pressing right stick: 8
-    # LB: 9
-    # RB: 10
-    # D-Pad up: 11
-    # D-Pad down: 12
-    # D-Pad left: 13
-    # D-pad right: 14
-    # Touch pad press: 15
+        Returns:
+            The new InputMapping object.
+        """
+        name = input_dict["name"]
+        axes_labels = dict(input_dict["axes_labels"])
+        button_labels = dict(input_dict["button_labels"])
+        hold_duration = input_dict["hold_duration"]
+        core_actions = [action.label for action in CORE_ACTIONS]
+        core_action_inputs = [None for _ in CORE_ACTIONS]
+        non_core_actions = []
+        for action_name in input_dict["actions"]:
+            # Core actions added as argument
+            old_action = input_dict["actions"][action_name]
+            if action_name in core_actions:
+                indx = core_actions.index(action_name)
+                core_action_inputs[indx] = old_action["input_id"]
+            else:
+                # Non core actions added later
+                input_type = ActionInputType[old_action["input_type"]]
+                input_id = old_action["input_id"]
+                non_core_actions.append(Action(action_name, input_type=input_type, input_id=input_id))
 
-    # All Axis. Positive direction, zero at neutral, except for triggers, which are at -1 when fully released.
-    # Left Stick right: 0
-    # Left Stick down: 1
-    # Right Stick right: 2
-    # Right Stick down: 3
-    # Left Trigger: 4
-    # Right Trigger: 5
+        assert None not in core_action_inputs, "Couldn't load all core action bindings!"
+        out = cls(name, *core_action_inputs, axes_labels=axes_labels, button_labels=button_labels,
+                  hold_duration=hold_duration)
+        for action in non_core_actions:
+            out.add_action(action.label, action.input_type, None, action.input_id)
+        return out
 
 
 class Controller:
@@ -458,7 +544,7 @@ class ControllerPlugin(Plugin):
 
     # TODO: Hold disarm for kill
 
-    def __init__(self, dm, logger, name, auto_set=False, auto_drone=False, control_frequency: float = DEFAULT_FREQUENCY):
+    def __init__(self, dm, logger, name, auto_set=False, auto_drone=False, control_frequency: float = DEFAULT_FREQUENCY, default_mappings: list[tuple[str, str]] = None, **kwargs):
         """
 
         """
@@ -488,7 +574,11 @@ class ControllerPlugin(Plugin):
         self._control_frequency = control_frequency
         self._drone_name: str | None = None
         self._in_control = False
-        self._mapping: InputMapping | None = None
+        self.mappings: dict[str, InputMapping] = {}
+        if default_mappings is None:
+            default_mappings = []
+        self.default_mappings = default_mappings
+        self.load_mappings_from_config()
 
         self.print_button_axis_ids = False
         # Set this to True to log the IDs of any button presses or axis motions. Useful for development.
@@ -497,9 +587,29 @@ class ControllerPlugin(Plugin):
         self.dm.add_remove_func(self._drone_disconnected_callback)
 
         self.auto_set = auto_set  # If True and there is exactly one controller connected, connect to it automatically
-        self.auto_drone = auto_drone  # If True and there is exactly one drone connected, control it automatically.
+        self.auto_drone = auto_drone  # If True and there is exactly one drone connected, assign it automatically.
         self._disconnected = False  # True if we were connected to a controller and lost it unexpectedly
         self.control_mode = FlightMode.POSCTL  # The flight mode to use for the manual flight. Either POSCTL or ALTCTL.
+
+    def load_mappings_from_config(self):
+        plugin_setting = self.dm.config.plugin_settings
+        if "controllers" in plugin_setting:
+            if "mappings" in plugin_setting["controllers"]:
+                for mapping_name in plugin_setting["controllers"]["mappings"]:
+                    mapping = InputMapping.from_dict(plugin_setting["controllers"]["mappings"][mapping_name])
+                    self.mappings[mapping_name] = mapping
+
+    async def save_current_mappings(self):
+        # Overwrites existing ones if they differ!
+        plugin_settings = self.dm.config.plugin_settings
+        if "controllers" not in plugin_settings:
+            plugin_settings["controllers"] = {}
+        if "mappings" not in plugin_settings["controllers"]:
+            plugin_settings["controllers"]["mappings"] = {}
+        for mapping_name in self.mappings:
+            plugin_settings["controllers"]["mappings"][mapping_name] = self.mappings[mapping_name].to_dict()
+
+    # TODO: Rework everything below
 
     async def add_controller(self, dev_id: int):
         """Set which controller to use, matching the ID from `check`.
@@ -534,7 +644,7 @@ class ControllerPlugin(Plugin):
     async def status(self):
         """Log current configuration of the controller plugin."""
         self.logger.info(f"Drone: {self._drone_name}. Control {self._in_control}. Controller: {self.controller}")
-        self.logger.info(f"Control scheme: {self._mapping}")
+        self.logger.info(f"Control schemes: {self.mappings}")
 
     async def set_drone(self, drone: str):
         """Set which drone is controlled by the controller."""
