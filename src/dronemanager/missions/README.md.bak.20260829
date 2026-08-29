@@ -1,0 +1,164 @@
+# DroneManager missions
+
+Missions for [DroneManager](https://dronemanager.readthedocs.io) that fly the
+LiveGS capture rig. They live in this repo because they are part of the capture
+pipeline, but they run inside DroneManager on the ground station, not inside
+LiveGS.
+
+| file | what |
+|---|---|
+| `squarecapture.py` | the mission: square pattern, yaw sweep, rig capture at every stop |
+| `squarecapture_plan.py` | the geometry — pure stdlib, unit-tested, no DroneManager import |
+
+Tested by `tests/test_squarecapture_plan.py` (30) and
+`tests/test_squarecapture_mission.py` (29, DroneManager stubbed, capture daemon
+real).
+
+The plan it generates, for the defaults:
+
+```
+corner 0  N  +0.00 E  +0.00 D -10.00  arrive yaw   -22.5  headings -22.5,+22.5,+67.5,+112.5,+157.5,-157.5,-112.5,-67.5
+corner 1  N +10.00 E  +0.00 D -10.00  arrive yaw   -67.5  headings -67.5,-22.5,+22.5,+67.5,+112.5,+157.5,-157.5,-112.5
+corner 2  N +10.00 E +10.00 D -10.00  arrive yaw  -112.5  headings -112.5,-67.5,-22.5,+22.5,+67.5,+112.5,+157.5,-157.5
+corner 3  N  +0.00 E +10.00 D -10.00  arrive yaw  -157.5  headings -157.5,-112.5,-67.5,-22.5,+22.5,+67.5,+112.5,+157.5
+4 stations, 32 captures
+```
+
+Each sweep runs 315° in one direction, and the next corner starts on the heading
+the last one ended on — so the transit legs need no rotation at all.
+
+## Deploy
+
+DroneManager loads user missions from `Documents/DroneManager/missions/`, which
+it creates on its first run. Copy **three** files there — the mission, its plan
+module, and the capture client it drives:
+
+```powershell
+$m = "$env:USERPROFILE\Documents\DroneManager\missions"
+mkdir $m -Force
+copy Scripts\dm_missions\squarecapture.py      $m
+copy Scripts\dm_missions\squarecapture_plan.py $m
+copy Scripts\drone_capture_client.py           $m
+```
+
+From WSL the same directory is `/mnt/c/Users/<you>/Documents/DroneManager/missions/`.
+
+The mission puts its own directory on `sys.path` at import time, which is what
+makes the two siblings importable — DroneManager loads user missions by file
+path, so their directory is not otherwise importable. All three files must
+travel together.
+
+`squarecapture_plan` and `drone_capture_client` will show up in `mission-load`'s
+completion list because it lists every `.py` in the directory. They are not
+missions and loading them fails harmlessly.
+
+## Run
+
+```
+connect Romulus udp://:14550
+mission-load squarecapture --name sq
+sq-add Romulus
+sq-plan                  # print the schedule, fly nothing
+sq-check                 # preflight: daemon, sensors, GPS, battery
+sq-run flight01          # arm, takeoff, 32 captures, return, land
+sq-status
+sq-abort                 # stop and land where we are
+```
+
+Then pull the session off the drone and feed it to the pipeline:
+
+```bash
+python Scripts/drone_capture_client.py --host 192.168.1.55 pull flight01 \
+    --dest recordings/flight01
+```
+
+### Options
+
+`sq-run <session> [--side 10] [--altitude 10] [--scans 10] [--settle 2]
+[--exposure 2] [--gate warn]`
+
+`--gate` is the daemon's motion gate: `warn` records the gyro peak and captures
+anyway, `block` refuses to capture while moving, `off` ignores it. `warn` is the
+default because hover vibration on this airframe is uncharted and a `block` gate
+could refuse all 32 captures.
+
+`sq-link <host> [--user u] [--port p] [--direct yes]` points the mission at a
+different daemon. `--direct yes` is plain TCP instead of `ssh -W`, used only for
+the SITL rehearsal.
+
+## Rehearse before flying
+
+The capture side needs no drone and the flight side needs no sensors, so both
+halves can be exercised on the ground.
+
+**SITL rehearsal** — the whole sortie, no hardware at all:
+
+```bash
+python Scripts/mock_capture_daemon.py --port 5757 --fail-every 5
+```
+```
+connect Romulus udp://:14540          # PX4 SITL
+mission-load squarecapture --name sq
+sq-add Romulus
+sq-link 127.0.0.1 --direct yes --port 5757
+sq-run test01
+```
+
+`--fail-every 5` refuses every fifth shot so the retry-and-continue path runs
+rather than being assumed. The mock writes empty placeholder files: nothing
+downstream can train on them.
+
+**Bench dry run** — the real daemon and real sensors, props off, no flight:
+
+```
+sq-dryrun bench02
+```
+
+## Prerequisites
+
+1. **Passwordless SSH from the ground station to the drone.** The mission drives
+   the daemon over `ssh -W`, non-interactively; a password prompt hangs it.
+   ```powershell
+   ssh-keygen -t ed25519
+   type $env:USERPROFILE\.ssh\id_ed25519.pub | ssh dronetrekkers@192.168.1.55 "cat >> .ssh/authorized_keys"
+   ```
+2. **QGroundControl closed.** DroneManager binds `:14550` on the workstation to
+   receive mavproxy's existing unicast output, and the two cannot share it —
+   DroneManager has no MAVLink router (`mavpassthrough.py:14`). To run both, add
+   a second `--out` to mavproxy on the Jetson and give DroneManager its own port.
+3. **A GPS fix.** `python Scripts/gps_check.py` (run it on the drone through
+   mavproxy's 14602 relay) distinguishes "no receiver detected" from "no
+   satellites"; only the second is fixed by going outside.
+4. **Offboard-loss failsafe.** Setpoints now cross Wi-Fi and mavproxy before
+   reaching the FC. Check `COM_OF_LOSS_T` and set `COM_OBL_RC_ACT` to Hold or
+   Position so a dropout produces a hover, not a flyaway. Keep the RC
+   transmitter live: a mode switch overrides offboard and nothing in software
+   can countermand it.
+
+## Things that will bite
+
+- **`is_at_heading` does not wrap.** `Drone.is_at_heading` (drone.py:399)
+  compares `abs(cur - target)` after normalising the target into (-180, 180].
+  A target of exactly 180 becomes -180, and a drone at +179.9 computes 359.8 and
+  never converges — `fly_to` and `yaw_to` both hang forever. `HEADINGS_8` is
+  offset by 22.5 deg to stay clear of it, and `capture_plan` refuses a heading
+  set that is not.
+- **`yaw_to` divides by a step count derived from the yaw delta**, so a delta of
+  exactly zero is a `ZeroDivisionError`, not a no-op. The mission skips the call
+  under 0.5 deg.
+- **`yaw_to` deactivates the path follower** and streams its own setpoints. Pass
+  `local=` explicitly or it re-samples a noisy `position_ned` as the hold point
+  and the station drifts across the sweep.
+- **`Drone.set_fence` is broken** (drone.py:420): it passes the logger as the
+  first positional argument, which lands in `north_lower`. Use
+  `dm.set_fence(name, RectLocalFence(...))`, which assigns an instance.
+- **Manager actions return exceptions, they do not raise them.**
+  `_multiple_drone_action` uses `gather(return_exceptions=True)` and returns a
+  list; a name-lookup miss returns `None` outright.
+- **Local NED is the EKF origin, not the takeoff point.** The square is anchored
+  to `position_ned` read at run time; a fence built around (0, 0) would reject
+  every waypoint.
+- **The payload hangs 25 cm below the FC.** The daemon stamps FC pose. Anything
+  consuming those priors must apply `PAYLOAD_OFFSET_FC_M` — it is a systematic
+  offset, identical on every capture, so it will not surface as registration
+  noise.
