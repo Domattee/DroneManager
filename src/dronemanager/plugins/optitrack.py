@@ -417,7 +417,7 @@ class OptitrackPlugin(Plugin):
         """
         try:
             if isinstance(task, Future) or isinstance(task, asyncio.Future):
-                res = await task
+                res, _ = await asyncio.wait(task)
                 self.logger.error(f"{res}")
                 if res:
                     self._err_count = 0

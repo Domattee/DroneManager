@@ -398,6 +398,7 @@ class CommandScreen(Screen):
         self.logger.debug(f"Adding log pane handlers to {name}")
         drone_handler = TextualLogHandler(output)
         drone_handler.setLevel(logging.INFO)
+        drone_handler.addFilter(LastNameElementFilter())
         drone_handler.setFormatter(pane_formatter)
         drone.add_handler(drone_handler)
         self.logger.debug(f"Adding overview widget for {name}")

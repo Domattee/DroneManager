@@ -9,8 +9,10 @@
   ],
   "plugin_settings": {
     "controllers": {
-      "auto_set": true,
-      "auto_drone": true,
+      "auto_assign": true,
+      "default_mappings": {
+        "PS4 Controller": "PS4 Controller"
+      },
       "mappings": {
         "PS4 Controller": {
           "name": "PS4 Controller",
