@@ -62,7 +62,7 @@
             },
             "Control": {
               "input_type": "Button",
-              "input_id": 6
+              "input_id": -6
             },
             "Arm": {
               "input_type": "Button",

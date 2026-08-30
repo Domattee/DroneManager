@@ -1105,28 +1105,28 @@ class ControllerPlugin(Plugin):
                                 and event_dict["instance_id"] in self._controllers.keys():
                             controller_id = event_dict["instance_id"]
                             controller = self._controllers[controller_id]
-                            if event.type == pygame.JOYBUTTONDOWN:
+                            # Button presses
+                            if event.type in [pygame.JOYBUTTONDOWN, pygame.JOYBUTTONUP]:
+                                released = event.type == pygame.JOYBUTTONUP
                                 # Add 1 to match what actions use.
                                 pressed_button_id = event_dict["button"] + 1
+                                # Log inputs if set
                                 if controller.log_input_ids:
-                                    self.logger.info(f"Pressed button {pressed_button_id}")
+                                    if released:
+                                        self.logger.info(f"Released button {pressed_button_id}")
+                                    else:
+                                        self.logger.info(f"Pressed button {pressed_button_id}")
+                                # Perform actions if pressed button matches event.
                                 if controller.input_mapping is not None:
                                     if pressed_button_id in controller.input_mapping.button_labels:
                                         pressed_button_label = controller.input_mapping.button_labels[pressed_button_id]
                                         try:
-                                            self._process_button_press(controller, pressed_button_id)
+                                            self._process_button_press(controller, pressed_button_id, released=released)
                                         except Exception as e:
                                             self.logger.error(f"Exception processing button press for "
                                                               f"button {pressed_button_label}!")
                                             self.logger.debug(repr(e), exc_info=True)
-                            elif event.type == pygame.JOYBUTTONUP:
-                                pressed_button_id = event_dict["button"] + 1
-                                if controller.log_input_ids:
-                                    self.logger.info(f"Released button {pressed_button_id}")
-                                # TODO: Implement long press
-                                pass
-                                # Could maybe do long-press type stuff
-                                # self.logger.info(f"Released button {event_dict["button"]}")
+                            # Controller disconnected
                             elif event.type == pygame.JOYDEVICEREMOVED:
                                 self.logger.warning(f"Controller {controller_id} disconnected!")
                                 controller.not_connected = True
@@ -1134,10 +1134,10 @@ class ControllerPlugin(Plugin):
                                 remove_task = asyncio.create_task(self._force_remove_controller(controller_id))
                                 self.running_tasks.add(remove_task)
                                 self.running_tasks.add(asyncio.create_task(coroutine_awaiter(remove_task, self.logger)))
-                            if controller.log_input_ids and event.type not in [pygame.JOYAXISMOTION,
-                                                                               pygame.JOYBUTTONUP,
-                                                                               pygame.JOYBUTTONDOWN]:
-                                self.logger.info(f"Event ID: {event.type}, entries: {event_dict}")
+                            # Anything else: Log it if set.
+                            else:
+                                if controller.log_input_ids and event.type != pygame.JOYAXISMOTION:
+                                    self.logger.info(f"Event ID: {event.type}, entries: {event_dict}")
                         else:
                             if event.type == pygame.JOYDEVICEADDED:
                                 # No need to do anything, discovery already does this.
@@ -1148,12 +1148,18 @@ class ControllerPlugin(Plugin):
                 self.logger.warning("Exception processing controller event!")
                 self.logger.debug(repr(e), exc_info=True)
 
-    def _process_button_press(self, controller: Controller, button_id: int):
+    def _process_button_press(self, controller: Controller, button_id: int, released: float = False):
         can_do_actions = (controller.in_control and controller.drone is not None
                           and self.dm.drones[controller.drone].is_connected)
         toggle_control = False
 
-        # TODO: Hold actions
+        # For hold actions: Save the time this button was pressed:
+        if released:
+            time_held = time.monotonic() - controller.held_buttons[button_id]
+            controller.held_buttons.pop(button_id)
+        else:
+            time_held = 0
+            controller.held_buttons[button_id] = time.monotonic()
 
         # Get the action for this button id, then perform it. Core actions are handled differently than others.
         # Core actions can only be performed if we are actively controlling a drone.
@@ -1161,6 +1167,14 @@ class ControllerPlugin(Plugin):
             registered_actions = controller.input_mapping._button_actions_by_button[button_id]
             button_label = controller.input_mapping.button_labels[button_id]
             for action in registered_actions:
+                hold_action = action.input_id < 0
+                # Check that button activation matches requirement:
+                # If this is a hold action, the button was released after enough time, do action
+                # If this is a press action and the button was pressed, do action.
+                # Else skip
+                if not ((hold_action and released and time_held > controller.input_mapping.hold_duration)
+                    or (not hold_action and not released)):
+                    continue
                 action_task = None
                 if action.label == "Control":
                     self.logger.info("Trying to toggling drone control...")
