@@ -458,7 +458,7 @@ class Camera:
         self.drone.mav_conn.add_drone_message_callback(322, self._listen_param_updates)
         checker_task = asyncio.create_task(self._param_receive_checker())
         self._running_tasks.add(checker_task)
-        self._running_tasks.add(coroutine_awaiter(checker_task, self.logger))
+        self._running_tasks.add(asyncio.create_task(coroutine_awaiter(checker_task, self.logger)))
 
     async def _param_receive_checker(self):
         while len(self._received_params) < self._param_count:

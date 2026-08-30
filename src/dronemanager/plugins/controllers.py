@@ -2,24 +2,30 @@
 
 # TODO: Extensive documentation
 # TODO: Description of actions and controller objects, how bindings and physical controllers work with them, etc...
+
+# TODO: Describe how bindings can be set in the CLI.
+
+TODO: Controller plugin description.
+TODO: Actions description.
+TODO: Mapping description.
 """
 import asyncio
+from collections import OrderedDict
 import copy
 import enum
 import json
-from collections import OrderedDict
 import math
 import pygame
 import time
-from typing import Callable
+from typing import Any, Callable
 
 from dronemanager.drone import FlightMode
 from dronemanager.plugin import Plugin
 from dronemanager.utils import coroutine_awaiter
 
 
-DEFAULT_FREQUENCY: float = 100
-"""Default frequency for the control loop."""
+DEFAULT_FREQUENCY: float = 50
+"""Default frequency for the control and event loops."""
 
 DEFAULT_HOLD_DURATION: float = 2
 """Default duration for which a button must be pressed continuously to count as a "long press"."""
@@ -27,8 +33,12 @@ DEFAULT_HOLD_DURATION: float = 2
 
 class ActionInputType(enum.Enum):
     """Possible input types for actions."""
+
     Button = enum.auto()
+    """Type for actions on button presses. """
+
     Axis = enum.auto()
+    """Type for actions taking axis positions."""
 
 
 class Action:
@@ -46,13 +56,32 @@ class Action:
 
     Note that axis actions are not called if any of their input axes are unbound.
     """
-    def __init__(self, label: str, input_type: ActionInputType, input_id: int | list[int | None] | None = None, func: Callable | None = None):
+    def __init__(self, label: str, input_type: ActionInputType, input_id: int | list[int | None] | None = None,
+                 func: Callable | None = None):
+        """Create the action object.
+
+        Args:
+            label: The name or label for this action. Used as a reference and to ensure uniqueness.
+            input_type: The type of input for this action.
+            input_id: The IDs of the input(s) used for this action.
+            func: A callable associated with this action that will be called when appropriate inputs are received.
+        """
         self.label = label
         self.input_type = input_type
         self.input_id = input_id
         self.func = func
 
-    def __eq__(self, other):
+    def __eq__(self, other: Any) -> bool:
+        """Equality comparison.
+
+        Two actions are equal if they have the same label, input type, input_id and function.
+
+        Args:
+            other: The other object being compared against.
+
+        Returns:
+            Whether this and the other object are equal.
+        """
         if not isinstance(other, self.__class__):
             return NotImplemented
         if self.label == other.label \
@@ -62,19 +91,27 @@ class Action:
             return True
         return False
 
-    def __str__(self):
+    def __str__(self) -> str:
+        """Pretty string representation.
+
+        Returns:
+            A string showing the key attributes.
+        """
         return f"{self.label}: {self.input_type, self.input_id}, {self.func}"
 
     @property
-    def controller_id(self):
+    def controller_id(self) -> int:
         """The actual ID used by the controller directly.
 
-        DroneManager IDs are incremented by 1 to allow negatives to be used unambiguously."""
+        DroneManager IDs are incremented by 1 to allow negatives to be used unambiguously.
+
+        Returns:
+            The raw ID for use by the controller.
+        """
         return abs(self.input_id) - 1
 
 
-# TODO: Functions for core actions somehow
-CORE_ACTIONS = [
+_CORE_ACTIONS = [
     Action("Thrust", ActionInputType.Axis, None, None),
     Action("Yaw", ActionInputType.Axis, None, None),
     Action("Forward", ActionInputType.Axis, None, None),
@@ -85,6 +122,10 @@ CORE_ACTIONS = [
     Action("Takeoff", ActionInputType.Button, None, None),
     Action("Land", ActionInputType.Button, None, None),
 ]
+"""A list of core actions that every mapping must provide.
+
+:meta hide-value:
+"""
 
 
 class InputMapping:
@@ -93,15 +134,32 @@ class InputMapping:
     This class tracks both the available axis and button inputs and a list of actions that can or should be bound to
     these inputs.
 
-    Axes or buttons are assigned by integer IDs. For axes, negative IDs indicate a negative response, e.g. a "-2" for
-    the forward axis means that moving the stick for axis "2" in the positive direction moves the drone backward.
-    For buttons, a negative ID indicates that the button should be pressed for a long duration to trigger the action.
+    The available axis or buttons are tracked in the attributes :py:attr:`axes_labels` and :py:attr:`button_labels`.
+    They also hold readable string representations for the inputs. Actions can't be bound to axis or buttons not
+    included in these properties.
 
-    # TODO: Describe key arguments, in particular labels, which list all possible inputs for a controller type
-    # TODO: Describe common axis meanin, in particular thrust -> down in pos control
-    # TODO: Describe how bindings can be set in the CLI.
-    # TODO: Describe axis / button constraints. Axes actions won't be executed unless all inputs are bound.
-    # TODO: Button and axis IDs are not raw controller button or axis ids. Instead they are incremented by 1 to be 1-indexed.
+    Actions can be bound, i.e. have assigned inputs, or unbound. They can also have a function assigned or not.
+    Actions without functions exist as placeholders, so bindings can be defined and then a function added later.
+
+    Axes or buttons are assigned by integer IDs.These IDs are not the raw IDs from the controller, but incremented by
+    one to avoid "0" and "-0" issues. This conversion is done automatically.
+    Input IDs can be negative to indicate a special behaviour. For axes, negative IDs indicate an inverted response,
+    e.g. a "-2" for the forward action means that moving the stick for axis "2" in the positive direction moves the
+    drone backward.
+    For buttons, a negative ID indicates that the button should be pressed for a long duration to trigger the action.
+    These long press functions are executed when the button is released after they were held for the required duration.
+
+    Axis actions can have multiple axes as inputs. They can be partially bound, i.e. only some of their inputs assigned
+    to actual axes. In this case their assigned function is only called when all inputs are bound.
+
+    We define a number of core actions which InputMapping must provide. The constructor sets their bindings.
+    The exact meaning of the axis actions varies depending on the flight mode of the drone. The default is a position
+    hold mode. In this mode, the core axis actions are as follows:
+
+    * "Thrust": Represents vertical movement in a body FRD frame, so a positive input moves the drone down.
+    * "Yaw": Rotation about the vertical axis, with positive being clockwise.
+    * "Forward": Horizontal movement "forward", based on the current orientation of the drone.
+    * "Right": Horizontal movement "right", based on the current orientation of the drone.
     """
 
     UNBOUND_STRING: str = " - "
@@ -111,22 +169,25 @@ class InputMapping:
                  control_button: int, arm_button: int, disarm_button: int, takeoff_button: int, land_button: int,
                  axes_labels: dict[int, str], button_labels: dict[int, str],
                  hold_duration: float = DEFAULT_HOLD_DURATION):
-        """
+        """Create the input mapping object.
 
         Args:
-            name:
-            thrust_axis:
-            yaw_axis:
-            forward_axis:
-            right_axis:
-            control_button:
-            arm_button:
-            disarm_button:
-            takeoff_button:
-            land_button:
-            axes_labels:
-            button_labels:
-            hold_duration:
+            name: The name for this mapping. Used to determine uniqueness.
+            thrust_axis: The controller axis for the "thrust" input. Controls thrust or altitude depending on flight
+              mode.
+            yaw_axis: The controller axis for the "yaw" input.
+            forward_axis: The controller axis for the "forward" input. A positive input pitches or moves the drone
+              forward.
+            right_axis: The controller axis for the "right" input. A positive input rolls or moves the drone to the
+              right.
+            control_button: Pressing this button toggles control of the drone to and away the controller.
+            arm_button: Pressing this button arms the drone.
+            disarm_button: Pressing this button disarms the drone.
+            takeoff_button: Pressing this button performs a take off.
+            land_button: Pressing this button lands the drone.
+            axes_labels: A dictionary listing all available axis inputs with human-readable labels.
+            button_labels: A dictionary listing all available button inputs with human-readable labels.
+            hold_duration: How long a button should be pressed to count as a "hold".
         """
         self.name: str = name  #: Name for this mapping
         self._actions: OrderedDict[str, Action] = OrderedDict()  #: A dictionary listing actions by their label.
@@ -149,7 +210,7 @@ class InputMapping:
                        disarm_button,
                        takeoff_button,
                        land_button]
-        core_actions = copy.deepcopy(CORE_ACTIONS)
+        core_actions = copy.deepcopy(_CORE_ACTIONS)
         for i, core_input in enumerate(core_inputs):
             action = core_actions[i]
             action.input_id = core_input
@@ -177,11 +238,12 @@ class InputMapping:
                                             if action.input_type is ActionInputType.Button])
         assert len(base_button_inputs) == 5, "Duplicate or missing controller bindings for base actions!"
 
-        # Two extra dictionaries for faster access: button actions by their button id and axis actions by their function
+        #: A dictionaries for faster access: Lists button actions by their button.
         self._button_actions_by_button: dict[int | None, list[Action]] = {}
+        #: A dictionaries for faster access: Lists axis actions by their function.
         self._axis_actions_by_function: dict[Callable, Action] = {}
 
-        #: A set of action names with the core actions. These actions are protected.
+        #: A set of action names with the core actions. These actions are protected from being changed.
         self._core_actions: set[str] = set()
 
         for action_label, action in self._actions.items():
@@ -192,7 +254,18 @@ class InputMapping:
                 if action.func is not None:
                     self._axis_actions_by_function[action.func] = action
 
-    def __eq__(self, other):
+    def __eq__(self, other: Any) -> bool:
+        """Equality comparison.
+
+        Two InputMappings are equal if they have the same name, set of actions, core actions, possible axes or buttons
+        and hold duration.
+
+        Args:
+            other: The other object being compared against.
+
+        Returns:
+            Whether this and the other object are equal.
+        """
         if type(other) is not type(self):
             return False
         if self.name == other.name \
@@ -232,7 +305,7 @@ class InputMapping:
         for button_id, button_label in self.button_labels.items():
             output[button_label] = []
 
-        # Go through each registered action and add them here
+        # Go through each registered action and add them to the dictionary by their inputs.
         for action_name, action in self._actions.items():
             if action.input_type is ActionInputType.Button:
                 input_label = self._get_button_label(abs(action.input_id))
@@ -257,30 +330,36 @@ class InputMapping:
                             axis_name += " - Inverted"
                         if input_label in output:
                             output[input_label].append(axis_name)
-
-        #for action_label, input_label in self.action_input_mapping().items():
-        #    if isinstance(input_label, str):
-        #        if input_label in output:
-        #            output[input_label].append(action_label)
-        #    else:
-        #        for single_label in input_label:
-        #            if single_label in output:
-        #                output[single_label].append(action_label)
-
+        # Any inputs without actions are not bound to anything.
         for label, action_labels in output.items():
             if len(action_labels) == 0:
                 output[label] = self.UNBOUND_STRING
         return output
 
-    def _get_axes_label(self, axis_ids: int | list[int | None] | None) -> str:
-        # Three scenarios: int, None, or a list of either.
+    def _get_axes_label(self, axis_ids: int | list[int | None] | None) -> str | list[str]:
+        """Get the label string for a given axis ID or list of axis IDs.
+
+        Args:
+            axis_ids: Input axis ID.
+
+        Returns:
+            Label string(s) for the axes corresponding to the axis ID(s).
+        """
         if isinstance(axis_ids, list):
             axis_label = [self._get_axis_label(axis_id) for axis_id in axis_ids]
         else:
             axis_label = self._get_axis_label(axis_ids)
         return axis_label
 
-    def _get_axis_label(self, axis_id: int | None):
+    def _get_axis_label(self, axis_id: int | None) -> str:
+        """Get the label string for a single axis ID.
+
+        Args:
+            axis_id: Input axis id.
+
+        Returns:
+            The label string.
+        """
         if axis_id is None:
             axis_label = self.UNBOUND_STRING
         elif abs(axis_id) not in self.axes_labels:
@@ -292,6 +371,14 @@ class InputMapping:
         return axis_label
 
     def _get_button_label(self, button_id: int | None) -> str:
+        """Get the label string for a single button ID.
+
+        Args:
+            button_id: Input button ID.
+
+        Returns:
+            The label string.
+        """
         if button_id is None:
             button_label = self.UNBOUND_STRING
         elif abs(button_id) not in self.button_labels:
@@ -303,7 +390,7 @@ class InputMapping:
         return button_label
 
     def add_action(self, action_name: str, action_type: ActionInputType | None = None, func: Callable | None = None,
-                   input_id: int | list[int | None ] | None = None):
+                   input_id: int | list[int | None] | None = None):
         """Add an action to this binding.
 
         Can be used to perform two different actions: Either to add a completely new action, or to add a function to
@@ -450,12 +537,24 @@ class InputMapping:
         self._actions[action_name].input_id = None
 
     def to_json(self) -> str:
-        """Create a json string for saving the current mapping."""
+        """Create a json string for saving this mapping.
+
+        Note that this loses registered functions.
+
+        Returns:
+            A json string representation of this mapping.
+        """
         output_dict = self.to_dict()
         return json.dumps(output_dict)
 
     def to_dict(self) -> dict:
-        """Create a serializable dictionary of this mapping."""
+        """Create a serializable dictionary of this mapping.
+
+        Note that this loses registered functions.
+
+        Returns:
+            A dictionary with key information for this mapping.
+        """
         output_dict = {
             "name": self.name,
             "axes_labels": list(self.axes_labels.items()),
@@ -499,8 +598,8 @@ class InputMapping:
         axes_labels = dict(input_dict["axes_labels"])
         button_labels = dict(input_dict["button_labels"])
         hold_duration = input_dict["hold_duration"]
-        core_actions = [action.label for action in CORE_ACTIONS]
-        core_action_inputs = [None for _ in CORE_ACTIONS]
+        core_actions = [action.label for action in _CORE_ACTIONS]
+        core_action_inputs = [None for _ in _CORE_ACTIONS]
         non_core_actions = []
         for action_name in input_dict["actions"]:
             # Core actions added as argument
@@ -523,11 +622,35 @@ class InputMapping:
 
 
 class Controller:
-    # TODO: generic base class for controllers, should handle the control loop and have functions for setting/getting
-    #  mappings
+    def __init__(self, controller_id: int, joystick: pygame.joystick.JoystickType):
+        self.id = controller_id  #: ID for this controller, matches  instance ID of the physical controller.
+        self.joystick: pygame.joystick.JoystickType = joystick
+        self.drone: str | None = None
+        self.in_control: bool = False
+        self.input_mapping: InputMapping | None = None
+        self.not_connected: bool = False
+        self.control_mode: FlightMode = FlightMode.POSCTL
+        #: A dictionary with buttons being currently pressed and when they were first pressed.
+        self.held_buttons: dict[int, float] = {}
 
-    def __init__(self, mapping: InputMapping):
-        pass
+    @property
+    def name(self) -> str:
+        return self.joystick.get_name()
+
+    def stick_response(self, axis: int) -> float:
+        """Linear stick response with -10 to 10% dead zone.
+
+        Axis should be the joystick axis being scaled. A negative number means that the response is inverted.
+        """
+        value = self.joystick.get_axis(abs(axis))
+        dz = 0.1
+        if abs(value) < dz:
+            return 0.0
+        elif value > 0:
+            value = (value - dz) / (1 - dz)
+        else:
+            value = (value + dz) / (1 - dz)
+        return value * math.copysign(1, axis)
 
 
 class ControllerPlugin(Plugin):
@@ -536,33 +659,38 @@ class ControllerPlugin(Plugin):
 
     PREFIX = "control"
 
-    # TODO: Load mappings from config
+    # TODO: Handling for controller disconnects.
+    # TODO: Functions to print action -> button/axis label for a given controller
+    # TODO: Functions to print button/axis label > action for a given controller
+    # TODO: Functions to print input id -> button/axis label for a given controller
 
-    # TODO: Functions to print action -> button/axis label
-    # TODO: Functions to print button/axis label > action
-    # TODO: Functions to print input id -> button/axis label
-
-    # TODO: Hold disarm for kill
-
-    def __init__(self, dm, logger, name, auto_set=False, auto_drone=False, control_frequency: float = DEFAULT_FREQUENCY, default_mappings: list[tuple[str, str]] = None, **kwargs):
+    def __init__(self, dm, logger, name, auto_set=False, auto_drone=False, event_frequency: float = DEFAULT_FREQUENCY,
+                 control_frequency: float = DEFAULT_FREQUENCY, default_mappings: dict[str, str] = None,
+                 **kwargs):
         """
 
         """
         super().__init__(dm, logger, name)
         self.background_functions = [
-            self._event_processor(),
-            self._control_loop(),
+        #    self._event_processor(),
+        #    self._control_loop(),
         ]
-        pygame.init()
-        pygame.joystick.init()
-        self.controller: pygame.joystick.JoystickType | None = None
         self.cli_commands = {
-            "check": self._check_controllers,
-            "set": self.add_controller,
-            "unset": self.remove_controller,
-            "drone": self.set_drone,
+            "view": self.available_controllers,
+            "identify": self.identify,
+            "bindings": self.set_mapping,
+            "assign": self.assign_drone,
+            "unassign": self.unassign_drone,
             "status": self.status,
         }
+
+        pygame.init()
+        pygame.joystick.init()
+        #: A dictionary with available physical controllers by their instance ID.
+        self._controllers: dict[int, Controller] = {}
+        #: A dictionary of drones managed by this plugin and their assigned controllers.
+        self.drones: dict[str, Controller] = {}
+
         self._relevant_events = [pygame.JOYAXISMOTION,
                                  pygame.JOYBUTTONUP,
                                  pygame.JOYBUTTONDOWN,
@@ -570,14 +698,13 @@ class ControllerPlugin(Plugin):
                                  pygame.JOYBALLMOTION,
                                  pygame.JOYDEVICEADDED,
                                  pygame.JOYDEVICEREMOVED]
-        self._frequency = 100
-        self._control_frequency = control_frequency
-        self._drone_name: str | None = None
-        self._in_control = False
+        self.event_frequency = event_frequency
+        self.control_frequency = control_frequency
+
         self.mappings: dict[str, InputMapping] = {}
         if default_mappings is None:
-            default_mappings = []
-        self.default_mappings = default_mappings
+            default_mappings = {}
+        self.default_mappings = default_mappings  #: Controller names as keys and default mapping as values.
         self.load_mappings_from_config()
 
         self.print_button_axis_ids = False
@@ -586,12 +713,31 @@ class ControllerPlugin(Plugin):
 
         self.dm.add_remove_func(self._drone_disconnected_callback)
 
-        self.auto_set = auto_set  # If True and there is exactly one controller connected, connect to it automatically
+        self.auto_set = auto_set  # If True and there is exactly one controller connected, use it automatically
         self.auto_drone = auto_drone  # If True and there is exactly one drone connected, assign it automatically.
-        self._disconnected = False  # True if we were connected to a controller and lost it unexpectedly
-        self.control_mode = FlightMode.POSCTL  # The flight mode to use for the manual flight. Either POSCTL or ALTCTL.
+
+    async def available_controllers(self):
+        """Log available controllers."""
+        available_controllers = "\n\t".join([f"ID: {c_id} \tName: {controller.name}"
+                                             for c_id, controller in self._controllers.items()])
+        self.logger.info(f"Available controllers:\n\t{available_controllers}")
+
+    async def status(self):
+        """Log current configuration of the controller plugin."""
+        drone_info = []
+        for name, controller in self.drones:
+            mapping_name = controller.input_mapping
+            if controller.input_mapping is not None:
+                mapping_name = controller.input_mapping.name
+            drone_info.append((name, controller.id, controller.name, mapping_name))
+        drone_config = "\n\t".join([f"Drone: {entry[0]}\tController: {entry[1], entry[2]}\tMapping: {entry[3]}"
+                                    for entry in drone_info])
+        self.logger.info(f"Configured drones:\n\t{drone_config}")
+        await self.available_controllers()
+        self.logger.info(f"Available control schemes: {self.mappings.keys()}")
 
     def load_mappings_from_config(self):
+        """Populates :py:attr:`mappings` from the entries in the DroneManager config."""
         plugin_setting = self.dm.config.plugin_settings
         if "controllers" in plugin_setting:
             if "mappings" in plugin_setting["controllers"]:
@@ -600,6 +746,7 @@ class ControllerPlugin(Plugin):
                     self.mappings[mapping_name] = mapping
 
     async def save_current_mappings(self):
+        """Save the current mappings to the DroneManager config. The config itself has to be saved separately!"""
         # Overwrites existing ones if they differ!
         plugin_settings = self.dm.config.plugin_settings
         if "controllers" not in plugin_settings:
@@ -609,193 +756,210 @@ class ControllerPlugin(Plugin):
         for mapping_name in self.mappings:
             plugin_settings["controllers"]["mappings"][mapping_name] = self.mappings[mapping_name].to_dict()
 
-    # TODO: Rework everything below
+    def _discover_controllers(self):
+        """Discovers controllers connected to the machine."""
+        current_controllers = pygame.joystick.get_count()
+        for i in range(current_controllers):
+            joystick = pygame.joystick.Joystick(i)
+            cid = joystick.get_instance_id()
+            if cid not in self._controllers:
+                self.running_tasks.add(asyncio.create_task(self.add_controller(cid, joystick)))
 
-    async def add_controller(self, dev_id: int):
-        """Set which controller to use, matching the ID from `check`.
+    async def add_controller(self, controller_id: int, joystick: pygame.joystick.JoystickType):
+        """Add a controller to the plugin.
 
+        Shouldn't have to be called manually, as connected controllers are discovered and added automatically.
+        Controllers rumble when connected. A single rumble indicates a controller that is ready to be assigned. A
+        series of rumbles indicates missing input bindings.
+
+        Args:
+            controller_id: The ID of the pygame controller to be added.
+            joystick: The joystick object associated with the physical controller.
         """
-        if dev_id >= pygame.joystick.get_count():
-            self.logger.warning(f"No controller option {dev_id}, see control-check")
-            return False
-        await self.remove_controller()
-        control_good = False
-        self.controller = pygame.joystick.Joystick(dev_id)
-        if self.controller.get_name() == "PS4 Controller":
-            self._mapping = PS4Mapping
-            control_good = True
-        else:
-            self.logger.warning(f"No mapping for {self.controller.get_name()}")
-        if control_good:
-            self.controller.init()
-            self.logger.info(f"Connected to controller {self.controller.get_name()}, using {self._mapping.__name__}")
+        controller = Controller(controller_id, joystick)
+        if controller.name in self.default_mappings:
+            mapping_name = self.default_mappings[controller.name]
+            if mapping_name in self.mappings:
+                controller.input_mapping = self.mappings[mapping_name]
+            else:
+                self.logger.warning(f"Controller {controller_id, controller.name} "
+                                    f"has default mapping {mapping_name}, but that mapping isn't loaded! "
+                                    f"Loaded mappings: {list(self.mappings.keys())}")
+        self._controllers[controller_id] = controller
+        if controller.input_mapping is None:
+            self.logger.info(f"Connected to controller {controller.name}, no binding currently "
+                             f"configured!")
             await asyncio.sleep(0.1)
-            self.controller.rumble(0.5, 0.5, 1)
-        return True
+            controller.joystick.rumble(0.5, 0.5, 200)
+            await asyncio.sleep(0.4)
+            controller.joystick.rumble(0.5, 0.5, 200)
+            await asyncio.sleep(0.4)
+            controller.joystick.rumble(0.5, 0.5, 200)
+            await asyncio.sleep(0.2)
+        else:
+            self.logger.info(f"Connected to controller {controller.name}, using "
+                             f"{controller.input_mapping.name} bindings!")
+            await asyncio.sleep(0.1)
+            controller.joystick.rumble(0.5, 0.5, 500)
+            await asyncio.sleep(0.5)
 
-    async def remove_controller(self):
-        """Remove the current controller."""
-        if self.controller is not None:
-            self.logger.debug("Disconnecting from controller")
-            controller = self.controller
-            self.controller = None
-            controller.quit()
+    async def remove_controller(self, controller_id: int):
+        """Remove a connected controller.
 
-    async def status(self):
-        """Log current configuration of the controller plugin."""
-        self.logger.info(f"Drone: {self._drone_name}. Control {self._in_control}. Controller: {self.controller}")
-        self.logger.info(f"Control schemes: {self.mappings}")
+        Shouldn't be necessary, as disconnected controllers do not need to be shut down, and all connected controllers
+        are disconnected automatically when the plugin is shut down.
 
-    async def set_drone(self, drone: str):
-        """Set which drone is controlled by the controller."""
+        Args:
+            controller_id: The ID of the controller to be removed.
+        """
+        if controller_id not in self._controllers:
+            self.logger.warning(f"Can't remove controller {controller_id}, no such controller!")
+            await self.available_controllers()
+        else:
+            controller = self._controllers[controller_id]
+            if controller.in_control:
+                self.logger.warning(f"Can't remove controller {controller_id}, as it is controlling drone "
+                                    f"{controller.drone}!")
+            else:
+                # Remove the controller
+                controller = self._controllers.pop(controller_id)
+                if controller.drone is not None:
+                    self.drones.pop(controller.drone, None)
+                controller.joystick.quit()
+
+    async def identify(self):
+        """Identify all connected controllers by rumbling them turn by turn."""
+        self.logger.info("Identifying controllers by rumbling!")
+        for controller_id, controller in self._controllers:
+            self.logger.info(f"Rumbling controller {controller_id} for 1 second.")
+            controller.joystick.rumble(0.5, 0.5, 1000)
+            await asyncio.sleep(1)
+
+    async def set_mapping(self, controller_id: int, mapping_name: str):
+        """Set an input mapping for a given controller.
+
+        The new InputMapping must already be loaded and stored in :py:attr:`mappings`. The controller also can't be
+        actively controlling a drone.
+
+        Args:
+            controller_id: The ID of the controller.
+            mapping_name: The name of the new mapping.
+        """
+        if mapping_name not in self.mappings:
+            self.logger.warning(f"Couldn't set mapping {mapping_name} for controller {controller_id}, no such mapping "
+                                f"loaded! Loaded mappings: {list(self.mappings.keys())}")
+        elif controller_id not in self._controllers:
+            self.logger.warning(f"Couldn't set mapping {mapping_name} for controller {controller_id}, no controller "
+                                f"with that ID!")
+            await self.available_controllers()
+        elif self._controllers[controller_id].in_control:
+            self.logger.warning(f"Couldn't set mapping as the controller is actively controlling a drone!")
+        else:
+            self._controllers[controller_id].input_mapping = self.mappings[mapping_name]
+            self.logger.info(f"Set mapping {mapping_name} for controller {controller_id}")
+
+    async def assign_drone(self, drone: str, controller_id: int):
+        """Assign a drone to a controller.
+
+        Args:
+            drone: The drone to be assigned.
+            controller_id: The controller the drone will be assigned to.
+
+        Returns:
+            Whether the assignment worked or not.
+        """
+        can_assign_drone = True
+        # Check that a drone with that name is connected.
         if drone not in self.dm.drones:
             self.logger.warning(f"No drone named {drone}")
-            return False
-        if self._in_control:
-            self.logger.warning("Can't swap drones while in control of another drone!")
-            return False
-        self._drone_name = drone
-        #self._control_frequency = self.dm.drones[drone].position_update_rate
-        self.logger.info(f"Now set for drone {self._drone_name}")
-        return True
+            can_assign_drone = False
+        # Check that the is assignable: Either not assigned, or assigned but not controlled by a different controller.
+        if drone in self.drones:
+            if self.drones[drone].in_control:
+                self.logger.warning(f"Can't reassign drone {drone}, it is actively controlled by "
+                                    f"controller {self.drones[drone].id}")
+                can_assign_drone = False
+        # Check that the controller exists
+        if controller_id not in self._controllers:
+            self.logger.warning(f"Can't assign controller {controller_id}, no such controller connected!")
+            await self.available_controllers()
+            can_assign_drone = False
+        if can_assign_drone:
+            controller = self._controllers[controller_id]
+            # Check that the controller is not currently controlling another drone
+            if controller.in_control:
+                self.logger.warning(f"Can't assign controller {controller_id}, as it is already controlling another "
+                                    f"drone, {controller.drone}!")
+                can_assign_drone = False
+            # Check that the controller has bindings and is connected
+            if controller.input_mapping is None:
+                self.logger.warning(f"Can't assign controller {controller_id} as it does not have a mapping!")
+                can_assign_drone = False
+            if controller.not_connected:
+                self.logger.warning(f"Can't assign controller {controller_id} as it is disconnected!")
+                can_assign_drone = False
+            if can_assign_drone:
+                controller.drone = drone
+                self.drones[drone] = self._controllers[controller_id]
+                self.logger.info(f"Controller {controller_id} now set for drone {drone}!")
 
-    async def _check_controllers(self):
-        """Check available controllers.
+    async def unassign_drone(self, drone: str):
+        """Unassign a drone from a controller.
+
+        Args:
+            drone: The drone to be unassigned.
         """
-        new_line = "\n"
-        controllers = [f'{i}: {pygame.joystick.Joystick(i).get_name()}{new_line}'
-                       for i in range(pygame.joystick.get_count())]
-        self.logger.info(f"Detected controllers: {controllers}")
-
-    async def _event_processor(self):
-        self._disconnected = False
-        while True:
-            try:
-                for event in pygame.event.get():
-                    if event.type in self._relevant_events:
-                        event_dict = event.dict
-                        if "instance_id" in event_dict \
-                                and event_dict["instance_id"] == self.controller.get_instance_id():
-                            if event.type == pygame.JOYBUTTONDOWN:
-                                self._process_button_press(event_dict["button"])
-                            elif event.type == pygame.JOYBUTTONUP:
-                                pass
-                                # Could maybe do long-press type stuff
-                                # self.logger.info(f"Released button {event_dict["button"]}")
-                            elif event.type == pygame.JOYAXISMOTION:
-                                pass  # Axis motion is handled in the control loop
-                            elif event.type == pygame.JOYDEVICEREMOVED:
-                                if event_dict["instance_id"] == self.controller.get_instance_id():
-                                    self.logger.warning("Controller disconnected!")
-                                    self._disconnected = True
-                                    await self._release_control()
-                                    await self.remove_controller()
-                            if self.print_button_axis_ids:
-                                self.logger.info(f"{event.type}, {event_dict}")
-                        else:
-                            if event.type == pygame.JOYDEVICEADDED and self._disconnected:
-                                self._disconnected = False
-                                await self.add_controller(event_dict["device_index"])
-                                await self._take_control()
-                            else:
-                                self.logger.debug(f"{event.type}, {event_dict}")
-            except Exception as e:
-                self.logger.warning("Exception processing controller event!")
-                self.logger.debug(repr(e), exc_info=True)
-            await asyncio.sleep(1/self._frequency)
-
-    def _process_button_press(self, button):
-        action = None
-        can_do_actions = (self._in_control and self._drone_name is not None
-                          and self.dm.drones[self._drone_name].is_connected)
-        toggle_control = False
-        if button == self._mapping.control_button:
-            self.logger.info("Trying to toggling drone control...")
-            if self._in_control:
-                action = self._release_control()
+        if drone not in self.drones:
+            self.logger.warning(f"Can't unassign drone {drone}, as it is not assigned to any controllers!")
+        else:
+            controller = self.drones[drone]
+            if controller.in_control:
+                self.logger.warning(f"Can't unassign drone {drone}, as it is currently actively controlled!")
             else:
-                action = self._take_control()
-            toggle_control = True
-        elif button == self._mapping.arm_button:
-            self.logger.debug("Arm button pressed")
-            action = self.dm.arm(self._drone_name)
-        elif button == self._mapping.disarm_button:
-            self.logger.debug("Disarm button pressed")
-            action = self.dm.disarm(self._drone_name)
-        elif button == self._mapping.land_button:
-            self.logger.debug("Land button pressed")
-            action = self.dm.land(self._drone_name)
-        elif button == self._mapping.takeoff_button:
-            self.logger.debug("Takeoff button pressed")
-            action = self.dm.takeoff(self._drone_name, altitude=1.5, allow_in_air=False)
-        else:
-            self.logger.info(f"Pressed unbound button {button}")
+                controller = self.drones.pop(drone)
+                controller.drone = None
 
-        # Log information for user about current control state
-        if action is not None and not can_do_actions and not toggle_control:
-            if not self._in_control:
-                self.logger.info("Received control inputs, but not in control of drone!")
-                return False
-            if self._drone_name is None:
-                self.logger.info("Received control inputs, but not set to control any drone!")
-            if self._drone_name not in self.dm.drones:
-                self.logger.warning(f"Set to control drone with name {self._drone_name}, which is not connected!")
-                return False
-            if not self.dm.drones[self._drone_name].is_connected:
-                self.logger.warning("No connection to drone!")
-                return False
+    async def _drone_disconnected_callback(self, name: str):
+        """Callback when a drone gets disconnected from DroneManager.
 
-        # Do the action if we have an action and either can do it, or are toggling control (which is checked separately)
-        if action is not None and self._drone_name is not None and (can_do_actions or toggle_control):
-            # Cancel anything the drone might be doing
-            self.dm.drones[self._drone_name].clear_queue()
-            self.dm.drones[self._drone_name].cancel_action()
-            action_task = asyncio.create_task(action)
-            action_awaiter = coroutine_awaiter(action_task, self.logger)
-            self.running_tasks.add(action_task)
-            self.running_tasks.add(action_awaiter)
+        Args:
+            name: The name of the drone that was disconnected.
+        """
+        # If a drone we were controlling got disconnected
+        controller = self.drones.pop(name, None)
+        if controller is not None:
+            self.logger.info(f"Drone {name} assigned to controller {controller} was disconnected.")
+            controller.drone = None
+            controller.in_control = False
 
-        # Also perform whatever other actions are bound to this key
-        if button in self._mapping.extra_button_inputs:
-            for func in self._mapping.extra_button_inputs[button]:
-                try:
-                    func()
-                except Exception as e:
-                    self.logger.warning(f"Encountered an exception processing function {func} for button {button}")
-                    self.logger.debug(repr(e), exc_info=True)
+    async def close(self):
+        """Close the plugin.
 
-        return True
+        Disconnects all controllers and stops pygame.
+        """
+        for _, controller in self._controllers.items():
+            controller.joystick.quit()
+        pygame.quit()
+        await super().close()
 
-    async def _take_control(self):
-        # Put the drone into offboard if not already in it, and disable the path follower if it is active
-        # Check that we have a drone and are connected to it
-        if self._drone_name is None:
-            self.logger.warning("Can't take control without knowing which drone to control!")
-            return
-        if not self.dm.drones[self._drone_name].is_connected:
-            self.logger.warning("Can't take control of disconnected drones!")
-            return
+    # TODO: Rework everything below
 
-        if self.control_mode is FlightMode.POSCTL:
-            await self.dm.drones[self._drone_name].manual_control_position()
-        else:
-            await self.dm.drones[self._drone_name].manual_control_altitude()
 
-        self.logger.info(f"Took control of {self._drone_name}")
-        self._in_control = True
 
-    async def _release_control(self):
-        # Put the drone into HOLD mode
-        self._in_control = False
-        await self.dm.change_flightmode(self._drone_name, "hold")
-        self.logger.info(f"Released control of {self._drone_name}")
 
-    async def _drone_disconnected_callback(self, name):
-        # If our drone got disconnected
-        if name == self._drone_name:
-            self.logger.info("The drone we were controlling was disconnected.")
-            self._drone_name = None
-            self._in_control = False
+
+
+
+
+
+
+
+
+
+
+
+
+
 
     async def _control_loop(self):
         """Take controller inputs to handle motion by setting velocity setpoints.
@@ -803,34 +967,40 @@ class ControllerPlugin(Plugin):
         Actions are performed as soon as the button press is detected, but continuous inputs, such as sticks, are
         updated here at self._control_frequency.
         """
+        next_loop_time = time.monotonic()
         while True:
-            next_loop_time = time.monotonic()
             try:
+                # Determine time for next loop
                 prev_loop_time = next_loop_time
-                next_loop_time = prev_loop_time + 1 / self._control_frequency
+                next_loop_time = prev_loop_time + 1 / self.control_frequency
                 loop_interval = max(0.0, next_loop_time - time.monotonic())
                 # If the loop interval gets short, throw a warning.
-                if loop_interval < 1 / (3 * self._control_frequency):
+                if loop_interval < 1 / (3 * self.control_frequency):
                     self.logger.warning("Controller loop saturating! Controls might become sluggish or unresponsive.")
                 await asyncio.sleep(loop_interval)
+                # Do controller discovery
+                self._discover_controllers()
                 # If auto_drone is True and there is one drone in drone manager, control it automatically
-                if self.auto_drone and self._drone_name is None and len(self.dm.drones) == 1:
-                    drone_name, = self.dm.drones
-                    add_task = asyncio.create_task(self.set_drone(drone_name))
-                    add_wait_task = coroutine_awaiter(add_task, self.logger)
-                    self.running_tasks.add(add_task)
-                    self.running_tasks.add(add_wait_task)
-                    continue
+                if self.auto_drone and len(self.dm.drones) == 1:
+                    if list(self.dm.drones.keys())[0] not in self.drones:
+                        drone_name, = self.dm.drones
+
+                        # TODO: Add the drone
+                        #add_task = asyncio.create_task(self.set_drone(drone_name))
+                        #add_wait_task = asyncio.create_task(coroutine_awaiter(add_task, self.logger))
+                        #self.running_tasks.add(add_task)
+                        #self.running_tasks.add(add_wait_task)
+                        #continue
 
                 # If auto_set is True and there is exactly one controller available, use it automatically
                 if self.auto_set \
                         and self.controller is None \
                         and not self._disconnected \
                         and pygame.joystick.get_count() == 1:
+                    # TODO: Assign controller
                     set_task = asyncio.create_task(self.add_controller(0))
-                    set_wait_task = coroutine_awaiter(set_task, self.logger)
                     self.running_tasks.add(set_task)
-                    self.running_tasks.add(set_wait_task)
+                    self.running_tasks.add(asyncio.create_task(coroutine_awaiter(set_task, self.logger)))
                     continue
 
                 # Process inputs
@@ -889,23 +1059,123 @@ class ControllerPlugin(Plugin):
                 self.logger.warning("Error in control loop for joystick!")
                 self.logger.debug(repr(e), exc_info=True)
 
-    def stick_response(self, axis: int) -> float:
-        """Linear stick response with -10 to 10% dead zone.
+    async def _event_processor(self):
+        while True:
+            try:
+                await asyncio.sleep(1 / self._frequency)
+                for event in pygame.event.get():
+                    if event.type in self._relevant_events:
+                        event_dict = event.dict
+                        if "instance_id" in event_dict \
+                                and event_dict["instance_id"] == self.controller.get_instance_id():
+                            if event.type == pygame.JOYBUTTONDOWN:
+                                self._process_button_press(event_dict["button"])
+                            elif event.type == pygame.JOYBUTTONUP:
+                                pass
+                                # Could maybe do long-press type stuff
+                                # self.logger.info(f"Released button {event_dict["button"]}")
+                            elif event.type == pygame.JOYDEVICEREMOVED:
+                                if event_dict["instance_id"] == self.controller.get_instance_id():
+                                    self.logger.warning("Controller disconnected!")
+                                    self._disconnected = True
+                                    await self._release_control()
+                                    await self.remove_controller()
+                            if self.print_button_axis_ids:
+                                self.logger.info(f"{event.type}, {event_dict}")
+                        else:
+                            if event.type == pygame.JOYDEVICEADDED and self._disconnected:
+                                self._disconnected = False
+                                await self.add_controller(event_dict["device_index"])
+                                await self._take_control()
+                            else:
+                                self.logger.debug(f"{event.type}, {event_dict}")
+            except Exception as e:
+                self.logger.warning("Exception processing controller event!")
+                self.logger.debug(repr(e), exc_info=True)
 
-        Axis should be the joystick axis being scaled. A negative number means that the response is inverted.
-        """
-        value = self.controller.get_axis(abs(axis))
-        dz = 0.1
-        if abs(value) < dz:
-            return 0.0
-        elif value > 0:
-            value = (value - dz) / (1 - dz)
+
+    def _process_button_press(self, button):
+        action = None
+        can_do_actions = (self._in_control and self._drone_name is not None
+                          and self.dm.drones[self._drone_name].is_connected)
+        toggle_control = False
+        if button == self._mapping.control_button:
+            self.logger.info("Trying to toggling drone control...")
+            if self._in_control:
+                action = self._release_control()
+            else:
+                action = self._take_control()
+            toggle_control = True
+        elif button == self._mapping.arm_button:
+            self.logger.debug("Arm button pressed")
+            action = self.dm.arm(self._drone_name)
+        elif button == self._mapping.disarm_button:
+            self.logger.debug("Disarm button pressed")
+            action = self.dm.disarm(self._drone_name)
+        elif button == self._mapping.land_button:
+            self.logger.debug("Land button pressed")
+            action = self.dm.land(self._drone_name)
+        elif button == self._mapping.takeoff_button:
+            self.logger.debug("Takeoff button pressed")
+            action = self.dm.takeoff(self._drone_name, altitude=1.5, allow_in_air=False)
         else:
-            value = (value + dz) / (1 - dz)
-        return value * math.copysign(1, axis)
+            self.logger.info(f"Pressed unbound button {button}")
 
-    async def close(self):
-        if self.controller is not None:
-            self.controller.quit()
-        pygame.quit()
-        await super().close()
+        # Log information for user about current control state
+        if action is not None and not can_do_actions and not toggle_control:
+            if not self._in_control:
+                self.logger.info("Received control inputs, but not in control of drone!")
+                return False
+            if self._drone_name is None:
+                self.logger.info("Received control inputs, but not set to control any drone!")
+            if self._drone_name not in self.dm.drones:
+                self.logger.warning(f"Set to control drone with name {self._drone_name}, which is not connected!")
+                return False
+            if not self.dm.drones[self._drone_name].is_connected:
+                self.logger.warning("No connection to drone!")
+                return False
+
+        # Do the action if we have an action and either can do it, or are toggling control (which is checked separately)
+        if action is not None and self._drone_name is not None and (can_do_actions or toggle_control):
+            # Cancel anything the drone might be doing
+            self.dm.drones[self._drone_name].clear_queue()
+            self.dm.drones[self._drone_name].cancel_action()
+            action_task = asyncio.create_task(action)
+            action_awaiter = asyncio.create_task(coroutine_awaiter(action_task, self.logger))
+            self.running_tasks.add(action_task)
+            self.running_tasks.add(action_awaiter)
+
+        # Also perform whatever other actions are bound to this key
+        if button in self._mapping.extra_button_inputs:
+            for func in self._mapping.extra_button_inputs[button]:
+                try:
+                    func()
+                except Exception as e:
+                    self.logger.warning(f"Encountered an exception processing function {func} for button {button}")
+                    self.logger.debug(repr(e), exc_info=True)
+
+        return True
+
+    async def _take_control(self):
+        # Put the drone into offboard if not already in it, and disable the path follower if it is active
+        # Check that we have a drone and are connected to it
+        if self._drone_name is None:
+            self.logger.warning("Can't take control without knowing which drone to control!")
+            return
+        if not self.dm.drones[self._drone_name].is_connected:
+            self.logger.warning("Can't take control of disconnected drones!")
+            return
+
+        if self.control_mode is FlightMode.POSCTL:
+            await self.dm.drones[self._drone_name].manual_control_position()
+        else:
+            await self.dm.drones[self._drone_name].manual_control_altitude()
+
+        self.logger.info(f"Took control of {self._drone_name}")
+        self._in_control = True
+
+    async def _release_control(self):
+        # Put the drone into HOLD mode
+        self._in_control = False
+        await self.dm.change_flightmode(self._drone_name, "hold")
+        self.logger.info(f"Released control of {self._drone_name}")
