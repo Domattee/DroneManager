@@ -686,8 +686,6 @@ class ControllerPlugin(Plugin):
     # TODO: Functions to print button/axis label > action for a given controller/binding
     # TODO: Functions to print input id -> button/axis label for a given controller/binding
 
-    # TODO: Move event and control loops into their own threads
-
     def __init__(self, dm, logger, name, auto_assign=False, event_frequency: float = DEFAULT_FREQUENCY,
                  control_frequency: float = DEFAULT_FREQUENCY, default_mappings: dict[str, str] = None, **kwargs):
         """
@@ -712,6 +710,8 @@ class ControllerPlugin(Plugin):
             "identify": self.identify,
             "check": self.check_controller_inputs,
             "set-binds": self.set_mapping,
+            "view-binds": self.view_mapping,
+            "view-inputs": self.view_inputs,
             "assign": self.assign_drone,
             "unassign": self.unassign_drone,
             "status": self.status,
@@ -720,7 +720,7 @@ class ControllerPlugin(Plugin):
         pygame.init()
         pygame.joystick.init()
         #: A dictionary with available physical controllers by their instance ID.
-        self._controllers: dict[int, Controller] = {}
+        self.controllers: dict[int, Controller] = {}
         #: A dictionary of drones managed by this plugin and their assigned controllers.
         self.drones: dict[str, Controller] = {}
 
@@ -764,11 +764,11 @@ class ControllerPlugin(Plugin):
 
     async def available_controllers(self):
         """Log available controllers."""
-        if len(self._controllers) == 0:
+        if len(self.controllers) == 0:
             available_controllers = "\tNo Controllers connected!"
         else:
             c_info_strings = []
-            for c_id, controller in self._controllers.items():
+            for c_id, controller in self.controllers.items():
                 mapping_name = "None" if controller.input_mapping is None else controller.input_mapping.name
                 c_info_strings.append(f"ID: {c_id}\tName: {controller.name}\tConnected: {not controller.not_connected}"
                                       f"\tMapping: {mapping_name}")
@@ -778,7 +778,7 @@ class ControllerPlugin(Plugin):
     async def identify(self):
         """Identify all connected controllers by rumbling them turn by turn."""
         self.logger.info("Identifying controllers by rumbling!")
-        for controller_id, controller in self._controllers.items():
+        for controller_id, controller in self.controllers.items():
             self.logger.info(f"Rumbling controller {controller_id} for about 2 second.")
             controller.joystick.rumble(0.1, 0.9, 2000)
             await asyncio.sleep(4)
@@ -789,10 +789,10 @@ class ControllerPlugin(Plugin):
         Logs the IDs of any pressed buttons, or any axis which are tilted significantly.
         Using the same function for the same controller toggles the logging on and off.
         """
-        if controller_id not in self._controllers:
+        if controller_id not in self.controllers:
             self.logger.warning(f"No controller with ID {controller_id}.")
         else:
-            self._controllers[controller_id].log_input_ids = not self._controllers[controller_id].log_input_ids
+            self.controllers[controller_id].log_input_ids = not self.controllers[controller_id].log_input_ids
 
     def load_mappings_from_config(self):
         """Populates :py:attr:`mappings` from the entries in the DroneManager config."""
@@ -827,15 +827,43 @@ class ControllerPlugin(Plugin):
         if mapping_name not in self.mappings:
             self.logger.warning(f"Couldn't set mapping {mapping_name} for controller {controller_id}, no such mapping "
                                 f"loaded! Loaded mappings: {list(self.mappings.keys())}")
-        elif controller_id not in self._controllers:
+        elif controller_id not in self.controllers:
             self.logger.warning(f"Couldn't set mapping {mapping_name} for controller {controller_id}, no controller "
                                 f"with that ID!")
             await self.available_controllers()
-        elif self._controllers[controller_id].in_control:
+        elif self.controllers[controller_id].in_control:
             self.logger.warning("Couldn't set mapping as the controller is actively controlling a drone!")
         else:
-            self._controllers[controller_id].input_mapping = self.mappings[mapping_name]
+            self.controllers[controller_id].input_mapping = self.mappings[mapping_name]
             self.logger.info(f"Set mapping {mapping_name} for controller {controller_id}")
+
+    async def view_mapping(self, mapping_name: str):
+        if mapping_name not in self.mappings:
+            self.logger.warning(f"No mapping named {mapping_name}")
+        else:
+            mapping = self.mappings[mapping_name]
+            name_length = 20
+            rows = []
+            rows.append(f"    {'Action':<{name_length}.{name_length}} :  {'Input IDs'}")
+            rows.append("================================================")
+            for key, value in mapping.action_input_mapping().items():
+                rows.append(f"{key:<{name_length}.{name_length}} :  {value}")
+            bind_str = "\n    ".join(rows)
+            self.logger.info(f"Action binds for {mapping_name}:\n{bind_str}")
+
+    async def view_inputs(self, mapping_name: str):
+        if mapping_name not in self.mappings:
+            self.logger.warning(f"No mapping named {mapping_name}")
+        else:
+            mapping = self.mappings[mapping_name]
+            name_length = 20
+            rows = []
+            rows.append(f"    {'Input':<{name_length}.{name_length}} :  {'Actions IDs'}")
+            rows.append("================================================")
+            for key, value in mapping.input_action_mapping().items():
+                rows.append(f"{key:<{name_length}.{name_length}} :  {value}")
+            bind_str = "\n    ".join(rows)
+            self.logger.info(f"Input binds for {mapping_name}:\n{bind_str}")
 
     async def assign_drone(self, drone: str, controller_id: int):
         """Assign a drone to a controller.
@@ -845,9 +873,12 @@ class ControllerPlugin(Plugin):
             controller_id: The controller the drone will be assigned to.
         """
         if await self._can_assign_drone_controller(drone, controller_id):
-            controller = self._controllers[controller_id]
+            # Unassign from current controller if any.
+            if drone in self.drones:
+                self.drones[drone].drone = None
+            controller = self.controllers[controller_id]
             controller.drone = drone
-            self.drones[drone] = self._controllers[controller_id]
+            self.drones[drone] = self.controllers[controller_id]
             self.logger.info(f"Controller {controller_id} now set for drone {drone}!")
 
     async def _can_assign_drone_controller(self, drone: str, controller_id: int):
@@ -864,12 +895,12 @@ class ControllerPlugin(Plugin):
                                     f"controller {self.drones[drone].id}")
                 can_assign_drone = False
         # Check that the controller exists
-        if controller_id not in self._controllers:
+        if controller_id not in self.controllers:
             self.logger.warning(f"Can't assign controller {controller_id}, no such controller connected!")
             await self.available_controllers()
             can_assign_drone = False
         if can_assign_drone:
-            controller = self._controllers[controller_id]
+            controller = self.controllers[controller_id]
             # Check that the controller is not currently controlling a drone
             if controller.in_control:
                 self.logger.warning(f"Can't assign controller {controller_id}, as it is already controlling another "
@@ -927,15 +958,15 @@ class ControllerPlugin(Plugin):
                 for drone, controller in self.drones.items():
                     self._process_stick_inputs(drone)
                 # Log axis ids for controller with that enabled
-                for controller in self._controllers.values():
+                for controller in self.controllers.values():
                     if controller.log_input_ids:
                         self._log_input_ids(controller, counter)
                 # If auto_drone is True, there is one controller and there is one drone in drone manager, and we're not
                 # already controlling the drone, try to assign controller and drone automatically
-                if self.auto_assign and len(self.dm.drones) == 1 and len(self._controllers) == 1 \
+                if self.auto_assign and len(self.dm.drones) == 1 and len(self.controllers) == 1 \
                         and len(self.drones) == 0:
                     drone_name = list(self.dm.drones.keys())[0]
-                    controller_id, controller = list(self._controllers.items())[0]
+                    controller_id, controller = list(self.controllers.items())[0]
                     if await self._can_assign_drone_controller(drone_name, controller_id):
                         self.logger.info(f"Auto-assigning controller {controller_id} to drone {drone_name}")
                         assign_task = asyncio.create_task(self.assign_drone(drone_name, controller_id))
@@ -952,7 +983,7 @@ class ControllerPlugin(Plugin):
         for i in range(current_controllers):
             joystick = pygame.joystick.Joystick(i)
             cid = joystick.get_instance_id()
-            if cid not in self._controllers:
+            if cid not in self.controllers:
                 self.running_tasks.add(asyncio.create_task(self.add_controller(cid, joystick)))
 
     async def add_controller(self, controller_id: int, joystick: pygame.joystick.JoystickType):
@@ -975,7 +1006,7 @@ class ControllerPlugin(Plugin):
                 self.logger.warning(f"Controller {controller_id, controller.name} "
                                     f"has default mapping {mapping_name}, but that mapping isn't loaded! "
                                     f"Loaded mappings: {list(self.mappings.keys())}")
-        self._controllers[controller_id] = controller
+        self.controllers[controller_id] = controller
         if controller.input_mapping is None:
             self.logger.info(f"Connected to controller {controller.name}, no binding currently "
                              f"configured!")
@@ -1002,23 +1033,23 @@ class ControllerPlugin(Plugin):
         Args:
             controller_id: The ID of the controller to be removed.
         """
-        if controller_id not in self._controllers:
+        if controller_id not in self.controllers:
             self.logger.warning(f"Can't remove controller {controller_id}, no such controller!")
             await self.available_controllers()
         else:
-            controller = self._controllers[controller_id]
+            controller = self.controllers[controller_id]
             if controller.in_control:
                 self.logger.warning(f"Can't remove controller {controller_id}, as it is controlling drone "
                                     f"{controller.drone}!")
             else:
                 # Remove the controller
-                controller = self._controllers.pop(controller_id)
+                controller = self.controllers.pop(controller_id)
                 if controller.drone is not None:
                     self.drones.pop(controller.drone, None)
                 controller.joystick.quit()
 
     async def _force_remove_controller(self, controller_id: int):
-        controller = self._controllers[controller_id]
+        controller = self.controllers[controller_id]
         if controller.in_control:
             await self._release_control(controller_id)
         await self.remove_controller(controller_id)
@@ -1102,9 +1133,9 @@ class ControllerPlugin(Plugin):
                     if event.type in self._relevant_events:
                         event_dict = event.dict
                         if "instance_id" in event_dict \
-                                and event_dict["instance_id"] in self._controllers.keys():
+                                and event_dict["instance_id"] in self.controllers.keys():
                             controller_id = event_dict["instance_id"]
-                            controller = self._controllers[controller_id]
+                            controller = self.controllers[controller_id]
                             # Button presses
                             if event.type in [pygame.JOYBUTTONDOWN, pygame.JOYBUTTONUP]:
                                 released = event.type == pygame.JOYBUTTONUP
@@ -1139,11 +1170,7 @@ class ControllerPlugin(Plugin):
                                 if controller.log_input_ids and event.type != pygame.JOYAXISMOTION:
                                     self.logger.info(f"Event ID: {event.type}, entries: {event_dict}")
                         else:
-                            if event.type == pygame.JOYDEVICEADDED:
-                                # No need to do anything, discovery already does this.
-                                pass
-                            else:
-                                self.logger.debug(f"{event.type}, {event_dict}")
+                            self.logger.debug(f"{event.type}, {event_dict}")
             except Exception as e:
                 self.logger.warning("Exception processing controller event!")
                 self.logger.debug(repr(e), exc_info=True)
@@ -1229,7 +1256,7 @@ class ControllerPlugin(Plugin):
         Raises:
             NotImplementedError: When trying to fly with unsupported control modes.
         """
-        controller = self._controllers[controller_id]
+        controller = self.controllers[controller_id]
         if controller.drone is None:
             self.logger.warning(f"Can't take control, no drone assigned to controller {controller_id}!")
         elif not self.dm.drones[controller.drone].is_connected:
@@ -1248,7 +1275,7 @@ class ControllerPlugin(Plugin):
         Args:
             controller_id: The controller which is releasing control.
         """
-        controller = self._controllers[controller_id]
+        controller = self.controllers[controller_id]
         controller.in_control = False
         await self.dm.change_flightmode(controller.drone, "hold")
         self.logger.info(f"Controller {controller_id} released control of {controller.drone}.")
@@ -1271,7 +1298,7 @@ class ControllerPlugin(Plugin):
 
         Disconnects all controllers and stops pygame.
         """
-        for _, controller in self._controllers.items():
+        for _, controller in self.controllers.items():
             controller.joystick.quit()
         pygame.quit()
         await super().close()

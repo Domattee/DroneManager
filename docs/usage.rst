@@ -35,6 +35,7 @@ To connect to the simulated drone with DroneManager, click on the command line a
 
 This creates a new drone object, assigns it the name ``tom`` and tries to connect to a MAVLink Node with the given
 connection string. You can provide any name, it will be used to identify the drone in other commands.
+Other parameters allow arbitrary connection strings, setting telemetry frequency and more!
 
 .. note::
    Typing any command with ``--help`` or ``-h`` prints a help string for that command.
@@ -42,7 +43,8 @@ connection string. You can provide any name, it will be used to identify the dro
 .. note::
    As a convenience feature, we provide a config file in which drone names and their connection string as well as other
    parameters may be saved. When entered with a name from this config file, the connect function will use the parameters
-   from the file unless overridden in the command line.
+   from the file unless overridden in the command line. By default this file is located in the users Documents folder.
+   You can view the location by entering ``logs`` in the CLI.
 
 After a short moment, you should see text pop in on the status pane showing information for our newly connected drone.
 
