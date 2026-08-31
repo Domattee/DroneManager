@@ -158,12 +158,23 @@ def cmd_repl(link, args):
 def cmd_pull(args):
     """rsync the session off the drone. Separate from the command protocol on
     purpose: bulk transfer belongs to a tool built for it, not to a JSON line
-    protocol, and rsync resumes."""
-    if not shutil.which("rsync"):
-        raise SystemExit("rsync not found; use scp -r manually")
-    src = f"{args.user}@{args.host}:{args.remote_root}/{args.name}/"
+    protocol, and rsync resumes.
+
+    Windows ground stations ship no rsync, and step 6 of the field procedure
+    pulls a session while still on site, so a missing rsync falls back to scp
+    rather than aborting. Same bytes; it just cannot resume a partial transfer.
+    """
+    src = f"{args.user}@{args.host}:{args.remote_root}/{args.name}"
     os.makedirs(args.dest, exist_ok=True)
-    cmd = ["rsync", "-a", "--partial", "--info=progress2", src, args.dest]
+    if shutil.which("rsync"):
+        cmd = ["rsync", "-a", "--partial", "--info=progress2",
+               src + "/", args.dest]
+    elif shutil.which("scp"):
+        # The trailing `/.` copies the directory CONTENTS into dest, matching
+        # rsync's trailing slash. Plain `src` would nest it as dest/<name>/.
+        cmd = ["scp", "-r", "-p", src + "/.", args.dest]
+    else:
+        raise SystemExit("neither rsync nor scp found on PATH")
     print(" ".join(cmd))
     return subprocess.call(cmd)
 
