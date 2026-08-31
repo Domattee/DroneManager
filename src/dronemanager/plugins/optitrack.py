@@ -163,7 +163,7 @@ class OptitrackPlugin(Plugin):
             Whether we connected to the server or not.
         """
         if self.client is not None:
-            self.logger.warning("Already connected to a NatNetserver, aborting.")
+            self.logger.warning("Already connected to a NatNet server, aborting.")
             return False
         if remote is not None:
             self.server_ip = remote
