@@ -185,13 +185,13 @@ class UDPPlugin(Plugin):
             for mission_name in self.dm.mission.missions:
                 mission = self.dm.mission.missions[mission_name]
                 mission_data[mission.PREFIX] = {
-                    "flightarea": mission.flight_area.boundary_list() if mission.flight_area is not None else None,
+                    "flightarea": mission.flight_area.bounding_box() if mission.flight_area is not None else None,
                     "stage": mission.current_stage.name if mission.current_stage is not None else None,
                     "drones": list(mission.drones.keys()),
                 }
-                for info, func in mission.additional_info.items():
+                for info, item in mission.additional_info.items():
                     try:
-                        mission_data[mission.PREFIX][info] = func()
+                        mission_data[mission.PREFIX][info] = item
                     except Exception as e:
                         self.logger.warning("Couldn't collect all mission information to send out due to an exception!")
                         self.logger.debug(repr(e), exc_info=True)

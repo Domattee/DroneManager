@@ -4,29 +4,36 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "DroneManager"
-version = "0.4"
+version = "0.6.2"
 authors = [
     {name="Dominik Mattern", email="dominik.mattern@thi.de"},
+    {name="Konstantin Bake", email="konstantin.bake@thi.de"},
     {name="Babak Salamat", email="babak.salamat@thi.de"},
     {name="Tim Drouven", email="tim.drouven@thi.de"}, ]
 description = "Package to connect to and control multiple drones, either programmatically or using a CLI."
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
-    "numpy<2",
-    "textual==2.1.2",
+    "numpy",
+    "textual==8.2.*",
     "rich",
-    "mavsdk==3.0.1",
+    "mavsdk==3.17.*",
     "pymavlink",
-    "pygame",
+    "pygame-ce",
     "haversine",
     "scipy",
     "requests",
-    "ruckig",
+    "ruckig>=0.19.4",
     "opencv-python"]
 classifiers = [
     "Programming Language :: Python :: 3",
     "Operating System :: OS Independent", ]
+license = "Apache-2.0"
+license-files = ["LICENSE"]
+
+[project.urls]
+Repository = "https://github.com/AImotion-Bavaria/DroneManager"
+Documentation = "https://dronemanager.readthedocs.io/en/latest/"
 
 [project.scripts]
 dm = "dronemanager.app:main"
@@ -35,3 +42,6 @@ dm = "dronemanager.app:main"
 docs = [
     "sphinx",
     "sphinx_rtd_theme"]
+
+[tool.setuptools.package-data]
+dronemanager = ["resources/*"]

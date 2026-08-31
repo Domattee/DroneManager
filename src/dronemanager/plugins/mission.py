@@ -1,107 +1,10 @@
 import abc
-import asyncio
 import collections
 import enum
-from pathlib import Path
-import importlib
-import inspect
+import pathlib
 
-from dronemanager.plugin import Plugin
-
-
-class MissionPlugin(Plugin):
-    PREFIX = "mission"
-
-    def __init__(self, dm, logger, name):
-        super().__init__(dm, logger, name)
-        self.cli_commands = {
-            "load": self.load,
-            "status": self.status,
-        }
-        self.missions: dict[str, Mission] = {}
-
-    async def close(self):
-        """ Stop all missions.
-
-        :return:
-        """
-        await asyncio.gather(*[mission.close() for mission in list(self.missions.values())])
-        await super().close()
-
-    def mission_options(self):
-        # Go through every file in mission folder
-        _base_dir = Path(__file__).parent.parent
-        _plugin_dir = _base_dir.joinpath("missions")
-        modules = [name.stem for name in _plugin_dir.iterdir()
-                   if name.is_file() and name.suffix == ".py" and not name.stem.startswith("_")]
-        return modules
-
-    def _get_mission_class(self, module) -> None | type:
-        try:
-            plugin_mod = importlib.import_module("." + module, "dronemanager.missions")
-            plugin_classes = [member[1] for member in inspect.getmembers(plugin_mod, inspect.isclass)
-                              if issubclass(member[1], Mission)
-                              and not member[1] is Mission]  # Strict subclass check
-            if len(plugin_classes) != 1:
-                return None
-            return plugin_classes[0]
-        except ImportError as e:
-            self.logger.error(f"Couldn't load mission {module} due to a python import error!")
-            self.logger.debug(repr(e), exc_info=True)
-
-    async def load(self, mission_module: str, name: str | None = None):
-        """ Load a new mission, which work like plugins with the name taking the role of the prefix.
-        """
-        mission = await self.dm.load_plugin(mission_module, name, self.mission_options(), self._get_mission_class)
-        if mission:
-            self.missions[mission.name] = mission
-        return mission
-
-    async def status(self):
-        """ Status of running missions and missions that could be loaded."""
-        self.logger.info("Status of running missions:")
-        for mission in self.missions.values():
-            await mission.status()
-        if len(self.missions) == 0:
-            self.logger.info("No running missions!")
-        self.logger.info(f"Available missions for loading: {self.mission_options()}")
-
-
-class MissionStage(enum.Enum):
-    pass
-
-
-class FlightArea(abc.ABC):
-    def __init__(self, *args, **kwargs):
-        pass
-
-    @property
-    @abc.abstractmethod
-    def x_min(self):
-        pass
-
-    @property
-    @abc.abstractmethod
-    def x_max(self):
-        pass
-
-    @property
-    @abc.abstractmethod
-    def y_min(self):
-        pass
-
-    @property
-    @abc.abstractmethod
-    def y_max(self):
-        pass
-
-    @property
-    @abc.abstractmethod
-    def alt_max(self):
-        pass
-
-    def boundary_list(self):
-        return [self.x_min, self.x_max, self.y_min, self.y_max, self.alt_max]
+from dronemanager.plugin import Plugin, MetaPlugin
+from dronemanager.utils import DM_INSTALL_DIR, SRC_DIR
 
 
 class Mission(Plugin, abc.ABC):
@@ -170,3 +73,91 @@ class Mission(Plugin, abc.ABC):
     async def mission_ready(self, drone: str):
         """ Check whether any given drone is ready to keep going, i.e. is still connected etc. """
         raise NotImplementedError
+
+
+class MissionStage(enum.Enum):
+    pass
+
+
+class FlightArea(abc.ABC):
+    def __init__(self, *args, **kwargs):
+        pass
+
+    @property
+    @abc.abstractmethod
+    def x_min(self):
+        pass
+
+    @property
+    @abc.abstractmethod
+    def x_max(self):
+        pass
+
+    @property
+    @abc.abstractmethod
+    def y_min(self):
+        pass
+
+    @property
+    @abc.abstractmethod
+    def y_max(self):
+        pass
+
+    @property
+    @abc.abstractmethod
+    def z_min(self):
+        pass
+
+    @property
+    @abc.abstractmethod
+    def z_max(self):
+        pass
+
+    def bounding_box(self):
+        return [self.x_min, self.x_max, self.y_min, self.y_max, self.z_min, self.z_max]
+
+
+class MissionPlugin(MetaPlugin):
+
+    EXAMPLE_DIR: pathlib.Path = SRC_DIR.joinpath("missions")
+    """Directory in the source tree with example modules.
+
+    :meta hide-value:"""
+
+    USER_DIR: pathlib.Path = DM_INSTALL_DIR.joinpath("missions")
+    """Directory in the DroneManager install directory where the sub-plugins should be located.
+
+    :meta hide-value:"""
+
+    VALID_CLASS_SUFFIX: str = "Mission"
+    """Valid sub-plugins must have class names ending with this string.
+
+    :meta hide-value:"""
+
+    NAMESPACE: str = "missions"
+    """Modules with subplugins have this prepended to their import to reduce collisions.
+
+    :meta hide-value:"""
+
+    SUBTYPE: type = Mission
+    """The type that subplugins must subclass to be valid.
+
+    :meta hide-value:"""
+
+    PREFIX = "mission"
+
+    def __init__(self, dm, logger, name):
+        super().__init__(dm, logger, name)
+        self.cli_commands = {
+            "load": self.load,
+            "status": self.status,
+        }
+
+    async def status(self):
+        """ Status of running missions and missions that could be loaded."""
+        self.logger.info("Status of running missions:")
+        for mission in self._loaded:
+            await getattr(self, mission).status()
+        if len(self._loaded) == 0:
+            self.logger.info("No running missions!")
+        self.logger.info(f"Available missions for loading: {self.plugin_options()}")

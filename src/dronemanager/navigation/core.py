@@ -1,4 +1,6 @@
 import asyncio
+import logging
+
 import numpy as np
 from abc import ABC, abstractmethod
 from enum import Enum, auto
@@ -26,7 +28,7 @@ class Waypoint:
                  yaw: float | None = None,
                  yaw_rate: float | None = None,):
         # Internal data structure, form [x, y, z, xvel, yvel, zvel, xacc, yacc, zacc, lat, long, amsl, yaw, yaw_rate]
-        self._array: np.ndarray[float] = np.empty((14,))
+        self._array: np.ndarray = np.empty((14,), dtype=np.float64)
 
         self._array[:3] = pos
         self._array[3:6] = vel
@@ -96,9 +98,9 @@ class Waypoint:
     def heading_gps(self, other: "Waypoint"):
         return heading_gps(self.gps, other.gps)
 
-    def shift_gps(self, north: float, east: float, up: float) -> "Waypoint":
-        """Returns a new waypoint, offset by north, east and up from this waypoint. Note that the yaw is kept."""
-        new_gps = relative_gps(north, east, up, *self.gps)
+    def shift_gps(self, north: float, east: float, down: float) -> "Waypoint":
+        """Returns a new waypoint, offset by north, east and down from this waypoint. Note that the yaw is kept."""
+        new_gps = relative_gps(self.gps, [north, east, down])
         return Waypoint(WayPointType.POS_GLOBAL, gps=np.asarray(new_gps), yaw=self.yaw)
 
     def offset_gps(self, initial: "Waypoint", target: "Waypoint"):
@@ -112,8 +114,8 @@ class Fence(ABC):
     """ Abstract base class for geo-fence type classes and methods.
 
     """
-    def __init__(self, logger, *args, **kwargs):
-        self.logger = logger
+    def __init__(self, *args, **kwargs):
+        self.logger = logging.getLogger("Manager.Fence")
         self.active = True
 
     @abstractmethod
@@ -252,8 +254,9 @@ class PathFollower(ABC):
     async def follow(self):
         """ Follows waypoints produced from a path generator by sending setpoints to the drone FC.
 
-        Requests a new waypoint from the TG when get_next_waypoint returns True. If the PG does not produce a waypoint,
-        holds position instead.
+        Requests a new waypoint from the PathGenerator when get_next_waypoint returns True. If the PG does not produce
+        a waypoint, holds position instead.
+
         :return:
         """
         # Use current position as dummy waypoint in case og bugs in get_next_waypoint function or similar

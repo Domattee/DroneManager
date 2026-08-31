@@ -1,75 +1,20 @@
-""" Plugin and ABC for external sensors, such as weather sensors."""
-import asyncio
+""" Plugin and abstract base class for external sensors, such as weather sensors.
+
+They're specifically for plugins that connect to and sporadically query some external data source.
+
+Similar to missions, these are a special type of plugin with extra functions to support their intended purpose.
+The core extra component is the :py:meth:`~dronemanager.plugins.sensor.Sensor.get_data` function, which should
+return whatever data the sensor provides.
+Like missions, sensor modules go into their own special folder ``sensors``. Each sensor module can contain exactly one
+specific sensor plugin, which must subclass :py:class:`~dronemanager.plugins.sensor.Sensor` and end with "Sensor"
+
+Note that sensors are not callback based, so data sources that should be processed continuously should not be
+implemented as a sensor."""
 import abc
-import importlib
-import inspect
-from pathlib import Path
+import pathlib
 
-from dronemanager.plugin import Plugin
-
-# TODO: A check which sensors could actually be connected. Check functions must return quick or be executed in
-#  another process.
-
-
-class SensorPlugin(Plugin):
-    PREFIX = "sensor"
-
-    def __init__(self, dm, logger, name):
-        super().__init__(dm, logger, name)
-        self.cli_commands = {
-            "load": self.load,
-            "status": self.status,
-        }
-        self.sensors: dict[str, Sensor] = {}
-
-    async def close(self):
-        """ Stop all missions.
-
-        :return:
-        """
-        await asyncio.gather(*[sensor.close() for sensor in list(self.sensors.values())])
-        await super().close()
-
-    def sensor_options(self):
-        # Go through every file in mission folder
-        _base_dir = Path(__file__).parent.parent
-        _plugin_dir = _base_dir.joinpath("sensors")
-        modules = [name.stem for name in _plugin_dir.iterdir()
-                   if name.is_file() and name.suffix == ".py" and not name.stem.startswith("_")]
-        return modules
-
-    def _get_sensor_class(self, module) -> None | type:
-        try:
-            plugin_mod = importlib.import_module("." + module, "dronemanager.sensors")
-            plugin_classes = [member[1] for member in inspect.getmembers(plugin_mod, inspect.isclass)
-                              if issubclass(member[1], Sensor)
-                              and not member[1] is Sensor]  # Strict subclass check
-            if len(plugin_classes) != 1:
-                return None
-            return plugin_classes[0]
-        except ImportError as e:
-            self.logger.error(f"Couldn't load mission {module} due to a python import error!")
-            self.logger.debug(repr(e), exc_info=True)
-            return None
-
-    async def load(self, mission_module: str, name: str | None = None):
-        """ Load a new sensor, which work like plugins with the name taking the role of the prefix.
-
-        :return:
-        """
-        sensor = await self.dm.load_plugin(mission_module, name, self.sensor_options(), self._get_sensor_class)
-        if sensor:
-            self.sensors[name] = sensor
-        return sensor
-
-    async def status(self):
-        """ Status of running missions and missions that could be loaded."""
-        self.logger.info("Status of currently connected sensors:")
-        for sensor in self.sensors.values():
-            await sensor.status()
-        if len(self.sensors) == 0:
-            self.logger.info("No connected sensors!")
-        self.logger.info(f"Available sensor plugins for loading: {self.sensor_options()}")
+from dronemanager.plugin import Plugin, MetaPlugin
+from dronemanager.utils import SRC_DIR, DM_INSTALL_DIR
 
 
 class Sensor(Plugin, abc.ABC):
@@ -131,3 +76,58 @@ class Sensor(Plugin, abc.ABC):
     async def reconnect(self):
         await self.disconnect()
         await self.connect(*self.connect_args, **self.connect_kwargs)
+
+
+class SensorPlugin(MetaPlugin):
+    """ This plugin handles loading and management of sensor plugins.
+
+    Only supports two CLI commands:
+
+    * ``load``: Load a new sensor, optionally with a custom name to have multiple sensors of the same type
+    * ``status``: Log information about currently loaded sensors, by calling
+      :py:meth:`Sensor.status() <dronemanager.plugins.sensor.Sensor.status>`
+    """
+
+    EXAMPLE_DIR: pathlib.Path = SRC_DIR.joinpath("sensors")
+    """Directory in the source tree with example modules.
+
+    :meta hide-value:"""
+
+    USER_DIR: pathlib.Path = DM_INSTALL_DIR.joinpath("sensors")
+    """Directory in the DroneManager install directory where the sub-plugins should be located.
+
+    :meta hide-value:"""
+
+    VALID_CLASS_SUFFIX: str = "Sensor"
+    """Valid sub-plugins must have class names ending with this string.
+
+    :meta hide-value:"""
+
+    NAMESPACE: str = "sensors"
+    """Modules with sub-plugins have this prepended to their import to reduce collisions.
+
+    :meta hide-value:"""
+
+    SUBTYPE: type = Sensor
+    """The type that sub-plugins must subclass to be valid.
+
+    :meta hide-value:"""
+
+    PREFIX: str = "sensor"
+    """ PREFIX: (class attribute) The prefix for the CLI commands, "sensor" by default."""
+
+    def __init__(self, dm, logger, name):
+        super().__init__(dm, logger, name)
+        self.cli_commands = {
+            "load": self.load,
+            "status": self.status,
+        }
+
+    async def status(self):
+        """ Status of loaded sensors and sensors that could be loaded."""
+        self.logger.info("Status of loaded sensors:")
+        for sensor in self._loaded:
+            await getattr(self, sensor).status()
+        if len(self._loaded) == 0:
+            self.logger.info("No loaded sensors!")
+        self.logger.info(f"Available sensors for loading: {self.plugin_options()}")

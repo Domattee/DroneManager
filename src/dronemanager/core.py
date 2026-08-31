@@ -1,27 +1,26 @@
 import asyncio
 import datetime
-import inspect
 import os
 import socket
 import sys
 import json
 import copy
-from pathlib import Path
 import typing
-import importlib
 from collections.abc import Collection
 from asyncio.exceptions import TimeoutError, CancelledError
 
+import traceback
+from typing import Callable
+
+import dronemanager
 from dronemanager.drone import Drone, parse_address, DroneConfigs, DroneConfig
 from dronemanager.navigation.rectlocalfence import RectLocalFence
-from dronemanager.utils import common_formatter, get_free_port, LOG_DIR
-from dronemanager.navigation.core import Waypoint
-from dronemanager.plugin import Plugin
+from dronemanager.utils import COMMON_FORMATTER, get_free_port, LOG_DIR, get_config
+from dronemanager.navigation.core import Waypoint, Fence
+from dronemanager.plugin import PluginLoader
 
 import logging
 
-
-CONFIG_FILE = Path(__file__).parent.parent.parent.joinpath("config.json")
 
 # TODO: Fence class discovery
 FENCES = {
@@ -110,11 +109,7 @@ class DroneManager:
         self._on_drone_removal_coros = set()
         self._on_drone_connect_coros = set()
 
-        self._on_plugin_load_coros = set()
-        self._on_plugin_unload_coros = set()
-        self.plugins: set[str] = set()
-
-        self.config = DMConfig.from_file(CONFIG_FILE.as_posix())
+        self.config = DMConfig.from_file(get_config().as_posix())
         self.drone_configs = self.config.drone_configs
 
         self.system_id = self.config.mav_system_id
@@ -128,7 +123,7 @@ class DroneManager:
             os.makedirs(LOG_DIR, exist_ok=True)
             file_handler = logging.FileHandler(os.path.join(LOG_DIR, filename))
             file_handler.setLevel(logging.DEBUG)
-            file_handler.setFormatter(common_formatter)
+            file_handler.setFormatter(COMMON_FORMATTER)
             self.logger.addHandler(file_handler)
         else:
             self.logger = logger
@@ -136,8 +131,11 @@ class DroneManager:
         if log_to_console:
             console_handler = logging.StreamHandler(sys.stdout)
             console_handler.setLevel(console_log_level)
-            console_handler.setFormatter(common_formatter)
+            console_handler.setFormatter(COMMON_FORMATTER)
             self.logger.addHandler(console_handler)
+
+        self.plugin_loader = PluginLoader(self, self.logger, "PluginLoader")
+        self.logger.info(f"Starting DroneManager version {dronemanager.__version__}")
 
     async def connect_to_drone(self,
                                name: str,
@@ -325,6 +323,8 @@ class DroneManager:
             for i, result in enumerate(results):
                 if isinstance(result, Exception):
                     self.logger.error(f"Drone {names[i]} failed due to: {repr(result)}")
+                    exc_tb = traceback.format_exception(result)
+                    self.logger.debug("".join(exc_tb))
             return results
         except KeyError:
             self.logger.warning(f"No drones named {[name for name in names if name not in self.drones]}!")
@@ -340,9 +340,9 @@ class DroneManager:
         return await self._multiple_drone_action(self.drone_class.disarm, names,
                                                  "Disarming drone(s) {}.", schedule=schedule)
 
-    async def takeoff(self, names: str | Collection[str], altitude=2.0, schedule=False):
+    async def takeoff(self, names: str | Collection[str], altitude=2.0, schedule=False, allow_in_air=True):
         return await self._multiple_drone_action(self.drone_class.takeoff, names,
-                                                 "Takeoff for Drone(s) {}.", altitude, schedule=schedule)
+                                                 "Takeoff for Drone(s) {}.", altitude, schedule=schedule, allow_in_air=allow_in_air)
 
     async def change_flightmode(self, names: str | Collection[str], flightmode: str, schedule=False):
         await self._multiple_drone_action(self.drone_class.change_flight_mode,
@@ -354,14 +354,14 @@ class DroneManager:
         await self._multiple_drone_action(self.drone_class.land, names,
                                           "Landing drone(s) {}.", schedule=schedule)
 
-    def set_fence(self, names: str | Collection[str], n_lower, n_upper, e_lower, e_upper, down_lower, down_upper, safety_level):
+    def set_fence(self, names: str | Collection[str], fence: Fence):
         """ Set a fence on drones"""
         if isinstance(names, str):
             names = [names]
         try:
             for name in names:
                 try:
-                    self.drones[name].set_fence(RectLocalFence, n_lower, n_upper, e_lower, e_upper, down_lower, down_upper, safety_level)
+                    self.drones[name].fence = fence
                     self.logger.info(f"Set fence {self.drones[name].fence} on {name}")
                 except KeyError:
                     self.logger.warning(f"No drone named {name}!")
@@ -524,121 +524,35 @@ class DroneManager:
         self._on_drone_connect_coros.add(func)
 
     async def close(self):
-        for plugin in list(self.plugins):
-            await self.unload_plugin(plugin)
         await self.disconnect(self.drones)
+        await self.plugin_loader.close()
 
 # PLUGINS ##############################################################################################################
 
+    @property
     def plugin_options(self):
-        # Go through every file in plugins folder
-        _base_dir = Path(__file__).parent
-        _plugin_dir = _base_dir.joinpath("plugins")
-        modules = [name.stem for name in _plugin_dir.iterdir()
-                   if name.is_file() and name.suffix == ".py" and not name.stem.startswith("_")]
-        return modules
+        return self.plugin_loader.plugin_options()
 
-    def _get_plugin_class(self, module) -> type[Plugin]:
-        try:
-            plugin_mod = importlib.import_module("." + module, "dronemanager.plugins")
-            plugin_classes = [member[1] for member in inspect.getmembers(plugin_mod, inspect.isclass)
-                              if issubclass(member[1], Plugin) and not member[1] is Plugin  # Strict subclass check
-                              and member[1].__name__.endswith("Plugin")]  # Only load plugins
-            if len(plugin_classes) != 1:
-                raise RuntimeWarning(f"Too many plugin classes in the module {module}!")
-            return plugin_classes[0]
-        except ImportError as e:
-            self.logger.error(f"Couldn't load plugin {module} due to a python import error!")
-            self.logger.debug(repr(e), exc_info=True)
+    @property
+    def plugins(self):
+        return self.plugin_loader.loaded
 
-    def currently_loaded_plugins(self):
-        return self.plugins
+    def add_plugin_load_coro(self, func: Callable):
+        """Func should be a naked coroutine."""
+        self.plugin_loader.ON_LOAD_COROS.add(func)
 
-    def add_plugin_load_func(self, func):
-        self._on_plugin_load_coros.add(func)
+    def remove_plugin_load_coro(self, func: Callable):
+        """Func should be a naked coroutine."""
+        self.plugin_loader.ON_LOAD_COROS.remove(func)
 
-    def add_plugin_unload_func(self, func):
-        self._on_drone_connect_coros.add(func)
+    def add_plugin_unload_coro(self, func: Callable):
+        self.plugin_loader.ON_UNLOAD_COROS.add(func)
 
-    async def load_plugin(self, plugin_module: str, plugin_name: str | None = None, options: list[str] | None = None,
-                          class_getter: callable = None):
-        plugin = None
-        if plugin_name is None:
-            plugin_name = plugin_module
-        if options is None:
-            options = self.plugin_options()
-        if class_getter is None:
-            class_getter = self._get_plugin_class
-        try:
-            # Basic checks that we can even try to load this plugin
-            if hasattr(self, plugin_name):
-                raise RuntimeError(f"Can't load plugin {plugin_module} with name {plugin_name} due to possible name "
-                                   f"collision with an existing attribute! Rename the plugin.")
-            if plugin_name in self.plugins:
-                self.logger.warning(f"Plugin {plugin_name} already loaded!")
-                return False
-            if plugin_module not in options:
-                self.logger.warning(f"No plugin '{plugin_name}' found!")
-                return False
+    def remove_plugin_unload_coro(self, func: Callable):
+        self.plugin_loader.ON_UNLOAD_COROS.remove(func)
 
-            self.logger.info(f"Loading plugin {plugin_name}...")
-            plugin = None
-            try:
-                plugin_class = await asyncio.get_running_loop().run_in_executor(None, class_getter, plugin_module)
-                if not plugin_class:
-                    self.logger.error(f"Module {plugin_name} contains no or multiple plugins, which is currently not "
-                                      f"supported!")
-                    return False
-                for dependency in plugin_class.DEPENDENCIES:
-                    deps = dependency.split(".")
-                    if len(deps) == 2:
-                        dep1, dep2 = deps
-                        plugin1 = await self.load_plugin(dep1)
-                        subplugin = await plugin1.load(dep2)
-                    elif len(deps) == 1:
-                        if dependency not in self.plugins:
-                            await self.load_plugin(dependency)
-                    else:
-                        self.logger.warning("Nested dependencies are only supported to the first level, i.e. one dot.")
-                if plugin_name in self.config.plugin_settings:
-                    kwargs = self.config.plugin_settings[plugin_name]
-                else:
-                    kwargs = {}
-                plugin = plugin_class(self, self.logger, plugin_name, **kwargs)
-                setattr(self, plugin_name, plugin)
-                self.plugins.add(plugin_name)
-                await plugin.start()
-            except Exception as e:
-                self.logger.error(f"Couldn't load plugin {plugin_name} due to an exception!")
-                self.logger.debug(repr(e), exc_info=True)
-                if plugin is not None:
-                    await plugin.close()
-                if hasattr(self, plugin_name):
-                    delattr(self, plugin_name)
-                if plugin_name in self.plugins:
-                    self.plugins.remove(plugin_name)
-                return False
-            self.logger.debug(f"Performing callbacks for plugin loading...")
-            for func in self._on_plugin_load_coros:
-                res = await asyncio.create_task(func(plugin_name, plugin))
-                if isinstance(res, Exception):
-                    self.logger.warning("Couldn't perform a callback for this plugin!")
-            self.logger.info(f"Completed loading Plugin {plugin_name}!")
-        except Exception as e:
-            self.logger.error(repr(e), exc_info=True)
-        return plugin
+    async def load(self, plugin_module: str, plugin_name: str | None = None):
+        return await self.plugin_loader.load(plugin_module, plugin_name)
 
-    async def unload_plugin(self, plugin_name):
-        if plugin_name not in self.plugins:
-            self.logger.warning(f"No plugin named {plugin_name} loaded!")
-            return False
-        self.logger.info(f"Unloading plugin {plugin_name}")
-        self.plugins.remove(plugin_name)
-        plugin = getattr(self, plugin_name)
-        unload_tasks = set()
-        for func in self._on_plugin_unload_coros:
-            unload_tasks.add(func(plugin_name, plugin))
-        await asyncio.gather(*unload_tasks, return_exceptions=True)
-        await plugin.close()
-        delattr(self, plugin_name)
-        return True
+    async def unload_plugin(self, plugin_name: str):
+        return await self.plugin_loader.unload(plugin_name)

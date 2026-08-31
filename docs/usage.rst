@@ -18,7 +18,8 @@ DroneManager instance and terminal interface.
 
 The interface is split into three components:
 
-- A log pane on the left that shows messages, confirmations and warnings.
+- A log pane on the left that shows messages, confirmations and warnings. This and extra information is also written to
+  a log file. You can check the location by entering ``logs`` in the CLI.
 - A status pane on the right that shows key information for any connected drones, such as the position.
 - A command line on the bottom, which is the main way to interact with drone manager.
 
@@ -37,7 +38,6 @@ connection string. You can provide any name, it will be used to identify the dro
 
 .. note::
    Typing any command with ``--help`` or ``-h`` prints a help string for that command.
-   Also, a reference sheet with all default commands and their options is at the :ref:`bottom of this page <com_ref>`.
 
 .. note::
    As a convenience feature, we provide a config file in which drone names and their connection string as well as other
@@ -134,10 +134,10 @@ Script usage
 ------------
 
 DroneManager can also be used without the terminal interface. For example, the following code will create a DM
-instance, connects to a drone and performs some basic maneuvers::
+instance, connect to a drone and perform some basic maneuvers::
 
     import asyncio
-    from dronemanager.dronemanager import DroneManager
+    from dronemanager.core import DroneManager
     from dronemanager.drone import DroneMAVSDK
 
     async def main():
@@ -168,7 +168,8 @@ This is a showcase demo where three drones look for a POI and start continuously
 To run it, you will need three drones, preferably running PX4, a dummy object of interest and a 7 x 3 x 3 meter area 
 where you can fly multiple drones with high precision.
 We ran this demo in an indoor environment with an OptiTrack system for positioning. Each drone was configured to
-communicate on a separate port, see :ref:`common issues <connection_issues>`. The setup instructions for real drones below assume a similar setup.
+communicate on a separate port, see :ref:`common issues <connection_issues>`. The setup instructions for real drones
+below assume a similar setup.
 
 If you don't have an indoor flying set up ready to go, we suggest going outside and using GPS instead. The setup will 
 have to be modified to allow for positioning errors from GPS by increasing the flight area significantly, at least triple.
@@ -206,10 +207,13 @@ thus must be started at the same location.
 
 1. Boot up DroneManager
 2. Load the mission scripts: ``mission-load uam``
-3. Start a single gazebo drone using ``TODO`` and connect to it with DroneManager.
+3. Start a single gazebo drone using
+   ``PX4_SYS_AUTOSTART=4001 PX4_SIM_MODEL=gz_x500 PX4_GZ_MODEL_POSE="0,0" ./build/px4_sitl_default/bin/px4 -i 0`` and
+   connect to it with DroneManager.
 4. Add the drone to the mission with ``uam-add <name>``.
 5. Move the drone to its start position with ``uam-reset``.
-6. Repeat steps 3 through 5 for two more drones, incrementing TODO each time. Don't disconnect or remove the drones that
+6. Repeat steps 3 through 5 for two more drones, incrementing the ``-i`` argument each time.
+   Do not adjust the ``MODEL_POSE`` argument. Don't disconnect or remove the drones that
    are already set up. For each subsequent drone, all the drones will reshuffle to their new start positions in
    sequence.
 7. Check that each drone reports the correct position in DroneManager. The first drone should be at (3, -1.25), the
@@ -238,7 +242,40 @@ With the drones connected and all the scripts loaded you can begin flying missio
 Configuration file
 ------------------
 
-TODO: Config file
+To prevent having to reenter commands constantly, a number of DroneManagers aspects can be adjusted permanently with the
+``config.json`` file. To view the location of the configuration file, either enter "config" in the CLI or check the
+value of the CONFIG_FILE attribute in utils.
+
+The config file has three main components. The first are parameters for DroneManager itself, such as the
+MAVLink system ID, or the plugins that are automatically loaded on startup. Second is a list of plugin settings.
+This entry lists each plugin and a series of parameters which are passed to the plugin when it is initialized.
+The final component is a list of drones and parameters for them::
+
+    {
+      "drone_name": "tom",                    # Drone name, must match connection command
+      "address": "udp://192.168.1.31:14561",  # Connection string,
+      "position_rate": 5.0,                   # Request position/attitude, etc telemetry at this frequency
+      "max_h_vel": 10.0,                      # This parameter and below define speed, acceleration and jerk limits
+      "max_down_vel": 1.0,
+      "max_up_vel": 3.0,
+      "max_h_acc": 1.5,
+      "max_v_acc": 0.5,
+      "max_h_jerk": 0.5,
+      "max_v_jerk": 0.5,
+      "max_yaw_vel": 60,
+      "max_yaw_acc": 30,
+      "max_yaw_jerk": 30,
+      "log_telemetry": false,                 # Whether to log every MAVLink message. Somewhat slow.
+      "rtsp": "rtsp://192.168.1.31:8900/live",  # RTSP Stream information, currently not used.
+      "size": 1.0                             # The size of the drone. Currently not used.
+    }
+
+These parameters are used when a matching name is used during connection. Instead of typing
+``connect tom udp://IP:port -f 30 -l False`` everytime you want to use this drone, you can adjust the parameters in the
+config file and they will be loaded automatically with just ``connect tom``. If you supply an argument in the command
+line, it is used instead of the config file. The file is left unchanged by this.
+The speed, acceleration and jerk limits are used for autonomous navigation functions by default.
+There is one special drone entry, which is called "default". These parameters are used when no matching name is found.
 
 
 Common Issues
@@ -260,8 +297,23 @@ When working with real drones you should always test the actual behaviour in a s
 Connection Issues
 ^^^^^^^^^^^^^^^^^
 
-TODO: Ports, Mavlink awkwardness
-TODO: Firewalls
+UDP communication over MAVLink happens in a few different patterns. Drones are configured to communicate on a specific
+port, we will call it the MAVPort, usually 14550 or 14540. They should broadcast their heartbeat on that port and be
+discoverable without knowing their specific IP.
+
+However, it is in our experience quite rare for these heartbeats to arrive, whether due to firewall issues or the
+broadcast rules of some intermediate node. To cover this case, we also send heartbeats to the drone directly from a
+separate port. In our experience, it varies widely how drones respond to this. Some answer on the port from which the
+heartbeat was sent. Some answer on the MAVPort. Some answer on the heartbeat port, but only for the first connection
+they receive. DroneManager should cover all these cases, except in the last case, once a drone has been disconnected
+and the ports closed, the drone itself will have to be restarted before a connection can be re-established. Note
+that this only applies if the drone is actively disconnected and the ports are closed, a temporary connection loss
+maintains the ports.
+
+In principle, multiple drones can connect on the same port if their system IDs are different. In practice however, a
+lot of MAVLink software and SDKs do not actually support this, and information from and commands to the different
+drones gets mangled. If you want to use multiple drones at once, we highly recommend setting each drone to communicate
+on a different port.
 
 Coordinate Systems
 ^^^^^^^^^^^^^^^^^^
@@ -287,45 +339,4 @@ With an external visual tracking system for positioning, the tracking system mig
 convention, while the drone expects forward, right and down.
 With visual odometry instead of an absolute system, the axes might be aligned with the orientation of the drone at
 boot-up.
-
-
-.. _com_ref:
-
-Command reference
------------------
-
-The syntax used in this reference is as follows:
-
-- ``<Parameters>`` are mandatory positional parameters.
-- ``<Parameters?>`` are optional positional parameters.
-- ``-p`` are boolean flags.
-- ``-p <parameter: defaultValue>`` are optional parameters with a flag to indicate that they are being supplied. Usually,
-  these have a default value.
-
-Many commands can be "scheduled" by adding the flag `-s`, which means that the drone will finish any previous commands
-before proceeding to the scheduled command. Multiple commands can be scheduled at once. Entering a command without
-scheduling clears the schedule, i.e. the drone will cancel whatever it is doing and execute the new command immediately.
-
-A command is considered "complete" when some condition is met, depending on the command, or when it errors out, either
-because of an exception or because the flight controller denied the command, for example when trying to arm a drone
-without a GPS fix (if the flight controller is configured to require a GPS fix for arming). Commands for multiple
-drones complete independently, i.e. if you schedule a takeoff and a move for two drones, but one of the drones doesn't
-reach the takeoff altitude, the other one will still start its move once its takeoff has completed.
-
-You can also add `-h` or `--help` to print a help string, either for the whole interface or a specific command.
-
-This list only contains the "core" commands that belong to DroneManager directly. For commands added by plugins, see
-the documentation for the plugins.
-
-TODO: Command list for non-plugin commands
-
-+-------------------------+--------------------------+--------------------------+
-| command                 | Arguments                | Description              |
-+=========================+==========================+==========================+
-| command -flag -s        | -flag: Toggles something | A dummy command line     |
-|                         | -s: Schedule this command| with a long description  |
-+-------------------------+--------------------------+--------------------------+
-| command -flag -s        | -flag: Toggles something | A dummy command line     |
-|                         | -s: Schedule this command| with a long description  |
-+-------------------------+--------------------------+--------------------------+
 

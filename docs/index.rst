@@ -6,7 +6,7 @@
 DroneManager documentation
 ==========================
 
-DroneManager consists of two main components: The DroneManager library itself and a terminal application that uses
+`DroneManager`_ consists of two main components: The DroneManager library itself and a terminal application that uses
 it. It can be used to connect to and command multiple drones using either game pads or text controls.
 
 See :doc:`here <installation>` for the installation instructions and :doc:`here <usage>` for a series of guides on
@@ -33,3 +33,5 @@ Holodeck
 Holodeck is an example for the integration of DroneManager with modern simulation environments like Unity. It allows Users to control a real (or simulated) drone with a Playstation Controller via DroneManager while experiencing the virtual flight in a Unity Environment with enhanced perception through VR-Glasses (e.g. Meta-Quest Pro).
 
 See the :doc:`Holodeck documentation <holodeck>` for more information.
+
+.. _DroneManager: https://github.com/AImotion-Bavaria/DroneManager

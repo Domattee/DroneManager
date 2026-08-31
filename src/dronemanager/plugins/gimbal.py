@@ -229,7 +229,7 @@ class Gimbal:
         return res
 
     async def point_gimbal_at_relative(self, x, y, z):
-        lat, long, amsl = relative_gps(x, y, z, *self.drone.position_global[:3])
+        lat, long, amsl = relative_gps(self.drone.position_global, [x, y, z])
         return await self.point_gimbal_at(lat, long, amsl)
 
     async def set_gimbal_angles(self, pitch, yaw):
@@ -406,7 +406,7 @@ class GimbalMulti:
         gimbal_id = self._gimbal_id_check(gimbal_id)
         if not self.in_control(gimbal_id):
             self.logger.warning("Trying to point a gimbal we don't control, might not work!")
-        lat, long, amsl = relative_gps(x, y, z, *self.drone.position_global[:3])
+        lat, long, amsl = relative_gps(self.drone.position_global, [x, y, z])
         return await self.point_gimbal_at(gimbal_id, lat, long, amsl)
 
     async def set_gimbal_angles(self, gimbal_id: int | None, pitch, yaw):

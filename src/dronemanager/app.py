@@ -1,12 +1,18 @@
 import asyncio
+from collections.abc import Callable
 import datetime
 import inspect
 import os
 import shlex
+import sys
+import types
+import typing
 
-from dronemanager.dronemanager import DroneManager
+import dronemanager
+from dronemanager.core import DroneManager
 from dronemanager.drone import Drone, DroneMAVSDK
-from dronemanager.utils import common_formatter, check_cli_command_signatures, coroutine_awaiter
+from dronemanager.utils import COMMON_FORMATTER, coroutine_awaiter, LOG_DIR, CONFIG_FILE
+from dronemanager.navigation.rectlocalfence import RectLocalFence
 
 import textual.css.query
 from textual import on, events
@@ -165,8 +171,8 @@ class CommandScreen(Screen):
         self.dm.add_connect_func(self._add_drone_object)
         self.dm.add_remove_func(self._remove_drone_object)
 
-        self.dm.add_plugin_load_func(self._load_plugin_commands)
-        self.dm.add_plugin_unload_func(self._unload_plugin_commands)
+        self.dm.add_plugin_load_coro(self._load_plugin_commands)
+        self.dm.add_plugin_unload_coro(self._unload_plugin_commands)
 
         asyncio.create_task(self._default_plugin_loading())
 
@@ -175,15 +181,15 @@ class CommandScreen(Screen):
     async def _default_plugin_loading(self):
         plugin_tasks = []
         for plugin_name in self.dm.config.default_plugins:
-            plugin_tasks.append(asyncio.create_task(self.dm.load_plugin(plugin_name)))
+            plugin_tasks.append(asyncio.create_task(self.dm.load(plugin_name)))
         await asyncio.gather(*plugin_tasks)
-        self.logger.info(f"Loaded startup plugins: {self.dm.currently_loaded_plugins()}")
+        self.logger.info(f"Loaded startup plugins: {self.dm.plugins}")
 
     def _base_parser(self):
         parser = ArgParser(logger = self.logger, description="Interactive command line interface to connect and control multiple drones")
         command_parsers = parser.add_subparsers(title="command", description="Command to execute.", dest="command")
 
-        connect_parser = command_parsers.add_parser("connect", help="Connect a drone", logger = self.logger)
+        connect_parser = command_parsers.add_parser("connect", help="Connect a drone", logger=self.logger)
         connect_parser.add_argument("drone", type=str, help="Name for the drone.")
         connect_parser.add_argument("drone_address", type=str, nargs='?',
                                     help="Connection string. Something like udp://:14540")
@@ -201,34 +207,34 @@ class CommandScreen(Screen):
                                          "so this can lead to performance issues with many drones due to disk write "
                                          "limits. Overwrites the equivalent entry in a configuration entry.")
 
-        disconnect_parser = command_parsers.add_parser("disconnect", help="Disconnect one or more drones.", logger = self.logger)
+        disconnect_parser = command_parsers.add_parser("disconnect", help="Disconnect one or more drones.", logger=self.logger)
         disconnect_parser.add_argument("drones", type=str, nargs="+", help="Which drones to disconnect.")
         disconnect_parser.add_argument("-f", "--force", action="store_true",
                                        help="If this flag is set, ignore any potential checks and force the disconnect.")
 
         param_parser = command_parsers.add_parser("params", help="Prints parameters for a drone", logger=self.logger)
         param_parser.add_argument("drone", type=str, help="Name of the drone")
-        param_parser.add_argument("--raw", action="store_true",
+        param_parser.add_argument("-r", "--raw", action="store_true",
                                   help="Print raw parameters instead. Very long!")
 
-        arm_parser = command_parsers.add_parser("arm", help="Arm the named drone(s).", logger = self.logger)
+        arm_parser = command_parsers.add_parser("arm", help="Arm the named drone(s).", logger=self.logger)
         arm_parser.add_argument("drones", type=str, nargs="+", help="Drone(s) to arm")
         arm_parser.add_argument("-s", "--schedule", action="store_true",
                                 help="Queue this action instead of executing immediately.")
 
-        disarm_parser = command_parsers.add_parser("disarm", help="Disarm the named drone(s).", logger = self.logger)
+        disarm_parser = command_parsers.add_parser("disarm", help="Disarm the named drone(s).", logger=self.logger)
         disarm_parser.add_argument("drones", type=str, nargs="+", help="Drone(s) to disarm")
         disarm_parser.add_argument("-s", "--schedule", action="store_true",
                                    help="Queue this action instead of executing immediately.")
 
-        takeoff_parser = command_parsers.add_parser("takeoff", help="Puts the drone(s) into takeoff mode.", logger = self.logger)
+        takeoff_parser = command_parsers.add_parser("takeoff", help="Puts the drone(s) into takeoff mode.", logger=self.logger)
         takeoff_parser.add_argument("drones", type=str, nargs="+", help="Drone(s) to take off with.")
         takeoff_parser.add_argument("-a", "--altitude", type=float, required=False, default=2.0,
                                     help="Takeoff altitude, default 2m, positive is up.")
         takeoff_parser.add_argument("-s", "--schedule", action="store_true", required=False,
                                     help="Queue this action instead of executing immediately.")
 
-        flight_mode_parser = command_parsers.add_parser("mode", help="Change the drone(s) flight mode", logger = self.logger)
+        flight_mode_parser = command_parsers.add_parser("mode", help="Change the drone(s) flight mode", logger=self.logger)
         flight_mode_parser.add_argument("mode", type=str,
                                         help=f"Target flight mode. Must be one of {self.dm.drone_class.VALID_FLIGHTMODES}.")
         flight_mode_parser.add_argument("drones", type=str, nargs="+",
@@ -236,7 +242,7 @@ class CommandScreen(Screen):
         flight_mode_parser.add_argument("-s", "--schedule", action="store_true",
                                         help="Queue this action instead of executing immediately.")
 
-        fence_parser = command_parsers.add_parser("fence", help="Set a geofence-type thing. VERY WIP", logger = self.logger)
+        fence_parser = command_parsers.add_parser("fence", help="Set a geofence-type thing. VERY WIP", logger=self.logger)
         fence_parser.add_argument("drones", type=str, nargs="+", help="Drone(s) to set the fence on.")
         fence_parser.add_argument("nl", type=float, help="Lower area limit along 'North' axis")
         fence_parser.add_argument("nu", type=float, help="Upper area limit along 'North' axis")
@@ -246,7 +252,7 @@ class CommandScreen(Screen):
         fence_parser.add_argument("du", type=float, help="Upper area limit along 'Down' axis")
         fence_parser.add_argument("--safety", type=int, help="Sets the safety level for the fence", required=False, default=5)
 
-        fly_to_parser = command_parsers.add_parser("flyto", help="Send the drone to a local coordinate.", logger = self.logger)
+        fly_to_parser = command_parsers.add_parser("flyto", help="Send the drone to a local coordinate.", logger=self.logger)
         fly_to_parser.add_argument("drone", type=str, help="Name of the drone")
         fly_to_parser.add_argument("x", type=float, help="Target x coordinate")
         fly_to_parser.add_argument("y", type=float, help="Target y coordinate")
@@ -258,7 +264,7 @@ class CommandScreen(Screen):
         fly_to_parser.add_argument("-s", "--schedule", action="store_true",
                                    help="Queue this action instead of executing immediately.")
 
-        fly_to_gps_parser = command_parsers.add_parser("flytogps", help="Send the drone to a GPS coordinate", logger = self.logger)
+        fly_to_gps_parser = command_parsers.add_parser("flytogps", help="Send the drone to a GPS coordinate", logger=self.logger)
         fly_to_gps_parser.add_argument("drone", type=str, help="Name of the drone")
         fly_to_gps_parser.add_argument("lat", type=float, help="Target latitude")
         fly_to_gps_parser.add_argument("long", type=float, help="Target longitude")
@@ -270,7 +276,7 @@ class CommandScreen(Screen):
         fly_to_gps_parser.add_argument("-s", "--schedule", action="store_true",
                                        help="Queue this action instead of executing immediately.")
 
-        go_to_parser = command_parsers.add_parser("goto", help="Send the drone to a GPS coordinate without offboard", logger = self.logger)
+        go_to_parser = command_parsers.add_parser("goto", help="Send the drone to a GPS coordinate without offboard", logger=self.logger)
         go_to_parser.add_argument("drone", type=str, help="Name of the drone")
         go_to_parser.add_argument("lat", type=float, help="Target latitude")
         go_to_parser.add_argument("long", type=float, help="Target longitude")
@@ -282,7 +288,7 @@ class CommandScreen(Screen):
         go_to_parser.add_argument("-s", "--schedule", action="store_true",
                                        help="Queue this action instead of executing immediately.")
 
-        move_parser = command_parsers.add_parser("move", help="Send the drones x, y, z meters north, east or down.", logger = self.logger)
+        move_parser = command_parsers.add_parser("move", help="Send the drones x, y, z meters north, east or down.", logger=self.logger)
         move_parser.add_argument("drone", type=str, help="Name of the drone")
         move_parser.add_argument("x", type=float, help="How many meters to move north (negative for south).")
         move_parser.add_argument("y", type=float, help="How many meters to move east (negative for west).")
@@ -298,36 +304,39 @@ class CommandScreen(Screen):
         move_parser.add_argument("-s", "--schedule", action="store_true",
                                  help="Queue this action instead of executing immediately.")
 
-        land_parser = command_parsers.add_parser("land", help="Land the drone(s)", logger = self.logger)
+        land_parser = command_parsers.add_parser("land", help="Land the drone(s)", logger=self.logger)
         land_parser.add_argument("drones", type=str, nargs="+", help="Drone(s) to land")
         land_parser.add_argument("-s", "--schedule", action="store_true", help="Queue this action instead of "
                                                                                "executing immediately.")
 
-        pause_parser = command_parsers.add_parser("pause", help="Pause the drone(s) task execution", logger = self.logger)
+        pause_parser = command_parsers.add_parser("pause", help="Pause the drone(s) task execution", logger=self.logger)
         pause_parser.add_argument("drones", type=str, nargs="+", help="Drone(s) to pause")
 
-        resume_parser = command_parsers.add_parser("resume", help="Resume the drone(s) task execution", logger = self.logger)
+        resume_parser = command_parsers.add_parser("resume", help="Resume the drone(s) task execution", logger=self.logger)
         resume_parser.add_argument("drones", type=str, nargs="+", help="Drone(s) to resume")
 
         stop_parser = command_parsers.add_parser("stop", help="Stops (i.e. lands) drones. If no drones are listed,"
-                                                 " stops all of them and then exits the application", logger = self.logger)
+                                                 " stops all of them and then exits the application", logger=self.logger)
         stop_parser.add_argument("drones", type=str, nargs="*", help="Drone(s) to stop.")
 
         kill_parser = command_parsers.add_parser("kill", help="Kills (i.e. disarms and stops everything) drones. "
-                                                 "If no drones are listed, kills all of them.", logger = self.logger)
+                                                 "If no drones are listed, kills all of them.", logger=self.logger)
         kill_parser.add_argument("drones", type=str, nargs="*", help="Drone(s) to kill.")
 
-        plugin_load_parser = command_parsers.add_parser("load", help="Loads a given plugin.", logger = self.logger)
+        plugin_load_parser = command_parsers.add_parser("load", help="Loads a given plugin.", logger=self.logger)
         plugin_load_parser.add_argument("plugin", type=str, help="Plugin name to load.")
 
-        plugin_load_parser = command_parsers.add_parser("unload", help="Unloads a given plugin.", logger = self.logger)
+        plugin_load_parser = command_parsers.add_parser("unload", help="Unloads a given plugin.", logger=self.logger)
         plugin_load_parser.add_argument("plugin", type=str, help="Plugin name to unload.")
 
-        available_plugin_parser = command_parsers.add_parser("plugins", help="Prints a list of available plugins", logger = self.logger)
+        available_plugin_parser = command_parsers.add_parser("plugins", help="Prints a list of available plugins", logger=self.logger)
 
-        loaded_plugin_parser = command_parsers.add_parser("loaded", help="Prints a list of loaded plugins", logger = self.logger)
+        loaded_plugin_parser = command_parsers.add_parser("loaded", help="Prints a list of loaded plugins", logger=self.logger)
 
-        exit_parser = command_parsers.add_parser("exit", aliases=self._exit_aliases, help="Exits the application", logger = self.logger)
+        exit_parser = command_parsers.add_parser("exit", aliases=self._exit_aliases, help="Exits the application", logger=self.logger)
+
+        log_parser = command_parsers.add_parser("logs", help="Prints the log directory", logger=self.logger)
+        config_parser = command_parsers.add_parser("config", help="Print the config directory", logger=self.logger)
 
         return parser, command_parsers
 
@@ -467,7 +476,8 @@ class CommandScreen(Screen):
                 elif command == "mode":
                     tmp = asyncio.create_task(self.dm.change_flightmode(args.drones, args.mode))
                 elif command == "fence":
-                    self.dm.set_fence(args.drones, args.nl, args.nu, args.el, args.eu, args.dl, args.du, safety_level = args.safety)
+                    fence = RectLocalFence(args.nl, args.nu, args.el, args.eu, args.dl, args.du, safety_level=args.safety)
+                    self.dm.set_fence(args.drones, fence)
                 elif command == "flyto":
                     tmp = asyncio.create_task(self.dm.fly_to(args.drone, local=[args.x, args.y, args.z], yaw=args.yaw,
                                                              tol=args.tolerance, schedule=args.schedule))
@@ -499,14 +509,14 @@ class CommandScreen(Screen):
                     else:
                         tmp = asyncio.create_task(self.dm.kill(args.drones))
                 elif command == "load":
-                    tmp = asyncio.create_task(self.dm.load_plugin(args.plugin))
+                    tmp = asyncio.create_task(self.dm.load(args.plugin))
                 elif command == "unload":
                     tmp = asyncio.create_task(self.dm.unload_plugin(args.plugin))
                 elif command == "loaded":
-                    self.logger.info(f"Currently loaded plugins: {self.dm.currently_loaded_plugins()}")
+                    self.logger.info(f"Currently loaded plugins: {self.dm.plugins}")
                 elif command == "plugins":
-                    available_but_not_loaded = [item for item in self.dm.plugin_options()
-                                                if item not in self.dm.currently_loaded_plugins()]
+                    available_but_not_loaded = [item for item in self.dm.plugin_options
+                                                if item not in self.dm.plugins]
                     self.logger.info(f"Available plugins to load: {available_but_not_loaded}")
                 elif command == "exit" or command in self._exit_aliases:
                     exit_task = asyncio.create_task(self.exit())
@@ -515,6 +525,10 @@ class CommandScreen(Screen):
                     func_arguments.pop("command")
                     self.logger.debug(f"Performing plugin action {command} {func_arguments}")
                     tmp = asyncio.create_task(self.dynamic_commands[command](**func_arguments))
+                elif command == "logs":
+                    self.logger.info(LOG_DIR)
+                elif command == "config":
+                    self.logger.info(CONFIG_FILE)
                 self.running_tasks.add(tmp)
                 self._awaiter_tasks.add(asyncio.create_task(coroutine_awaiter(tmp, self.logger)))
         except Exception as e:
@@ -611,7 +625,7 @@ class DroneApp(App):
     }
     """ Key Bindings """
 
-    TITLE = "DroneManager"
+    TITLE = f"DroneManager v{dronemanager.__version__}"
     """ Window Title """
 
     MODES = {
@@ -623,8 +637,9 @@ class DroneApp(App):
     An app mode is essentially a different view, we can cycle between them. See the textual documentation for more 
     information."""
 
-    def __init__(self, dm: DroneManager, logger=None):
+    def __init__(self, dm: DroneManager, logger=None, smoke_test = False):
         self.dm = dm
+        self.smoke_test = smoke_test
         if logger is None:
             self.logger = logging.getLogger("App")
             self.logger.setLevel(logging.DEBUG)
@@ -634,7 +649,7 @@ class DroneApp(App):
             os.makedirs(logdir, exist_ok=True)
             file_handler = logging.FileHandler(os.path.join(logdir, filename))
             file_handler.setLevel(logging.DEBUG)
-            file_handler.setFormatter(common_formatter)
+            file_handler.setFormatter(COMMON_FORMATTER)
             self.logger.addHandler(file_handler)
         else:
             self.logger = logger
@@ -644,6 +659,11 @@ class DroneApp(App):
 
     def on_mount(self):
         self.switch_mode("control")
+        if self.smoke_test:
+            self.set_timer(30, self._smoke_test_end)
+
+    def _smoke_test_end(self):
+        asyncio.create_task(self.screen.exit())
 
     def action_cycle_control(self):
         self.logger.debug("Switching between control and status screens")
@@ -655,6 +675,107 @@ class DroneApp(App):
             self.switch_mode("control")
         else:
             self.logger.debug("No valid target for switching")
+
+
+def check_cli_command_signatures(command: Callable) -> list[tuple]:
+    """ Inspects a function signature to determine the type of the arguments, if they are optional, etc.
+
+    Returns a tuple for each argument. Each tuple contains:
+
+     1. If the argument type hint is valid or not for our parsing.
+     2. The name of the argument (i.e. "command" for this function.)
+     3. If the argument expects a list.
+     4. If the argument is required.
+     5. If the argument accepts ``None``.
+     6. The base type of the argument, i.e. is a float or a string. For a list of floats, the base type is float.
+     7. If the argument is keyword only.
+     8. If the argument has a default value.
+     9. The default value, or ``None`` if it doesn't have one.
+
+    If a signature is invalid, the other fields may not be populated correctly or at all.
+
+    Args:
+        command: The function to be inspected.
+
+    Returns:
+        A list of tuples for each argument.
+    """
+    sig = inspect.signature(command)
+    args_invalid = []
+    args_name = []
+    args_list = []
+    args_required = []
+    args_accepts_none = []
+    args_types = []
+    args_kwonly = []
+    args_has_defaults = []
+    args_defaults = []
+    for param in sig.parameters.values():
+        is_invalid = False
+        is_list = False
+        is_required = param.default is param.empty
+        accepts_none = False
+        param_type = str
+        is_kwonly = param.kind is param.KEYWORD_ONLY
+        has_default = param.default is not param.empty
+        default = param.default if has_default else None
+
+        # Cases we accept: Direct type, List of a type, Union of a type and None, Union of None and a list of a type
+        if param.annotation is None or param.annotation is param.empty or len(typing.get_args(param.annotation)) > 2:
+            is_invalid = True
+        # Looking at the case of a union with a raw type or a union with a raw type and a list
+        if typing.get_origin(param.annotation) in (typing.Union, types.UnionType):
+            if type(None) not in typing.get_args(param.annotation):
+                is_invalid = True
+            accepts_none = True
+            for type_arg in typing.get_args(param.annotation):
+                if type_arg is type(None):  # Skip the None arg
+                    continue
+                elif typing.get_origin(type_arg) is not None:  # If its a container of some sort
+                    if not typing.get_origin(type_arg) is list:  # Invalid if not a list
+                        is_invalid = True
+                    else:
+                        is_list = True
+                        if len(typing.get_args(type_arg)) > 1:  # Invalid if multiple arguments
+                            is_invalid = True
+                        else:
+                            list_internal_type = typing.get_args(type_arg)[0]
+                            # Check that we dont have nested lists:
+                            if typing.get_origin(list_internal_type) is not None:
+                                is_invalid = True
+                            param_type = list_internal_type
+                else:  # Parameter is not None or a container
+                    is_list = False
+                    param_type = type_arg
+        else:
+            if typing.get_origin(param.annotation) is not None:  # If it's a container of some sort
+                if not typing.get_origin(param.annotation) is list:  # Invalid if not a list
+                    is_invalid = True
+                else:
+                    is_list = True
+                    if len(typing.get_args(param.annotation)) > 1:  # Invalid if multiple arguments
+                        is_invalid = True
+                    else:
+                        list_internal_type = typing.get_args(param.annotation)[0]
+                        # Check that we dont have nested lists:
+                        if typing.get_origin(list_internal_type) is not None:
+                            is_invalid = True
+                        param_type = list_internal_type
+            else:
+                is_list = False
+                param_type = param.annotation
+        name = param.name
+        args_invalid.append(is_invalid)
+        args_name.append(name)
+        args_list.append(is_list)
+        args_required.append(is_required)
+        args_accepts_none.append(accepts_none)
+        args_types.append(param_type)
+        args_kwonly.append(is_kwonly)
+        args_has_defaults.append(has_default)
+        args_defaults.append(default)
+
+    return list(zip(args_invalid, args_name, args_list, args_required, args_accepts_none, args_types, args_kwonly, args_has_defaults, args_defaults))
 
 
 def main():
@@ -702,9 +823,10 @@ def main():
         stop_cpu_checker.set()
         profile_process.join()
     else:
+        smoke_test = "--smoke-test" in sys.argv
         drone_type = DroneMAVSDK
         drone_manager = DroneManager(drone_type, log_to_console=False)
-        app = DroneApp(drone_manager, logger=drone_manager.logger)
+        app = DroneApp(drone_manager, logger=drone_manager.logger, smoke_test=smoke_test)
         app.run()
         logging.shutdown()
 

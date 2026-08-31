@@ -6,7 +6,7 @@ import os.path
 import threading
 import platform
 import time
-from subprocess import Popen, PIPE, STDOUT, DEVNULL
+from subprocess import Popen, DEVNULL
 from abc import ABC, abstractmethod
 from typing import Coroutine
 
@@ -22,7 +22,7 @@ from mavsdk.offboard import PositionNedYaw, PositionGlobalYaw, VelocityNedYaw, A
 from mavsdk.manual_control import ManualControlError
 
 from dronemanager.utils import dist_ned, dist_gps, relative_gps, coroutine_awaiter
-from dronemanager.utils import parse_address, common_formatter, get_free_port
+from dronemanager.utils import parse_address, COMMON_FORMATTER, get_free_port
 from dronemanager.utils import LOG_DIR
 from dronemanager.mavpassthrough import MAVPassthrough
 from dronemanager.navigation.core import WayPointType, Waypoint, PathGenerator, PathFollower, Fence
@@ -173,7 +173,7 @@ class Drone(ABC, threading.Thread):
             os.makedirs(LOG_DIR, exist_ok=True)
             file_handler = logging.FileHandler(os.path.join(LOG_DIR, log_file_name))
             file_handler.setLevel(logging.DEBUG)
-            file_handler.setFormatter(common_formatter)
+            file_handler.setFormatter(COMMON_FORMATTER)
             self.add_handler(file_handler)
 
         self.position_update_rate: float = 10
@@ -344,7 +344,7 @@ class Drone(ABC, threading.Thread):
         pass
 
     @abstractmethod
-    async def takeoff(self, altitude=2.0) -> bool:
+    async def takeoff(self, altitude=2.0, allow_in_air=False) -> bool:
         """ Takes off to the specified altitude above current position.
 
         Note that altitude is positive.
@@ -654,25 +654,6 @@ class DroneMAVSDK(Drone):
             if self.server_addr is None:
                 self.logger.debug(f"Starting up own MAVSDK Server instance with app port {self.server_port} and remote "
                                   f"connection {mavsdk_passthrough_string}")
-            if self.server_addr is None and platform.system() == "Windows":
-                try:
-                    self.logger.debug(f"On windows, using local server file {_mav_server_file}")
-                    self._server_process = Popen(f"{_mav_server_file} -p {self.server_port} "
-                                                 f"{mavsdk_passthrough_string}", stdout=DEVNULL, stderr=DEVNULL)
-                    # TODO: Come up with some way of capturing the output that actually works
-                    # Things tried:
-                    # - Asyncio subprocess and async for loops over output - Didn't consistently get console output,
-                    #   randomly broke the program such that connections stopped working entirely
-                    # - Using a separate thread that polled the output - Didn't consistently get console output, issue
-                    #   is buffering on the subprocess side that seem unavoidable with this approach
-                    # - Redirecting our stdout - Didn't work at all for the mavsdk server output and was very
-                    #   inconsistent for other outputs. Seems like each script might need to do its own redirecting,
-                    #   which is obviously not practical.
-                    self.server_addr = "127.0.0.1"
-                except FileNotFoundError:
-                    self.logger.error("Missing the MAVSDK server binary! This must be downloaded manually on Windows, "
-                                      "see the documentation.")
-                    return False
             self.system = System(mavsdk_server_address=self.server_addr, port=self.server_port,
                                  sysid=system_id, compid=component_id)
 
@@ -717,32 +698,36 @@ class DroneMAVSDK(Drone):
 
     async def load_parameters(self):
         self.logger.info(f"Loading parameters...")
-        parameters = await self.system.param.get_all_params()
-        raw_params = {}
-        for param in parameters.int_params:
-            raw_params[param.name] = (param.value, int)
-        for param in parameters.float_params:
-            raw_params[param.name] = (param.value, float)
-        for param in parameters.custom_params:
-            raw_params[param.name] = (param.value, str)
-        drone_params = DroneParams(raw_params)
-        if self.autopilot == "PX4":
-            drone_params.max_h_vel = drone_params.raw['MPC_XY_VEL_MAX'][0]
-            drone_params.max_up_vel = drone_params.raw['MPC_Z_VEL_MAX_UP'][0]
-            drone_params.max_down_vel = drone_params.raw['MPC_Z_VEL_MAX_DN'][0]
-            drone_params.max_yaw_rate = drone_params.raw['MPC_MAN_Y_MAX'][0]
-        elif self.autopilot == "Ardupilot":
-            drone_params.max_h_vel = drone_params.raw['LOIT_SPEED'][0] * 10  # cm/s
-            drone_params.max_up_vel = drone_params.raw['PILOT_SPEED_UP'][0] * 10
-            drone_params.max_down_vel = drone_params.raw['PILOT_SPEED_DN'][0] * 10
-            drone_params.max_yaw_rate = drone_params.raw['PILOT_Y_RATE'][0]  # degrees per second
-            if drone_params.max_down_vel == 0:
-                drone_params.max_down_vel = drone_params.max_up_vel
-        else:
-            self.logger.warning("Couldn't parse parameters for this autopilot, drone speeds might"
-                                "not work properly.")
-        self.drone_params = drone_params
-        self.logger.info(f"Loaded parameters!")
+        try:
+            parameters = await self.system.param.get_all_params()
+            raw_params = {}
+            for param in parameters.int_params:
+                raw_params[param.name] = (param.value, int)
+            for param in parameters.float_params:
+                raw_params[param.name] = (param.value, float)
+            for param in parameters.custom_params:
+                raw_params[param.name] = (param.value, str)
+            drone_params = DroneParams(raw_params)
+            if self.autopilot == "PX4":
+                drone_params.max_h_vel = drone_params.raw['MPC_XY_VEL_MAX'][0]
+                drone_params.max_up_vel = drone_params.raw['MPC_Z_VEL_MAX_UP'][0]
+                drone_params.max_down_vel = drone_params.raw['MPC_Z_VEL_MAX_DN'][0]
+                drone_params.max_yaw_rate = drone_params.raw['MPC_MAN_Y_MAX'][0]
+            elif self.autopilot == "Ardupilot":
+                drone_params.max_h_vel = drone_params.raw['LOIT_SPEED'][0] * 10  # cm/s
+                drone_params.max_up_vel = drone_params.raw['PILOT_SPEED_UP'][0] * 10
+                drone_params.max_down_vel = drone_params.raw['PILOT_SPEED_DN'][0] * 10
+                drone_params.max_yaw_rate = drone_params.raw['PILOT_Y_RATE'][0]  # degrees per second
+                if drone_params.max_down_vel == 0:
+                    drone_params.max_down_vel = drone_params.max_up_vel
+            else:
+                self.logger.warning("Couldn't parse parameters for this autopilot, drone speeds might"
+                                    "not work properly.")
+            self.drone_params = drone_params
+            self.logger.info(f"Loaded parameters!")
+        except Exception as e:
+            self.logger.warning("Couldn't load parameters!")
+            self.logger.debug(repr(e), exc_info=True)
         # TODO: Should probably do some kind of parameter checking: If the drone velocity and acceleration parameters are
         #  lower than the ones set in our config, algorithms might not work properly
 
@@ -907,15 +892,20 @@ class DroneMAVSDK(Drone):
         if not self.is_armed:
             raise RuntimeError("Can't take off without being armed!")
 
-    async def takeoff(self, altitude=2.0) -> bool:
+    async def takeoff(self, altitude=2.0, allow_in_air=True) -> bool:
         """
 
         :param altitude:
         :return:
         """
+        if not allow_in_air and self.in_air:
+            self.logger.debug("Can't takeoff again, already in the air!")
+            return False
         if self.path_follower.is_active:
             await self.path_follower.deactivate()
         res =  await self._takeoff_using_offboard(altitude=altitude)
+        if isinstance(res, Exception) or not res:
+            return False
         self.return_position = Waypoint(WayPointType.POS_NED, pos=self.position_ned, yaw=self.attitude[2])
         return res
 
@@ -1217,18 +1207,12 @@ class DroneMAVSDK(Drone):
 
     async def move(self, offset, yaw: float | None = None, use_gps=True, tolerance=0.25):
         self.logger.info("Starting move")
-        north, east, down = offset
         target_yaw = self.attitude[2] + yaw
         if use_gps:
-            cur_lat, cur_long, cur_alt = self.position_global
-            target_lat, target_long, target_amsl = relative_gps(north, east, -down, cur_lat, cur_long, cur_alt)
+            target_lat, target_long, target_amsl = relative_gps(self.position_global, offset)
             waypoint = Waypoint(WayPointType.POS_GLOBAL, gps=[target_lat, target_long, target_amsl], yaw=target_yaw)
         else:
-            cur_x, cur_y, cur_z = self.position_ned
-            target_x = cur_x + north
-            target_y = cur_y + east
-            target_z = cur_z + down
-            waypoint = Waypoint(WayPointType.POS_NED, pos=[target_x, target_y, target_z], yaw=target_yaw)
+            waypoint = Waypoint(WayPointType.POS_NED, pos=self.position_ned + offset, yaw=target_yaw)
         return await self.fly_to(waypoint=waypoint, put_into_offboard=True, tolerance=tolerance)
 
     async def go_to(self, local: np.ndarray | None = None, gps: np.ndarray | None = None, yaw: float | None = None,
@@ -1246,13 +1230,13 @@ class DroneMAVSDK(Drone):
                 gps = waypoint.gps
             else:
                 offset = waypoint.pos - self.position_ned
-                gps = relative_gps(offset[0], offset[1], -offset[2], *self.position_global)
+                gps = relative_gps(self.position_global, offset)
             yaw = waypoint.yaw
         elif gps is not None:
             pass
         elif local is not None:
             offset = local - self.position_ned
-            gps = relative_gps(offset[0], offset[1], -offset[2], *self.position_global)
+            gps = relative_gps(self.position_global, offset)
 
         # Send goto command
         await self.system.action.goto_location(*gps, yaw)
