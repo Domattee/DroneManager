@@ -956,7 +956,10 @@ class ControllerPlugin(Plugin):
                 self._discover_controllers()
                 # Process inputs
                 for drone, controller in self.drones.items():
-                    self._process_stick_inputs(drone)
+                    if drone in self.dm.drones:
+                        self._process_stick_inputs(drone)
+                    else:
+                        await self._drone_disconnected_callback(drone)  # Make sure we stop if a drone get removed
                 # Log axis ids for controller with that enabled
                 for controller in self.controllers.values():
                     if controller.log_input_ids:
@@ -1182,8 +1185,13 @@ class ControllerPlugin(Plugin):
 
         # For hold actions: Save the time this button was pressed:
         if released:
-            time_held = time.monotonic() - controller.held_buttons[button_id]
-            controller.held_buttons.pop(button_id)
+            try:
+                time_held = time.monotonic() - controller.held_buttons[button_id]
+                controller.held_buttons.pop(button_id)
+            except KeyError as e:
+                self.logger.warning(f"Released button {button_id} was never pressed, skipping...!")
+                self.logger.debug(repr(e), exc_info=True)
+                return
         else:
             time_held = 0
             controller.held_buttons[button_id] = time.monotonic()
@@ -1202,26 +1210,33 @@ class ControllerPlugin(Plugin):
                 if not ((hold_action and released and time_held > controller.input_mapping.hold_duration)
                     or (not hold_action and not released)):
                     continue
-                action_task = None
+                action_coro = None
+                action_coro_args = {}
                 if action.label == "Control":
                     self.logger.info("Trying to toggling drone control...")
+                    action_coro_args = {"controller_id": controller.id}
                     if controller.in_control:
-                        action_task = self._release_control(controller.id)
+                        action_coro= self._release_control
                     else:
-                        action_task = self._take_control(controller.id)
+                        action_coro= self._take_control
                     toggle_control = True
                 elif action.label == "Arm":
                     self.logger.debug(f"Arm button {button_label} pressed")
-                    action_task = self.dm.arm(controller.drone)
+                    action_coro_args = {"names": controller.drone}
+                    action_coro = self.dm.arm
                 elif action.label == "Disarm":
                     self.logger.debug(f"Disarm button {button_label} pressed")
-                    action_task = self.dm.disarm(controller.drone)
+                    action_coro_args = {"names": controller.drone}
+                    action_coro = self.dm.disarm
                 elif action.label == "Takeoff":
                     self.logger.debug(f"Takeoff button {button_label} pressed")
-                    action_task = self.dm.takeoff(controller.drone, altitude=1.5, allow_in_air=False)
+                    action_coro_args = {"names": controller.drone,
+                                        "altitude": 1.5,
+                                        "allow_in_air": False}
+                    action_coro = self.dm.takeoff
                 elif action.label == "Land":
                     self.logger.debug(f"Land button {button_label} pressed")
-                    action_task = self.dm.land(controller.drone)
+                    action_coro, action_coro_arg = self.dm.land
                 else:
                     # Do non-core actions
                     if action.func is not None:
@@ -1233,16 +1248,17 @@ class ControllerPlugin(Plugin):
                             self.logger.debug(repr(e), exc_info=True)
 
                 # Log information for user about current control state
-                if action_task is not None and not can_do_actions and not toggle_control:
+                if action_coro is not None and not can_do_actions and not toggle_control:
                     if not controller.in_control:
                         self.logger.info("Received control inputs, but not in control of drone!")
 
                 # Do the action if we have an action and either can do it, or are toggling control (which is checked separately)
-                if action_task is not None and controller.drone is not None and (can_do_actions or toggle_control):
+                if action_coro is not None and controller.drone is not None and (can_do_actions or toggle_control):
+                    coro = action_coro(**action_coro_args)
                     # Cancel anything the drone might be doing
                     self.dm.drones[controller.drone].clear_queue()
                     self.dm.drones[controller.drone].cancel_action()
-                    action_task = asyncio.create_task(action_task)
+                    action_task = asyncio.create_task(coro)
                     action_awaiter = asyncio.create_task(coroutine_awaiter(action_task, self.logger))
                     self.running_tasks.add(action_task)
                     self.running_tasks.add(action_awaiter)
@@ -1298,7 +1314,7 @@ class ControllerPlugin(Plugin):
 
         Disconnects all controllers and stops pygame.
         """
+        await super().close()
         for _, controller in self.controllers.items():
             controller.joystick.quit()
         pygame.quit()
-        await super().close()
