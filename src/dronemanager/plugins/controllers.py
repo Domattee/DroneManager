@@ -879,7 +879,7 @@ class ControllerPlugin(Plugin):
             controller = self.controllers[controller_id]
             controller.drone = drone
             self.drones[drone] = self.controllers[controller_id]
-            self.logger.info(f"Controller {controller_id} now set for drone {drone}!")
+            self.logger.info(f"Controller {controller_id} now assigned to drone {drone}!")
 
     async def _can_assign_drone_controller(self, drone: str, controller_id: int):
         can_assign_drone = True
@@ -1213,13 +1213,16 @@ class ControllerPlugin(Plugin):
                 action_coro = None
                 action_coro_args = {}
                 if action.label == "Control":
-                    self.logger.info("Trying to toggling drone control...")
-                    action_coro_args = {"controller_id": controller.id}
-                    if controller.in_control:
-                        action_coro= self._release_control
+                    if controller.drone is not None:
+                        self.logger.info(f"Trying to toggling manual control for drone {controller.drone} ...")
+                        action_coro_args = {"controller_id": controller.id}
+                        if controller.in_control:
+                            action_coro= self._release_control
+                        else:
+                            action_coro= self._take_control
+                        toggle_control = True
                     else:
-                        action_coro= self._take_control
-                    toggle_control = True
+                        self.logger.info(f"Can't take control, not assigned to any drone!")
                 elif action.label == "Arm":
                     self.logger.debug(f"Arm button {button_label} pressed")
                     action_coro_args = {"names": controller.drone}
@@ -1236,7 +1239,8 @@ class ControllerPlugin(Plugin):
                     action_coro = self.dm.takeoff
                 elif action.label == "Land":
                     self.logger.debug(f"Land button {button_label} pressed")
-                    action_coro, action_coro_arg = self.dm.land
+                    action_coro_args = {"names": controller.drone}
+                    action_coro = self.dm.land
                 else:
                     # Do non-core actions
                     if action.func is not None:

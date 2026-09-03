@@ -361,7 +361,7 @@ class CommandScreen(Screen):
                     help_string = doc_str.split("\n")[0]
                 else:
                     help_string = "No doc string for this function!"
-                tmp_parser = self.command_parser.add_parser(cli_command, help=help_string, logger = self.logger)
+                tmp_parser = self.command_parser.add_parser(cli_command, help=help_string, logger=self.logger)
                 for arg in check_cli_command_signatures(command):
                     is_invalid, name, is_list, is_required, accepts_none, base_type, is_kwonly, has_default, default = arg
                     arg_name = name if is_required else f"--{name}"

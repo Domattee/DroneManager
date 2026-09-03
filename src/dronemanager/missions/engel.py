@@ -22,10 +22,10 @@ from dronemanager.sensors.ecowitt import WeatherData
 from dronemanager.plugins.camera import CameraParameter, Camera
 from dronemanager.plugins.gimbal import Gimbal
 from dronemanager.plugins.controllers import ActionInputType
-from dronemanager.utils import LOG_DIR, coroutine_awaiter
+from dronemanager.utils import CACHE_DIR, coroutine_awaiter
 
 
-CAPTURE_DIR = os.path.join(LOG_DIR, "engel_data_captures")
+CAPTURE_DIR = CACHE_DIR.joinpath("mission-data", "engel_data_captures")
 os.makedirs(CAPTURE_DIR, exist_ok=True)
 
 
