@@ -15,6 +15,8 @@ import copy
 import enum
 import json
 import math
+import os
+import pygame
 import time
 from typing import Any, Callable
 
@@ -22,9 +24,8 @@ from dronemanager.drone import FlightMode
 from dronemanager.plugin import Plugin
 from dronemanager.utils import coroutine_awaiter
 
-import os
+
 os.environ['SDL_JOYSTICK_HIDAPI_PS4_RUMBLE'] = '1'
-import pygame
 
 
 DEFAULT_FREQUENCY: float = 50
