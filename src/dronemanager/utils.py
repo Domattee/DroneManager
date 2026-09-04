@@ -6,6 +6,7 @@ Unless stated otherwise, a GPS coordinate is any indexable sequence with the lat
 
 import math
 import pathlib
+import threading
 from collections.abc import Sequence
 from urllib.parse import urlparse
 import numpy as np
@@ -16,6 +17,9 @@ from haversine import inverse_haversine, haversine, Direction, Unit
 
 from platformdirs import user_documents_path
 from importlib.resources import files
+
+from queue import Queue, Empty, ShutDown, Full
+import time
 
 COMMON_FORMATTER = logging.Formatter('%(asctime)s.%(msecs)03d %(levelname)s %(name)s - %(message)s', datefmt="%H:%M:%S")
 """The common formatter string for the loggers.
@@ -298,10 +302,31 @@ class ForwardingHandler(logging.Handler):
     def __init__(self, target_logger: logging.Logger):
         super().__init__()
         self.target_logger = target_logger
+        self.queue = Queue(maxsize=100)
+        self._stop_threads = False
+
+        self._logging_thread = threading.Thread(target=self._write_to_logger, args = (lambda: self._stop_threads,))
+        self._logging_thread.start()
 
     def emit(self, record: logging.LogRecord):
         # Forward the existing LogRecord to the target logger.
-        self.target_logger.handle(record)
+        try:
+            if record.levelno >= self.level:
+                self.queue.put(record, block=False)
+        except Full:
+            self.target_logger.warning("MAVSDK Logger queue is full!")
+
+    def _write_to_logger(self, stop):
+        while not stop():
+            try:
+                item = self.queue.get(timeout=1)
+                self.target_logger.handle(item)
+            except Empty, ShutDown:
+                pass
+
+    def close(self):
+        self._stop_threads = True
+        self.queue.shutdown(immediate=True)
 
 
 # The first haversine/ inverse_haversine calls are slow, because of numba stuff, so do it here

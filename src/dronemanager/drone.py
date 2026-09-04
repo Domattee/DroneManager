@@ -559,6 +559,9 @@ class DroneMAVSDK(Drone):
     # What type of path setpoints this classes fly_<> commands can follow. This limits what Trajectory generators
     # can be used.
 
+    MAV_LOGGERS = set()
+    MAV_HANDLER = None
+
     def __init__(self, name, gcs_ident, mavsdk_server_address: str | None = None, mavsdk_server_port: int = 50051,
                  config: DroneConfig | None = None):
         # TODO: Currently exceptions in this block are not logged to drone manager, as the handler is added only after
@@ -681,7 +684,7 @@ class DroneMAVSDK(Drone):
         if scheme == "serial":
             mavsdk_passthrough_string = f"serial://{loc}"
         else:
-            mavsdk_passthrough_string = f"{scheme}://:{appendix}"
+            mavsdk_passthrough_string = f"{scheme}://{loc}:{appendix}"
 
         if log_telemetry is not None:
             self.config.log_telemetry = log_telemetry
@@ -691,14 +694,19 @@ class DroneMAVSDK(Drone):
             if self.server_addr is None:
                 self.logger.debug(f"Starting up own MAVSDK Server instance with app port {self.server_port} and remote "
                                   f"connection {mavsdk_passthrough_string}")
+
+            if len(self.MAV_LOGGERS) == 0:
+                self.logger.info("Setting up MAV Logger...")
+                mav_logger = logging.getLogger("mavsdk_server")
+                mav_logger.setLevel(logging.INFO)
+                forward_hndlr = ForwardingHandler(self.logger)
+                self.MAV_HANDLER = forward_hndlr
+                mav_logger.addHandler(forward_hndlr)
+                self.logger.info("Finished setting up MAV Logger!")
+            self.MAV_LOGGERS.add(self.name)
+
             self.system = System(mavsdk_server_address=self.server_addr, port=self.server_port,
                                  sysid=gcs_system_id, compid=gcs_component_id)
-
-            #self.logger.info("Setting up MAV Logger...")
-            #mav_logger = logging.getLogger("mavsdk_server")
-            #forward_hndlr = ForwardingHandler(self.logger)
-            #mav_logger.addHandler(forward_hndlr)
-            #self.logger.info("Finished setting up MAV Logger!")
 
             connected = asyncio.create_task(self.system.connect(system_address=mavsdk_passthrough_string))
             self._running_tasks.add(connected)
@@ -1490,6 +1498,12 @@ class DroneMAVSDK(Drone):
             if self.path_follower.is_active:
                 await self.path_follower.deactivate()
             self.path_follower.close()
+        # Close the mav handler
+        if len(self.MAV_LOGGERS) == 1 and self.MAV_HANDLER is not None:
+            self.MAV_LOGGERS.remove(self.name)
+            mav_logger = logging.getLogger("mavsdk_server")
+            mav_logger.removeHandler(self.MAV_HANDLER)
+            self.MAV_HANDLER.close()
         # Cleanup other stuff that doesn't reliably get cleaned up otherwise
         if self.system is not None:
             self.system.__del__()
