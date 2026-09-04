@@ -295,10 +295,10 @@ class Camera:
 
     def log_status(self):
         camera_id = self.camera_id
-        self.logger.info(f"Camera {camera_id}, parameters {'not ' if self.params_loaded else ''}loaded")
+        self.logger.info(f"Camera {camera_id}, parameters {'not ' if not self.params_loaded else ''}loaded")
 
     async def take_picture(self,):
-        res = await self.drone.send_command(2000, self.camera_id, 0, param3=1.0, param5=math.nan)
+        res = await self.drone.send_command(2000, self.camera_id, 0, param3=1.0, param5=None)
         if not res:
             self.logger.warning("Couldn't take picture!")
         return res
@@ -334,7 +334,7 @@ class Camera:
         if not cam_info:
             self.logger.warning("No camera found!")
         else:
-            fields = json.loads(cam_info.fields_json)
+            fields = json.loads(cam_info.fields_json, strict=False)
             self.vendor_name = bytearray(fields["vendor_name"]).rstrip(b"\x00").decode("ascii")
             self.model_name = bytearray(fields["model_name"]).rstrip(b"\x00").decode("ascii")
             self.cam_def_uri = fields["cam_definition_uri"]
@@ -493,7 +493,7 @@ class Camera:
     def _parse_param_update_values(self, fields):
         param_name = fields["param_id"]
         param_type = fields["param_type"]
-        raw_param_value = fields["param_value"]
+        raw_param_value = fields["param_value"].encode("utf8")
         #param_name = msg.param_id
         #param_type = msg.param_type
         #raw_param_value = msg._param_value_raw
@@ -527,9 +527,9 @@ class Camera:
                 self.parameters[param_name].value = param_value
             self.parameters[param_name].param_type_id = param_type_id
 
-    async def _listen_param_updates(self, message):
-        if message.component_id == self.camera_id and message.system == self.drone.drone_identifier[0]:
-            fields = json.loads(message.json_fields)
+    def _listen_param_updates(self, message):
+        if message.component_id == self.camera_id and message.system_id == self.drone.drone_identifier[0]:
+            fields = json.loads(message.fields_json, strict=False)
             param_name, param_value = self._parse_param_update_values(fields)
             self._update_param_value(param_name, param_value, fields["param_type"])
             self._param_count = fields["param_count"]
@@ -583,7 +583,7 @@ class Camera:
                 self.logger.warning("Must be True or False!")
         else:  # Try to parse it into either a float or an int depending on param_type
             try:
-                if parameter.param_type_id < 9:
+                if parameter.param_type_id is not None and parameter.param_type_id < 9:
                     parsed_value = int(param_value)
                 else:
                     parsed_value = float(param_value)
@@ -619,7 +619,7 @@ class Camera:
                                            self.drone.drone_identifier[0], self.camera_id, json.dumps(fields))
         await self.drone.send_message(param_ext_set_msg)
         ack_msg = await self.drone.listen_next_message("PARAM_EXT_ACK", self.camera_id)
-        ack_fields = json.loads(ack_msg.fields_json)
+        ack_fields = json.loads(ack_msg.fields_json, strict=False)
         ack_res = ack_fields["param_result"]
         if ack_res == 1:
             self.logger.warning("Camera denied parameter change, unsupported value!")

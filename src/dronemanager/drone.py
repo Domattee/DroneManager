@@ -23,11 +23,10 @@ from mavsdk.offboard import PositionNedYaw, PositionGlobalYaw, VelocityNedYaw, A
     VelocityBodyYawspeed
 from mavsdk.manual_control import ManualControlError
 from mavsdk.mavlink_direct import MavlinkMessage
-from mavsdk.param import ProtocolVersion
 
 from dronemanager.utils import dist_ned, dist_gps, relative_gps, coroutine_awaiter
 from dronemanager.utils import parse_address, COMMON_FORMATTER
-from dronemanager.utils import LOG_DIR
+from dronemanager.utils import LOG_DIR, ForwardingHandler
 from dronemanager.navigation.core import WayPointType, Waypoint, PathGenerator, PathFollower, Fence
 from dronemanager.navigation.directtargetgenerator import DirectTargetGenerator
 from dronemanager.navigation.gmp3generator import GMP3Generator
@@ -695,6 +694,12 @@ class DroneMAVSDK(Drone):
             self.system = System(mavsdk_server_address=self.server_addr, port=self.server_port,
                                  sysid=gcs_system_id, compid=gcs_component_id)
 
+            #self.logger.info("Setting up MAV Logger...")
+            #mav_logger = logging.getLogger("mavsdk_server")
+            #forward_hndlr = ForwardingHandler(self.logger)
+            #mav_logger.addHandler(forward_hndlr)
+            #self.logger.info("Finished setting up MAV Logger!")
+
             connected = asyncio.create_task(self.system.connect(system_address=mavsdk_passthrough_string))
             self._running_tasks.add(connected)
             await connected
@@ -729,7 +734,11 @@ class DroneMAVSDK(Drone):
             self._message_callbacks[message_name].remove(callback)
 
     async def send_message(self, msg: MavlinkMessage):
-        return await self.system.mavlink_direct.send_message(msg)
+        try:
+            return await self.system.mavlink_direct.send_message(msg)
+        except Exception as e:
+            self.logger.warning("Exception sending mavlink message!")
+            self.logger.debug(repr(e), exc_info=True)
 
     def listen_next_message(self, msg_name: str, target_component: int):
         fut = asyncio.Future()
@@ -767,6 +776,7 @@ class DroneMAVSDK(Drone):
             "param6": param6,
             "param7": param7,
         }
+        self.logger.debug(f"Sending command {json.dumps(fields)}")
         msg = MavlinkMessage("COMMAND_LONG", system_id, component_id, drone_system_id, target_component_id,
                              fields_json=json.dumps(fields))
         send_task = asyncio.create_task(self.send_message(msg))
@@ -790,7 +800,7 @@ class DroneMAVSDK(Drone):
                         and (message.target_component_id == 0 or message.target_component_id == self.gcs_ident[1]):
                     # Do command acks
                     if message.message_name == "COMMAND_ACK":
-                        fields = json.loads(message.fields_json)
+                        fields = json.loads(message.fields_json, strict=False)
                         msg_tuple = (fields["command"], message.system_id, message.component_id, fields["target_system"], fields["target_component"])
                         if msg_tuple in self._ack_listeners:
                             futs = self._ack_listeners[msg_tuple]
@@ -841,7 +851,7 @@ class DroneMAVSDK(Drone):
     async def load_parameters(self):
         self.logger.info(f"Loading parameters...")
         try:
-            await self.system.param.select_component(1, ProtocolVersion.V1)
+            #await self.system.param.select_component(1, ProtocolVersion.V1)
             parameters = await self.system.param.get_all_params()
             raw_params = {}
             for param in parameters.int_params:

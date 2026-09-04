@@ -293,6 +293,17 @@ async def coroutine_awaiter(task: asyncio.Future, logger: logging.Logger):
         logger.error(f"Encountered an exception in a coroutine! See the log for more details")
         logger.debug(e, exc_info=True)
 
+
+class ForwardingHandler(logging.Handler):
+    def __init__(self, target_logger: logging.Logger):
+        super().__init__()
+        self.target_logger = target_logger
+
+    def emit(self, record: logging.LogRecord):
+        # Forward the existing LogRecord to the target logger.
+        self.target_logger.handle(record)
+
+
 # The first haversine/ inverse_haversine calls are slow, because of numba stuff, so do it here
 dist_gps([10, 20, 300], [20, 10, 400])
 relative_gps([1, 1, 1], [1, 1, 1])

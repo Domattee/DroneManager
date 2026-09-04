@@ -206,7 +206,7 @@ class ENGELDataMission(Mission):
         await self.camera.set_parameter("ZOOM_THERMO_I", self.camera.parse_param_value("ZOOM_THERMO_I", "1.0"))
         await self.camera.set_parameter("ZOOM_VISIBLE_I", self.camera.parse_param_value("ZOOM_VISIBLE_I", "1.0"))
 
-    async def _imaged_captured_callback(self, msg):
+    def _imaged_captured_callback(self, msg):
         """ Check CAMERA_IMAGE_CAPTURED messages for capture_result and save info if success, log failure otherwise
 
         This message contains this info:
@@ -219,25 +219,29 @@ class ENGELDataMission(Mission):
         :param msg:
         :return:
         """
-        fields = json.loads(msg.fields_json)
-        if fields["capture_result"] == 1:
-            if fields["time_utc"] < 1e12:  # Assume this is reporting time since boot if too small
-                time_stamp = datetime.datetime.now(datetime.UTC)
+        try:
+            fields = json.loads(msg.fields_json)
+            if fields["capture_result"] == 1:
+                if fields["time_utc"] < 1e12:  # Assume this is reporting time since boot if too small
+                    time_stamp = datetime.datetime.now(datetime.UTC)
+                else:
+                    time_stamp = datetime.datetime.fromtimestamp(fields["time_utc"] / 1e3, datetime.UTC)
+                gps = np.asarray([fields["lat"] / 1e7, fields["lon"] / 1e7, fields["alt"] / 1e3])
+                file_url = fields["file_url"]
+                cur_drone_att = self.dm.drones[self.drone_name].attitude.copy()
+                cur_gimbal_att = np.asarray([self.gimbal.roll, self.gimbal.pitch, self.gimbal.yaw])
+                if file_url in [self._current_capture.images[i].file_location for i in range(len(self._current_capture.images))]:
+                    self.logger.debug("Camera saved over image it just took")
+                else:
+                    self.logger.debug("Captured image, saving info...")
+                    self._current_capture.images.append(EngelImageInfo(time_stamp, gps, cur_drone_att,
+                                                                       cur_gimbal_att, self.gimbal.yaw_absolute, file_url))
             else:
-                time_stamp = datetime.datetime.fromtimestamp(fields["time_utc"] / 1e3, datetime.UTC)
-            gps = np.asarray([fields["lat"] / 1e7, fields["lon"] / 1e7, fields["alt"] / 1e3])
-            file_url = fields["file_url"]
-            cur_drone_att = self.dm.drones[self.drone_name].attitude.copy()
-            cur_gimbal_att = np.asarray([self.gimbal.roll, self.gimbal.pitch, self.gimbal.yaw])
-            if file_url in [self._current_capture.images[i].file_location for i in range(len(self._current_capture.images))]:
-                self.logger.debug("Camera saved over image it just took")
-            else:
-                self.logger.debug("Captured image, saving info...")
-                self._current_capture.images.append(EngelImageInfo(time_stamp, gps, cur_drone_att,
-                                                                   cur_gimbal_att, self.gimbal.yaw_absolute, file_url))
-        else:
-            self.logger.warning("Camera reports failure to capture image!")
-            self.logger.debug(fields)
+                self.logger.warning("Camera reports failure to capture image!")
+                self.logger.debug(fields)
+        except Exception as e:
+            self.logger.warning("Exception in the image capture callback!")
+            self.logger.debug(repr(e), exc_info=True)
 
     async def do_capture(self, reference_capture: ENGELCaptureInfo | None = None):
         """ Capture an image and store relevant data. """
@@ -264,6 +268,7 @@ class ENGELDataMission(Mission):
 
             self._current_capture = capture
             res = await self.camera.take_picture()
+            self.logger.info(res)
 
             # If command denied: log, return False
             if not res:
@@ -531,7 +536,7 @@ class ENGELDataMission(Mission):
                 if gimbal_ok and cam_ok:
                     self.drones[name] = self.dm.drones[name]
                     self.drone_name = name
-                    self.gimbal = self.dm.gimbal.gimbals[name]
+                    self.gimbal = self.dm.gimbal.gimbals[name][0]
                     self.camera = self.dm.camera.cameras[name]
                     rtl_pos[2] += self.rtl_height
                     self.launch_point = Waypoint(WayPointType.POS_GLOBAL, gps=rtl_pos, yaw=cur_yaw)
