@@ -1,7 +1,6 @@
 import asyncio
 import numpy as np
 import time
-import pickle
 from concurrent.futures import ProcessPoolExecutor
 
 from dronemanager.navigation.core import PathGenerator, Waypoint, WayPointType
@@ -140,6 +139,4 @@ def _calculate_path(cur_x, cur_y, cur_z, target_x, target_y, target_z, gmp3):
     ydots = gmp3.ydot
     zdots = gmp3.zdot
     waypoints = list(zip(ts, xs, ys, zs, xdots, ydots, zdots))
-    with open("waypoints.dump", "wb") as f:
-        pickle.dump(waypoints, f)
     return waypoints
