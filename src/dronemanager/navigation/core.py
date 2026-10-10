@@ -1,12 +1,17 @@
 import asyncio
 import logging
+import typing
 
 import numpy as np
 from abc import ABC, abstractmethod
 from enum import Enum, auto
 
-import dronemanager.drone
 from dronemanager.utils import dist_ned, relative_gps, heading_ned, heading_gps, offset_from_gps
+
+if typing.TYPE_CHECKING:
+    # Only for type hints. Importing it at runtime is circular, as the drone module imports this module. That broke
+    # importing navigation modules on their own, i.e. in the worker processes of the GMP3 generator on Windows.
+    import dronemanager.drone
 
 
 
@@ -301,7 +306,7 @@ class PathFollower(ABC):
                 self._is_waypoint_new = False
                 await asyncio.sleep(self.dt)
             except Exception as e:
-                self.logger.error("Encountered an exception during following algorithm:", repr(e))
+                self.logger.error(f"Encountered an exception during following algorithm: {repr(e)}")
                 self.logger.debug(repr(e), exc_info=True)
 
     @abstractmethod

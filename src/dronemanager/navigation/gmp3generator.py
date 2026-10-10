@@ -118,7 +118,10 @@ class GMP3Generator(PathGenerator):
                 current_waypoint = wp
                 break
         if current_waypoint is None:
-            return None
+            # The planned time is over. The drone may not have kept up with the trajectory, so keep sending the target
+            # instead of nothing, otherwise the follower holds whatever intermediate waypoint it had last.
+            return Waypoint(WayPointType.POS_VEL_NED, pos=np.asarray(self.target_position.pos), vel=np.zeros(3),
+                            yaw=self.target_position.yaw)
         t, x, y, z, xdot, ydot, zdot = current_waypoint
         waypoint = Waypoint(WayPointType.POS_VEL_NED,
                             pos=np.asarray([x, y, z]),

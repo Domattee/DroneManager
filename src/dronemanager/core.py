@@ -306,6 +306,11 @@ class DroneManager:
                     drone_args[names[j]].append(drone_arg)
             for kwarg in kwargs:
                 value = kwargs[kwarg]
+                if value is None:
+                    # Not given, i.e. fly_to without GPS coordinates. The same for all drones, nothing to split up.
+                    for name in names:
+                        drone_kwargs[name][kwarg] = None
+                    continue
                 if wrap_args:
                     value = [value]
                 assert len(value) == n_drones, "Size mismatch between an argument and the number of drones!"
