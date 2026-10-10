@@ -95,12 +95,14 @@ async def test_takeoff_fly_move_yaw_land(sitl_dm: DroneManager):
     await _takeoff(sitl_dm)
 
     target = np.array([start[0] + 5, start[1], -ALTITUDE])
-    assert await asyncio.wait_for(sitl_dm.fly_to(SITL_DRONE, local=target, yaw=0), 60) == [True]
+    assert await asyncio.wait_for(sitl_dm.fly_to(SITL_DRONE, local=target, yaw=0, tol=POSITION_TOLERANCE), 60) == [True]
     assert drone.position_ned == pytest.approx(target, abs=POSITION_TOLERANCE)
 
+    # move is relative to where the drone is, not to where it was sent before
+    before_move = drone.position_ned.copy()
     assert await asyncio.wait_for(sitl_dm.move(SITL_DRONE, offset=np.array([-5.0, 3.0, 0.0]), yaw=0.0,
                                                use_gps=False, schedule=False), 60) == [True]
-    assert drone.position_ned == pytest.approx(target + np.array([-5, 3, 0]), abs=POSITION_TOLERANCE)
+    assert drone.position_ned == pytest.approx(before_move + np.array([-5, 3, 0]), abs=POSITION_TOLERANCE)
 
     assert await asyncio.wait_for(sitl_dm.yaw_to(SITL_DRONE, yaw=90.0, yaw_rate=30.0, schedule=False), 60) == [True]
     assert drone.attitude[2] == pytest.approx(90, abs=5)
@@ -162,7 +164,7 @@ async def test_gps_navigation(sitl_dm: DroneManager):
     await _takeoff(sitl_dm)
 
     north = np.array(relative_gps(drone.position_global[:3], [4.0, 0.0, 0.0]))
-    assert await asyncio.wait_for(sitl_dm.fly_to(SITL_DRONE, gps=north, yaw=0), 60) == [True]
+    assert await asyncio.wait_for(sitl_dm.fly_to(SITL_DRONE, gps=north, yaw=0, tol=POSITION_TOLERANCE), 60) == [True]
     assert drone.position_global[:2] == pytest.approx(north[:2], abs=1e-5)
 
     east = np.array(relative_gps(drone.position_global[:3], [0.0, 4.0, 0.0]))
@@ -186,7 +188,7 @@ async def test_scheduled_actions_run_in_order(sitl_dm: DroneManager):
     queued = [
         asyncio.create_task(sitl_dm.arm(SITL_DRONE, schedule=True)),
         asyncio.create_task(sitl_dm.takeoff(SITL_DRONE, altitude=ALTITUDE, schedule=True)),
-        asyncio.create_task(sitl_dm.fly_to(SITL_DRONE, local=target, yaw=0, schedule=True)),
+        asyncio.create_task(sitl_dm.fly_to(SITL_DRONE, local=target, yaw=0, tol=POSITION_TOLERANCE, schedule=True)),
     ]
     await asyncio.sleep(0.5)
     assert len(drone.action_queue) >= 1, "The later actions should still be waiting in the queue."
@@ -230,7 +232,8 @@ async def test_immediate_command_replaces_queue(sitl_dm: DroneManager):
                                                 schedule=True))
     await asyncio.sleep(2)
     assert len(drone.action_queue) == 1
-    assert await asyncio.wait_for(sitl_dm.fly_to(SITL_DRONE, local=start, yaw=0, schedule=False), 60) == [True]
+    assert await asyncio.wait_for(sitl_dm.fly_to(SITL_DRONE, local=start, yaw=0, tol=POSITION_TOLERANCE,
+                                                 schedule=False), 60) == [True]
     for replaced in (far_away, queued):
         results = await asyncio.wait_for(replaced, 5)
         assert isinstance(results[0], asyncio.CancelledError)

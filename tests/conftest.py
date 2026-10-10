@@ -6,7 +6,7 @@ import pathlib
 import pytest
 import pygame
 import struct
-from typing import AsyncGenerator, Any, Callable, Generator
+from typing import AsyncGenerator, Any, Awaitable, Callable, Generator
 from unittest.mock import Mock, AsyncMock
 
 import cv2
@@ -78,26 +78,21 @@ def px4_sitl() -> Generator[Px4Sitl, Any, None]:
     sitl.stop()
 
 
-@pytest.fixture
-async def sitl_dm(px4_sitl: Px4Sitl) -> AsyncGenerator[DroneManager, Any]:
-    """Create a DroneManager connected to the SITL drone, which is disarmed on the ground.
+async def _connect_sitl_drone(dm: DroneManager, name: str, sitl: Px4Sitl):
+    """Connect a SITL drone and wait until it has parameters and a GPS fix.
 
-    The drone is called :py:data:`SITL_DRONE`. After the test, it is landed and disarmed if necessary, so the next
-    test starts on the ground again.
+    Fails the test if that isn't possible.
 
     Args:
-        px4_sitl: The running SITL instance.
-
-    Yields:
-        The DroneManager with the connected drone.
+        dm: The DroneManager to connect with.
+        name: The name for the drone.
+        sitl: The running SITL instance.
     """
-    dm = DroneManager(DroneMAVSDK, log_to_console=False)
-    connected = await dm.connect_to_drone(SITL_DRONE, drone_address=px4_sitl.address(), timeout=60,
-                                          log_telemetry=False)
+    connected = await dm.connect_to_drone(name, drone_address=sitl.address(), timeout=60, log_telemetry=False)
     if not connected:
         await dm.close()
-        pytest.fail(f"Couldn't connect to PX4 SITL at {px4_sitl.address()}.\n{px4_log_excerpt(px4_sitl)}")
-    drone = dm.drones[SITL_DRONE]
+        pytest.fail(f"Couldn't connect to PX4 SITL at {sitl.address()}.\n{px4_log_excerpt(sitl)}")
+    drone = dm.drones[name]
 
     def drone_ready() -> bool:
         """Check that parameters are loaded and the drone has a GPS fix and position.
@@ -108,21 +103,88 @@ async def sitl_dm(px4_sitl: Px4Sitl) -> AsyncGenerator[DroneManager, Any]:
         return (drone.parameters_loaded and drone.fix_type is not None and drone.fix_type.value >= 3
                 and abs(drone.position_global[0]) > 0)
 
-    ready = await wait_until(drone_ready, timeout=60)
-    if not ready:
+    if not await wait_until(drone_ready, timeout=60):
         await dm.close()
-        pytest.fail(f"SITL drone didn't get parameters and a GPS fix.\n{px4_log_excerpt(px4_sitl)}")
-    yield dm
-    drone = dm.drones.get(SITL_DRONE)
-    if drone is not None:
-        if drone.in_air:
-            # PX4's own landing, so the cleanup doesn't depend on the DroneManager code under test
-            await dm.change_flightmode(SITL_DRONE, "land")
-            if not await wait_until(lambda: not drone.in_air, 60):
-                logging.warning("Landing the SITL drone after the test timed out.")
-        if drone.is_armed:
-            await dm.disarm(SITL_DRONE)
+        pytest.fail(f"SITL drone {name} didn't get parameters and a GPS fix.\n{px4_log_excerpt(sitl)}")
+
+
+async def _land_and_close(dm: DroneManager):
+    """Land and disarm all drones after a test, then close the DroneManager.
+
+    Uses PX4's own landing, so the cleanup doesn't depend on the DroneManager code under test.
+
+    Args:
+        dm: The DroneManager.
+    """
+    flying = [name for name, drone in dm.drones.items() if drone.in_air]
+    if flying:
+        await dm.change_flightmode(flying, "land")
+        if not await wait_until(lambda: not any(dm.drones[name].in_air for name in flying if name in dm.drones), 60):
+            logging.warning("Landing the SITL drones after the test timed out.")
+    armed = [name for name, drone in dm.drones.items() if drone.is_armed]
+    if armed:
+        await dm.disarm(armed)
     await dm.close()
+
+
+@pytest.fixture
+async def sitl_dm(px4_sitl: Px4Sitl) -> AsyncGenerator[DroneManager, Any]:
+    """Create a DroneManager connected to the SITL drone, which is disarmed on the ground.
+
+    The drone is called :py:data:`SITL_DRONE`. After the test, it is landed and disarmed if necessary.
+
+    Args:
+        px4_sitl: The running SITL instance.
+
+    Yields:
+        The DroneManager with the connected drone.
+    """
+    dm = DroneManager(DroneMAVSDK, log_to_console=False)
+    await _connect_sitl_drone(dm, SITL_DRONE, px4_sitl)
+    yield dm
+    await _land_and_close(dm)
+
+
+@pytest.fixture
+async def sitl_fleet() -> AsyncGenerator[Callable[[int], Awaitable[DroneManager]], Any]:
+    """Start several PX4 SITL instances and connect them to one DroneManager.
+
+    Yields an async function that takes the number of drones and returns the DroneManager. The drones are called
+    "sim0", "sim1" and so on. Each runs in its own PX4 instance with its own ports and MAVLink system ID.
+
+    Yields:
+        The function to start the fleet.
+    """
+    instances: list[Px4Sitl] = []
+    managers: list[DroneManager] = []
+
+    async def start_fleet(n_drones: int) -> DroneManager:
+        """Start the PX4 instances and connect them.
+
+        Args:
+            n_drones: The number of drones.
+
+        Returns:
+            The DroneManager with the connected drones.
+        """
+        dm = DroneManager(DroneMAVSDK, log_to_console=False)
+        managers.append(dm)
+        for instance in range(n_drones):
+            sitl = Px4Sitl(instance=instance)
+            instances.append(sitl)
+            try:
+                # Starting blocks until PX4 is ready, so run it in a thread to keep the other drones' telemetry going
+                await asyncio.to_thread(sitl.start)
+            except SitlSetupError as e:
+                pytest.fail(str(e), pytrace=False)
+            await _connect_sitl_drone(dm, f"sim{instance}", sitl)
+        return dm
+
+    yield start_fleet
+    for dm in managers:
+        await _land_and_close(dm)
+    for sitl in instances:
+        sitl.stop()
 
 
 class TCPStreamer:
