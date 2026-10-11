@@ -113,6 +113,8 @@ jobs:
     needs:
     - build
     runs-on: ubuntu-24.04
+    # A full run takes about 25 minutes. Don't block a runner for hours if a test hangs.
+    timeout-minutes: 60
     env:
       PX4_VERSION: v1.17.0
       # Outside of the repository checkout, so pytest and the linters don't pick up PX4's own files

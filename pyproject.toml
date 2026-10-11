@@ -70,6 +70,8 @@ addopts = [
     "--cov-report=json",
 ]
 asyncio_mode = "auto"
+# If a test hangs, print where every thread is stuck after 15 minutes
+faulthandler_timeout = 900
 testpaths = ["tests"]
 pythonpath = ["tests"]
 markers = [
