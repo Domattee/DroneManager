@@ -2,7 +2,6 @@
 import asyncio
 import logging
 import numpy as np
-import pathlib
 import pytest
 import pygame
 import struct
@@ -12,7 +11,6 @@ from unittest.mock import Mock, AsyncMock
 import cv2
 from mavsdk import System
 
-import dronemanager.utils
 from dronemanager.core import DroneManager
 from dronemanager.drone import DroneMAVSDK, DroneConfig, FlightMode, DroneParams
 from dronemanager.navigation.core import PathGenerator, PathFollower, Waypoint, WayPointType
@@ -22,24 +20,6 @@ from sitl import Px4Sitl, SitlSetupError, SITL_DRONE, px4_log_excerpt, wait_unti
 
 
 pygame.init()
-
-
-@pytest.fixture(autouse=True)
-def isolated_config(tmp_path_factory: pytest.TempPathFactory, monkeypatch: pytest.MonkeyPatch) -> pathlib.Path:
-    """Use a fresh copy of the default config file instead of the user's config.
-
-    Tests must not depend on, or overwrite, the configuration in the user documents directory.
-
-    Args:
-        tmp_path_factory: Factory for temporary directories.
-        monkeypatch: Monkeypatch fixture.
-
-    Returns:
-        The path of the temporary config file. It is created from the default config on first use.
-    """
-    config_file = tmp_path_factory.mktemp("config").joinpath("config.json")
-    monkeypatch.setattr(dronemanager.utils, "_CONFIG_FILE", config_file)
-    return config_file
 
 
 @pytest.fixture

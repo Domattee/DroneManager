@@ -430,6 +430,12 @@ line, it is used instead of the config file. The file is left unchanged by this.
 The speed, acceleration and jerk limits are used for autonomous navigation functions by default.
 There is one special drone entry, which is called "default". These parameters are used when no matching name is found.
 
+DroneManager checks the configuration when it starts: Invalid JSON, missing or wrongly typed entries, and plugin
+settings that don't match the plugin's arguments are reported with the entry and the problem. This often happens with a
+configuration from an older version after an upgrade. Compare it with the default configuration
+``resources/config.json`` in the DroneManager package and update the reported entries. The command ``config --check``
+checks the plugin settings again, i.e. after editing the file. The test suite also checks the installed configuration.
+
 
 Common Issues
 -------------

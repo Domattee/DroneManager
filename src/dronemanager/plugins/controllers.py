@@ -22,7 +22,7 @@ from typing import Any, Callable
 
 from dronemanager.drone import FlightMode
 from dronemanager.plugin import Plugin
-from dronemanager.utils import coroutine_awaiter
+from dronemanager.utils import ConfigError, coroutine_awaiter
 
 
 os.environ['SDL_JOYSTICK_HIDAPI_PS4_RUMBLE'] = '1'
@@ -602,6 +602,9 @@ class InputMapping:
 
         Returns:
             The new InputMapping object.
+
+        Raises:
+            ValueError: If a core action has no binding.
         """
         name = input_dict["name"]
         axes_labels = dict(input_dict["axes_labels"])
@@ -622,7 +625,9 @@ class InputMapping:
                 input_id = old_action["input_id"]
                 non_core_actions.append(Action(action_name, input_type=input_type, input_id=input_id))
 
-        assert None not in core_action_inputs, "Couldn't load all core action bindings!"
+        unbound = [label for label, input_id in zip(core_actions, core_action_inputs) if input_id is None]
+        if unbound:
+            raise ValueError(f"no bindings for the core actions {', '.join(unbound)}")
         out = cls(name, *core_action_inputs, axes_labels=axes_labels, button_labels=button_labels,
                   hold_duration=hold_duration)
         for action in non_core_actions:
@@ -688,7 +693,8 @@ class ControllerPlugin(Plugin):
     # TODO: Functions to print input id -> button/axis label for a given controller/binding
 
     def __init__(self, dm, logger, name, auto_assign=False, event_frequency: float = DEFAULT_FREQUENCY,
-                 control_frequency: float = DEFAULT_FREQUENCY, default_mappings: dict[str, str] = None, **kwargs):
+                 control_frequency: float = DEFAULT_FREQUENCY, default_mappings: dict[str, str] = None,
+                 mappings: dict[str, dict] | None = None):
         """
 
         Args:
@@ -699,7 +705,8 @@ class ControllerPlugin(Plugin):
             event_frequency:
             control_frequency:
             default_mappings:
-            **kwargs:
+            mappings: The input mappings from the configuration file. They are loaded from the DroneManager config by
+                :py:meth:`load_mappings_from_config`, so this argument is unused.
         """
         super().__init__(dm, logger, name)
         self.background_functions = [
@@ -745,6 +752,33 @@ class ControllerPlugin(Plugin):
 
         #: If True and there are exactly one drone and one controller connected, assign them automatically.
         self.auto_assign = auto_assign
+
+    @classmethod
+    def check_settings(cls, name: str, settings: dict):
+        """Check the controller settings from the configuration file, including the input mappings.
+
+        Args:
+            name: The name of the plugin, as used in the configuration file.
+            settings: The settings for this plugin from the configuration file.
+
+        Raises:
+            ConfigError: If an entry is unknown, or a mapping is invalid or missing.
+        """
+        super().check_settings(name, settings)
+        mappings = settings.get("mappings", {})
+        if not isinstance(mappings, dict):
+            raise ConfigError(f"plugin_settings.{name}.mappings", "must be an object with the input mappings")
+        for mapping_name, mapping in mappings.items():
+            try:
+                InputMapping.from_dict(mapping)
+            except KeyError as e:
+                raise ConfigError(f"plugin_settings.{name}.mappings.{mapping_name}", f"missing {e}") from e
+            except Exception as e:
+                raise ConfigError(f"plugin_settings.{name}.mappings.{mapping_name}", str(e)) from e
+        for controller_name, mapping_name in settings.get("default_mappings", {}).items():
+            if mapping_name not in mappings:
+                raise ConfigError(f"plugin_settings.{name}.default_mappings.{controller_name}",
+                                  f"no mapping named '{mapping_name}' in plugin_settings.{name}.mappings")
 
     async def status(self):
         """Log current configuration of the controller plugin."""
