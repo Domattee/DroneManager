@@ -9,7 +9,7 @@ import numpy as np
 import pytest
 
 from dronemanager.core import DroneManager
-from dronemanager.drone import FlightMode
+from dronemanager.drone import Drone, FlightMode
 from dronemanager.utils import relative_gps
 
 from sitl import SITL_DRONE, wait_until
@@ -21,14 +21,20 @@ ALTITUDE = 3.0
 POSITION_TOLERANCE = 0.5
 """How close the drone must get to a target, in meters. Looser than the navigation tolerance, as the drone keeps
 moving slightly after it reports reaching a target."""
+LANDED_HEIGHT = 1.0
+"""When DroneManager reports a landing, the drone must be at most this many meters above its position before the
+takeoff. The estimated altitude drifts on the ground in SITL, by up to about 0.7 meters."""
 
 
-async def _takeoff(dm: DroneManager, altitude: float = ALTITUDE):
+async def _takeoff(dm: DroneManager, altitude: float = ALTITUDE) -> float:
     """Arm the drone and take off.
 
     Args:
         dm: The DroneManager.
         altitude: Takeoff altitude in meters.
+
+    Returns:
+        The NED down coordinate of the ground.
     """
     drone = dm.drones[SITL_DRONE]
     # The takeoff altitude is relative to the current position. The origin of the local coordinates isn't exactly at
@@ -39,17 +45,35 @@ async def _takeoff(dm: DroneManager, altitude: float = ALTITUDE):
     assert await asyncio.wait_for(dm.takeoff(SITL_DRONE, altitude=altitude), 60) == [True]
     assert drone.in_air
     assert ground - drone.position_ned[2] == pytest.approx(altitude, abs=POSITION_TOLERANCE)
+    return ground
 
 
-async def _land(dm: DroneManager):
+def _assert_landed(drone: Drone, ground: float):
+    """Check that the drone is on the ground when DroneManager reports a landing.
+
+    PX4's land detector can't be used as the ground truth here: Once DroneManager stops sending setpoints after the
+    landing, it can take PX4 several more seconds to detect the landing.
+
+    Args:
+        drone: The drone.
+        ground: The NED down coordinate of the ground.
+    """
+    height = ground - drone.position_ned[2]
+    assert height < LANDED_HEIGHT, f"Landing reported {height:.1f}m above the ground."
+
+
+async def _land(dm: DroneManager, ground: float | None = None):
     """Land the drone and wait until it disarms by itself.
 
     Args:
         dm: The DroneManager.
+        ground: The NED down coordinate of the ground. If given, checks that the drone is on the ground when the landing
+            is reported.
     """
     drone = dm.drones[SITL_DRONE]
     await asyncio.wait_for(dm.land(SITL_DRONE), 90)
-    assert not drone.in_air, "land() returned while the drone was still in the air."
+    if ground is not None:
+        _assert_landed(drone, ground)
     assert await wait_until(lambda: not drone.is_armed, 30), "PX4 should disarm by itself after landing."
 
 
@@ -144,12 +168,9 @@ async def test_land_returns_once_landed(sitl_dm: DroneManager):
     Args:
         sitl_dm: DroneManager connected to the SITL drone.
     """
-    drone = sitl_dm.drones[SITL_DRONE]
-    for _ in range(3):  # The bug doesn't show up on every landing
-        await _takeoff(sitl_dm, altitude=2.0)
-        await asyncio.wait_for(sitl_dm.land(SITL_DRONE), 90)
-        assert not drone.in_air, "land() returned while the drone was still in the air."
-        assert await wait_until(lambda: not drone.is_armed, 30)
+    for _ in range(3):  # The bug didn't show up on every landing
+        ground = await _takeoff(sitl_dm, altitude=2.0)
+        await _land(sitl_dm, ground)
 
 
 async def test_gps_navigation(sitl_dm: DroneManager):
@@ -216,7 +237,8 @@ async def test_pause_holds_queue_until_resumed(sitl_dm: DroneManager):
 async def test_immediate_command_replaces_queue(sitl_dm: DroneManager):
     """A command that isn't scheduled cancels the current action and clears the queue.
 
-    Callers waiting for the replaced actions get a CancelledError as their result instead of waiting forever.
+    Callers waiting for the replaced actions are cancelled instead of waiting forever, so they don't carry on with their
+    next command.
 
     Args:
         sitl_dm: DroneManager connected to the SITL drone.
@@ -232,8 +254,9 @@ async def test_immediate_command_replaces_queue(sitl_dm: DroneManager):
     assert len(drone.action_queue) == 1
     assert await asyncio.wait_for(sitl_dm.fly_to(SITL_DRONE, local=start, yaw=0, schedule=False), 60) == [True]
     for replaced in (far_away, queued):
-        results = await asyncio.wait_for(replaced, 5)
-        assert isinstance(results[0], asyncio.CancelledError)
+        with pytest.raises(asyncio.CancelledError):
+            await asyncio.wait_for(replaced, 5)
+        assert replaced.cancelled()
     assert drone.position_ned == pytest.approx(start, abs=POSITION_TOLERANCE)
     await _land(sitl_dm)
 
@@ -263,9 +286,9 @@ async def test_stop_lands_and_disarms(sitl_dm: DroneManager):
         sitl_dm: DroneManager connected to the SITL drone.
     """
     drone = sitl_dm.drones[SITL_DRONE]
-    await _takeoff(sitl_dm)
+    ground = await _takeoff(sitl_dm)
     assert await asyncio.wait_for(sitl_dm.action_stop([SITL_DRONE]), 120) == [True]
-    assert not drone.in_air
+    _assert_landed(drone, ground)
     assert await wait_until(lambda: not drone.is_armed, 30)
 
 

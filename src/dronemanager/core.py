@@ -12,7 +12,7 @@ from asyncio.exceptions import TimeoutError, CancelledError
 import traceback
 from typing import Callable
 
-from dronemanager.drone import Drone, parse_address, DroneConfigs, DroneConfig
+from dronemanager.drone import Drone, parse_address, DroneConfigs, DroneConfig, ActionCancelled
 from dronemanager.navigation.rectlocalfence import RectLocalFence
 from dronemanager.utils import COMMON_FORMATTER, get_free_port, LOG_DIR, get_config, ConfigError
 from dronemanager.navigation.core import Waypoint, Fence
@@ -290,6 +290,24 @@ class DroneManager:
                     await self._remove_drone_object(name, drone)
                     self.logger.info(f"Disconnected {name}")
 
+    def _raise_if_cancelled(self, names: list[str], results: list):
+        """Cancel the caller if the action of any drone was cancelled.
+
+        Cancellations are expected, i.e. when a command replaces a running one, so they are only logged for debugging.
+
+        Args:
+            names: The names of the drones.
+            results: The results of their actions.
+
+        Raises:
+            ActionCancelled: If the action of any drone was cancelled.
+        """
+        cancelled = {name: str(result) for name, result in zip(names, results)
+                     if isinstance(result, asyncio.CancelledError)}
+        if cancelled:
+            self.logger.debug(f"Cancelled actions: {cancelled}")
+            raise ActionCancelled(f"The actions of drones {list(cancelled)} were cancelled.")
+
     async def _single_drone_action(self, action, name, start_string, *args, schedule=False, **kwargs):
         return await self._multiple_drone_action(action, [name], start_string, *args, schedule=schedule, **kwargs)
 
@@ -309,6 +327,7 @@ class DroneManager:
             for i, result in enumerate(results):
                 if isinstance(result, Exception):
                     self.logger.error(f"Drone {names[i]} failed due to: {str(result)}")
+            self._raise_if_cancelled(names, results)
             return results
         except KeyError:
             self.logger.warning(f"No drones named {[name for name in names if name not in self.drones]}!")
@@ -357,6 +376,7 @@ class DroneManager:
                     self.logger.error(f"Drone {names[i]} failed due to: {repr(result)}")
                     exc_tb = traceback.format_exception(result)
                     self.logger.debug("".join(exc_tb))
+            self._raise_if_cancelled(names, results)
             return results
         except KeyError:
             self.logger.warning(f"No drones named {[name for name in names if name not in self.drones]}!")
