@@ -26,6 +26,8 @@ LANDED_TOLERANCE = 2.0
 noise, and the estimated position of a drone on the ground keeps wandering, by more than a meter over a minute. The
 drones land one after another, so this only separates "returned to base" from "stayed in the field", where the point
 of interest is 5 m away from the start positions."""
+PX4_LANDED_DELAY = 15
+"""How long PX4's land detector may take to agree after DroneManager reported a landing, in seconds."""
 MISSION_ALTITUDE = 2.0
 """Flight altitude of the UAM mission in the tests, in meters. The mission flies at 1 m above the local origin, which
 is set up for the indoor demo. In SIH, the origin isn't exactly at ground level, so 1 m above it can be little more
@@ -60,7 +62,7 @@ async def _load_uam(dm: DroneManager, drones: list[str]) -> uam.UAMMission:
         position = dm.drones[drone].position_ned
         assert position[:2] == pytest.approx([mission.start_position_x, mission.start_positions_y[drone]],
                                              abs=LANDED_TOLERANCE)
-        assert not dm.drones[drone].in_air
+        assert await wait_until(lambda: not dm.drones[drone].in_air, PX4_LANDED_DELAY)
     return mission
 
 
@@ -80,7 +82,7 @@ async def _return_to_base(dm: DroneManager, mission: uam.UAMMission):
     assert await wait_until(lambda: mission.current_stage is UAMStages.Start, 300), mission.current_stage
     for name in mission.drones:
         drone = dm.drones[name]
-        assert not drone.in_air
+        assert await wait_until(lambda: not drone.in_air, PX4_LANDED_DELAY)
         if name in returning:
             start = [mission.start_position_x, mission.start_positions_y[name]]
             assert drone.position_ned[:2] == pytest.approx(start, abs=LANDED_TOLERANCE)
@@ -107,7 +109,7 @@ async def test_fleet_commands(sitl_fleet: Callable[[int], Awaitable[DroneManager
         assert dm.drones[name].attitude[2] == pytest.approx(yaw, abs=5)
 
     await asyncio.wait_for(dm.land(names), 120)
-    assert not any(dm.drones[name].in_air for name in names)
+    assert await wait_until(lambda: not any(dm.drones[name].in_air for name in names), PX4_LANDED_DELAY)
     assert await wait_until(lambda: not any(dm.drones[name].is_armed for name in names), 30)
 
 
@@ -164,4 +166,4 @@ async def test_uam_group_search_with_battery_swap(sitl_fleet: Callable[[int], Aw
     await asyncio.sleep(1)  # Let the mission cancel its drone tasks
     flying = [name for name in names if dm.drones[name].in_air]
     await asyncio.wait_for(dm.land(flying), 120)
-    assert not any(dm.drones[name].in_air for name in names)
+    assert await wait_until(lambda: not any(dm.drones[name].in_air for name in names), PX4_LANDED_DELAY)
