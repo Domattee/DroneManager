@@ -145,6 +145,54 @@ class DroneParams:
         self.max_yaw_rate = None  # degrees/s
 
 
+class ActionCancelled(asyncio.CancelledError):
+    """A drone action was cancelled before it completed.
+
+    Raised by the DroneManager functions that command drones, i.e. ``fly_to``, if the action of at least one drone was
+    replaced by another command that wasn't scheduled, such as ``stop``, or removed from the queue. The calling code is
+    cancelled, as if it was cancelled itself, so that it doesn't carry on with its next command.
+    """
+
+
+class LandingDetector:
+    """Decides when a descending drone has landed, from its altitude.
+
+    The drone counts as landed once it stops descending: Over the last :py:attr:`window` seconds, it descended less
+    than :py:attr:`min_descent`. Comparing the altitude over a time window instead of between consecutive samples makes
+    this robust against noisy samples. On the ground, the estimated altitude can still drift slowly in either direction,
+    so the threshold should be well above that drift, but well below the descent over the window in the air.
+    The flight controller's own landed state isn't used, as PX4 and ArduPilot can take a long time to detect a landing.
+    """
+
+    def __init__(self, window: float = 2.0, min_descent: float = 0.4):
+        """Create the LandingDetector.
+
+        Args:
+            window: The time window in seconds.
+            min_descent: While the drone descends at least this many meters over the window, it is still in the air.
+        """
+        self.window = window
+        self.min_descent = min_descent
+        self._samples: deque[tuple[float, float]] = deque()
+
+    def update(self, t: float, z: float) -> bool:
+        """Add a sample and check if the drone has landed.
+
+        Args:
+            t: The time of the sample in seconds.
+            z: The altitude as the NED down coordinate in meters.
+
+        Returns:
+            True if the drone has landed.
+        """
+        self._samples.append((t, z))
+        # Keep the newest sample from at or before the start of the window
+        while len(self._samples) > 1 and self._samples[1][0] <= t - self.window:
+            self._samples.popleft()
+        start_t, start_z = self._samples[0]
+        return t - start_t >= self.window and z - start_z < self.min_descent
+
+
 class Drone(ABC, threading.Thread):
 
     VALID_FLIGHTMODES = set()
@@ -205,16 +253,20 @@ class Drone(ABC, threading.Thread):
                     else:
                         action, fut = self.action_queue.popleft()
                         self.current_action = asyncio.create_task(action)
+                        # The caller may have stopped waiting for the action, which cancels its future
                         try:
                             result = await self.current_action
-                            fut.set_result(result)
-                            self.current_action = None
+                            if not fut.done():
+                                fut.set_result(result)
                         except asyncio.CancelledError:
                             # The action was replaced, i.e. by an action that wasn't scheduled. Callers waiting for
-                            # it get a CancelledError instead of waiting forever.
-                            fut.cancel()
+                            # it are cancelled instead of waiting forever.
+                            fut.cancel(msg="Replaced by another command")
                         except Exception as e:
-                            fut.set_exception(e)
+                            if not fut.done():
+                                fut.set_exception(e)
+                        finally:
+                            self.current_action = None
                 else:
                     await asyncio.sleep(0.1)
             except Exception as e:
@@ -495,14 +547,14 @@ class Drone(ABC, threading.Thread):
     def clear_queue(self) -> None:
         """Clears the action queue.
 
-        Does not cancel the current action. Callers waiting for the removed actions get a CancelledError.
+        Does not cancel the current action. Callers waiting for the removed actions are cancelled.
 
         :return:
         """
         self.logger.debug("Clearing action queue")
         for action, fut in self.action_queue:
             action.close()  # Never started, close it to avoid "coroutine was never awaited" warnings
-            fut.cancel()
+            fut.cancel(msg="Removed from the queue")
         self.action_queue.clear()
 
     def cancel_action(self) -> None:
@@ -520,6 +572,10 @@ class Drone(ABC, threading.Thread):
 
 
 class DroneMAVSDK(Drone):
+
+    _PX4_ARMABLE_MODES = {FlightMode.READY, FlightMode.HOLD, FlightMode.POSCTL, FlightMode.ALTCTL, FlightMode.MANUAL,
+                          FlightMode.STABILIZED, FlightMode.ACRO, FlightMode.MISSION, FlightMode.TAKEOFF}
+    """PX4 flight modes the drone can be armed in without further preparation."""
 
     VALID_FLIGHTMODES = {"hold", "offboard", "return", "land", "takeoff", "position", "altitude"}
     # This attribute is for checking which flight modes can be changed into manually
@@ -872,6 +928,10 @@ class DroneMAVSDK(Drone):
         timeout = 5
         self.logger.info("Arming!")
         await super().arm()
+        if self.autopilot == "PX4" and self.flightmode not in self._PX4_ARMABLE_MODES:
+            # i.e. after a landing in land mode, PX4 refuses to arm until the mode is changed
+            self.logger.debug(f"Switching from {self.flightmode.name} to hold mode for arming")
+            await self._error_wrapper(self.system.action.hold, ActionError)
         result = await self._error_wrapper(self.system.action.arm, ActionError)
         if result and not isinstance(result, Exception):
             start_time = time.time()
@@ -1281,23 +1341,30 @@ class DroneMAVSDK(Drone):
         await super().land()
         return await self._land_using_offbord_mode()
 
-    async def _land_using_offbord_mode(self, descent_rate: float = 0.3):
-        """Descend slowly in offboard mode until PX4's land detector reports that the drone has landed.
+    async def _land_using_offbord_mode(self, descent_rate: float = 0.3, offboard_timeout: float = 5):
+        """Descend slowly in offboard mode until the drone stops descending or disarms.
 
-        Whether the drone has landed is decided by PX4's land detector, not by the altitude no longer decreasing: A
-        brief stall of the descent, i.e. while switching into offboard mode, otherwise looks like a landing while the
-        drone is still in the air. If PX4 doesn't detect the landing in time, PX4's land mode takes over.
+        Whether the drone has stopped descending is decided by a :py:class:`LandingDetector`. It only starts once the
+        drone is in offboard mode, as the descent stalls briefly while switching modes. If the drone doesn't switch into
+        offboard mode within ``offboard_timeout`` seconds, i.e. because it is controlled by a pilot, the detector starts
+        anyway. Once landed, the drone is switched into the flight controller's land mode, which disarms it, without
+        waiting for that.
 
         Args:
             descent_rate: The descent velocity in m/s.
+            offboard_timeout: How long to wait for offboard mode before starting the detector, in seconds.
 
         Returns:
             True once the drone has landed.
         """
         self.logger.info("Landing!")
-        # Generous timeout from the height above the takeoff point, so the land mode only takes over if something is off
-        timeout = 30 + 2 * max(self.altitude_above_takeoff, 0) / descent_rate
         start_time = time.time()
+        # Landed once the average descent over the window drops below 2/3 of the descent rate. In the air, the drone
+        # descends about twice as fast as the descent rate, as the position setpoint is below it. On the ground, the
+        # estimated altitude can still drift downwards by up to about half of it.
+        window = 2
+        detector = LandingDetector(window, min_descent=window * descent_rate * 2 / 3)
+        detecting = False
         target_pos = self._get_pos_ned_yaw()
         if self._flightmode != FlightMode.OFFBOARD:
             await self.set_setpoint(Waypoint(WayPointType.POS_VEL_NED, pos=target_pos[:3], yaw=target_pos[3]))
@@ -1308,15 +1375,23 @@ class DroneMAVSDK(Drone):
             update_freq = self.position_update_rate
         except Exception as e:
             self.logger.debug(f"Couldn't set message rate: {repr(e)}", exc_info=True)
-        while self.in_air and time.time() < start_time + timeout:
+        while self.is_armed:
+            now = time.time()
+            if not detecting and (self.flightmode == FlightMode.OFFBOARD or now > start_time + offboard_timeout):
+                detecting = True
+            if detecting and detector.update(now, self.position_ned[2]):
+                break
             target_pos[2] = self.position_ned[2] + 0.4
             await self.set_setpoint(Waypoint(WayPointType.POS_VEL_NED, pos=target_pos[:3], vel=[0, 0, descent_rate],
                                              yaw=target_pos[3]))
             await asyncio.sleep(1/update_freq)
-        if self.in_air:
-            self.logger.warning(f"PX4 didn't detect a landing after {timeout:.0f}s, switching to land mode.")
-            return await self._land_using_landmode()
         self.logger.info("Landed!")
+        if self.is_armed:
+            # Without setpoints, PX4 would hold its position on the ground and might not detect the landing at all, so
+            # it neither disarms nor allows disarming. Its land mode finishes the landing and disarms, and also lands
+            # the drone if it was still in the air after all.
+            if not await self._error_wrapper(self.system.action.land, ActionError):
+                self.logger.warning("Couldn't switch into land mode after landing!")
         return True
 
     async def _land_using_landmode(self):
@@ -1395,8 +1470,38 @@ class DroneMAVSDK(Drone):
         if not self.is_connected:
             return True
         await self.land()
-        await self.disarm()
+        await self._disarm_after_landing()
         await super().stop()
+        return True
+
+    async def _disarm_after_landing(self, auto_disarm_timeout: float = 10, timeout: float = 20) -> bool:
+        """Disarm after DroneManager has detected a landing.
+
+        After the landing, the drone is in the flight controller's land mode, which disarms by itself once its own land
+        detector agrees. Until then, it refuses to disarm. So this waits for that first, and then retries disarming,
+        logging the refusals only for debugging.
+
+        Args:
+            auto_disarm_timeout: How long to wait for the drone to disarm by itself, in seconds.
+            timeout: How long to try in total, in seconds.
+
+        Returns:
+            True if the drone is disarmed.
+        """
+        self.logger.info("Disarming!")
+        start_time = time.time()
+        while self.is_armed and time.time() < start_time + auto_disarm_timeout:
+            await asyncio.sleep(1 / self.position_update_rate)
+        while self.is_armed and time.time() < start_time + timeout:
+            try:
+                await self.system.action.disarm()
+            except ActionError as e:
+                self.logger.debug(f"Disarming refused, retrying: {e._result.result_str}")
+            await asyncio.sleep(1)
+        if self.is_armed:
+            self.logger.warning(f"Couldn't disarm within {timeout}s after landing!")
+            return False
+        self.logger.info("Disarmed!")
         return True
 
     async def kill(self):
