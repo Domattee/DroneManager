@@ -109,7 +109,8 @@ async def test_fleet_commands(sitl_fleet: Callable[[int], Awaitable[DroneManager
         assert dm.drones[name].attitude[2] == pytest.approx(yaw, abs=5)
 
     await asyncio.wait_for(dm.land(names), 120)
-    assert await wait_until(lambda: not any(dm.drones[name].in_air for name in names), PX4_LANDED_DELAY)
+    # PX4 SIH sometimes doesn't detect the landing in offboard mode, see _finish_landing in test_flight.py
+    await asyncio.wait_for(dm.change_flightmode(names, "land"), 30)
     assert await wait_until(lambda: not any(dm.drones[name].is_armed for name in names), 30)
 
 
@@ -166,4 +167,5 @@ async def test_uam_group_search_with_battery_swap(sitl_fleet: Callable[[int], Aw
     await asyncio.sleep(1)  # Let the mission cancel its drone tasks
     flying = [name for name in names if dm.drones[name].in_air]
     await asyncio.wait_for(dm.land(flying), 120)
+    await asyncio.wait_for(dm.change_flightmode(flying, "land"), 30)
     assert await wait_until(lambda: not any(dm.drones[name].in_air for name in names), PX4_LANDED_DELAY)
