@@ -705,8 +705,7 @@ class ControllerPlugin(Plugin):
             event_frequency:
             control_frequency:
             default_mappings:
-            mappings: The input mappings from the configuration file. They are loaded from the DroneManager config by
-                :py:meth:`load_mappings_from_config`, so this argument is unused.
+            mappings: Input mappings by name, as dictionaries in the format of :py:meth:`InputMapping.from_dict`.
         """
         super().__init__(dm, logger, name)
         self.background_functions = [
@@ -746,7 +745,7 @@ class ControllerPlugin(Plugin):
         if default_mappings is None:
             default_mappings = {}
         self.default_mappings = default_mappings  #: Controller names as keys and default mapping as values.
-        self.load_mappings_from_config()
+        self._add_mappings(mappings if mappings is not None else {})
 
         self.dm.add_remove_func(self._drone_disconnected_callback)
 
@@ -830,13 +829,17 @@ class ControllerPlugin(Plugin):
             self.controllers[controller_id].log_input_ids = not self.controllers[controller_id].log_input_ids
 
     def load_mappings_from_config(self):
-        """Populates :py:attr:`mappings` from the entries in the DroneManager config."""
-        plugin_setting = self.dm.config.plugin_settings
-        if "controllers" in plugin_setting:
-            if "mappings" in plugin_setting["controllers"]:
-                for mapping_name in plugin_setting["controllers"]["mappings"]:
-                    mapping = InputMapping.from_dict(plugin_setting["controllers"]["mappings"][mapping_name])
-                    self.mappings[mapping_name] = mapping
+        """Populates :py:attr:`mappings` from the entries in the DroneManager config, i.e. after reloading it."""
+        self._add_mappings(self.dm.config.plugin_settings.get("controllers", {}).get("mappings", {}))
+
+    def _add_mappings(self, mappings: dict[str, dict]):
+        """Add input mappings to :py:attr:`mappings`, replacing existing ones with the same name.
+
+        Args:
+            mappings: Input mappings by name, as dictionaries in the format of :py:meth:`InputMapping.from_dict`.
+        """
+        for mapping_name, mapping in mappings.items():
+            self.mappings[mapping_name] = InputMapping.from_dict(mapping)
 
     async def save_current_mappings(self):
         """Save the current mappings to the DroneManager config. The config itself has to be saved separately!"""

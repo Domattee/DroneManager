@@ -567,7 +567,7 @@ class DroneManager:
         else:
             self.config.to_file(alt_path)
 
-    def check_config(self) -> list[ConfigError]:
+    def check_plugin_settings(self) -> list[ConfigError]:
         """Check the plugin entries of the configuration against the available plugins.
 
         Checks that the default plugins exist and that the settings of each plugin match its arguments, see
