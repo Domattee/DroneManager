@@ -187,7 +187,7 @@ class CommandScreen(Screen):
         asyncio.create_task(self._default_plugin_loading())
 
     async def _default_plugin_loading(self):
-        for error in self.dm.check_config():
+        for error in self.dm.check_plugin_settings():
             self.logger.error(str(error))
         plugin_tasks = []
         for plugin_name in self.dm.config.default_plugins:
@@ -348,8 +348,6 @@ class CommandScreen(Screen):
         log_parser = command_parsers.add_parser("logs", help="Prints the log directory", logger=self.logger)
         config_parser = command_parsers.add_parser("config", help="Print the config directory", logger=self.logger)
         config_parser.add_argument("--save", action="store_true", help="Saves the current config if set.")
-        config_parser.add_argument("--check", action="store_true",
-                                   help="Checks the plugin entries of the current config against the plugins.")
 
         return parser, command_parsers
 
@@ -523,12 +521,6 @@ class CommandScreen(Screen):
                 elif command == "config":
                     if args.save:
                         self.dm.save_config()
-                    elif args.check:
-                        errors = self.dm.check_config()
-                        for error in errors:
-                            self.logger.error(str(error))
-                        if not errors:
-                            self.logger.info(f"No problems found in {get_config()}")
                     else:
                         self.logger.info(get_config())
                 self.app.running_tasks.add(tmp)
