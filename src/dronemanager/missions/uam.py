@@ -555,15 +555,9 @@ class UAMMission(Mission):
 
     async def _land_drone_at_current_position(self, drone):
         await self.dm.land([drone])
-        # After the landing, the drone disarms by itself once the flight controller's land detector agrees. Until then,
-        # disarming is refused.
-        start_time = time.time()
-        while self.dm.drones[drone].is_armed and time.time() < start_time + 10:
-            await asyncio.sleep(0.5)
-        while self.dm.drones[drone].is_armed:
-            if await self.dm.disarm([drone]) != [True]:
-                self.logger.info("Drone didn't disarm, trying again in a few moments...")
-                await asyncio.sleep(1)
+        # The flight controller refuses to disarm until its own land detector agrees, which can take longer
+        if await self.dm.disarm([drone], retry_for=30) != [True]:
+            self.logger.warning(f"Couldn't disarm {drone} after landing!")
         try:
             self.flying_drones.remove(drone)
         except KeyError:

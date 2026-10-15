@@ -23,7 +23,7 @@ async def test_installed_config_matches_plugins(dm: DroneManager):
     Args:
         dm: DroneManager instance, using the installed configuration.
     """
-    errors = dm.check_config()
+    errors = dm.check_plugin_settings()
     assert not errors, "\n".join(str(error) for error in errors)
 
 
@@ -95,7 +95,7 @@ async def test_invalid_plugin_settings(dm: DroneManager, settings: dict, message
         message: Expected part of the error message.
     """
     dm.config.plugin_settings = settings
-    errors = dm.check_config()
+    errors = dm.check_plugin_settings()
     assert len(errors) == 1
     assert message in str(errors[0])
     plugin = next(iter(settings))
@@ -111,7 +111,7 @@ async def test_unknown_default_plugin(dm: DroneManager):
     """
     dm.config.default_plugins = ["missions"]
     dm.config.plugin_settings = {}
-    errors = dm.check_config()
+    errors = dm.check_plugin_settings()
     assert len(errors) == 1
     assert "default_plugins: no plugin named 'missions'" in str(errors[0])
 
