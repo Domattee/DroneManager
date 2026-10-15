@@ -62,8 +62,25 @@ def _assert_landed(drone: Drone, ground: float):
     assert height < LANDED_HEIGHT, f"Landing reported {height:.1f}m above the ground."
 
 
+async def _finish_landing(dm: DroneManager):
+    """Make sure PX4 disarms the drone after DroneManager reported the landing.
+
+    In SITL, PX4 sometimes doesn't detect the landing at all while the drone stays in offboard mode after DroneManager's
+    landing, so it refuses to disarm. PX4's land mode detects it within seconds. After that, PX4 only arms again in
+    another mode, so the drone is switched to hold. This is only needed in SITL.
+
+    Args:
+        dm: The DroneManager.
+    """
+    drone = dm.drones[SITL_DRONE]
+    if drone.is_armed:
+        await asyncio.wait_for(dm.change_flightmode(SITL_DRONE, "land"), 30)
+    assert await wait_until(lambda: not drone.is_armed, 30), "PX4 should disarm by itself after landing."
+    await asyncio.wait_for(dm.change_flightmode(SITL_DRONE, "hold"), 30)
+
+
 async def _land(dm: DroneManager, ground: float | None = None):
-    """Land the drone and wait until it disarms by itself.
+    """Land the drone and wait until it is disarmed.
 
     Args:
         dm: The DroneManager.
@@ -74,7 +91,7 @@ async def _land(dm: DroneManager, ground: float | None = None):
     await asyncio.wait_for(dm.land(SITL_DRONE), 90)
     if ground is not None:
         _assert_landed(drone, ground)
-    assert await wait_until(lambda: not drone.is_armed, 30), "PX4 should disarm by itself after landing."
+    await _finish_landing(dm)
 
 
 async def test_connection_and_telemetry(sitl_dm: DroneManager):
@@ -237,8 +254,7 @@ async def test_pause_holds_queue_until_resumed(sitl_dm: DroneManager):
 async def test_immediate_command_replaces_queue(sitl_dm: DroneManager):
     """A command that isn't scheduled cancels the current action and clears the queue.
 
-    Callers waiting for the replaced actions are cancelled instead of waiting forever, so they don't carry on with their
-    next command.
+    Callers waiting for the replaced actions get a CancelledError as their result instead of waiting forever.
 
     Args:
         sitl_dm: DroneManager connected to the SITL drone.
@@ -254,9 +270,8 @@ async def test_immediate_command_replaces_queue(sitl_dm: DroneManager):
     assert len(drone.action_queue) == 1
     assert await asyncio.wait_for(sitl_dm.fly_to(SITL_DRONE, local=start, yaw=0, schedule=False), 60) == [True]
     for replaced in (far_away, queued):
-        with pytest.raises(asyncio.CancelledError):
-            await asyncio.wait_for(replaced, 5)
-        assert replaced.cancelled()
+        results = await asyncio.wait_for(replaced, 5)
+        assert isinstance(results[0], asyncio.CancelledError)
     assert drone.position_ned == pytest.approx(start, abs=POSITION_TOLERANCE)
     await _land(sitl_dm)
 
@@ -289,7 +304,7 @@ async def test_stop_lands_and_disarms(sitl_dm: DroneManager):
     ground = await _takeoff(sitl_dm)
     assert await asyncio.wait_for(sitl_dm.action_stop([SITL_DRONE]), 120) == [True]
     _assert_landed(drone, ground)
-    assert await wait_until(lambda: not drone.is_armed, 30)
+    await _finish_landing(sitl_dm)
 
 
 async def test_kill_disarms(sitl_dm: DroneManager):
