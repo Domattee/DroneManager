@@ -189,7 +189,7 @@ class DroneOverview(Static):
 
     def _text_flightmode(self):
         color = "green" if self.drone.flightmode == FlightMode.OFFBOARD else "red"
-        string = self.column_formats[2].format(str(self.drone.flightmode))
+        string = self.column_formats[2].format(str(self.drone.flightmode.name))
         return Text(string, style=f"bold {color}")
 
     def _text_fixtype(self):
@@ -198,7 +198,7 @@ class DroneOverview(Static):
             color = "red"
         elif self.drone.fix_type in [FixType.RTK_FIXED, FixType.RTK_FLOAT]:
             color = "green"
-        string = self.column_formats[2].format(str(self.drone.fix_type))
+        string = self.column_formats[2].format(str(self.drone.fix_type.name))
         return Text(string, style=f"bold {color}")
 
     def _text_armed(self):
