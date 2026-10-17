@@ -231,6 +231,7 @@ class UAMMission(Mission):
                         found = True
             except asyncio.CancelledError:
                 self.logger.debug("Cancelling poi check function")
+                return
             except Exception as e:
                 self.logger.error(f"The POI checker function encountered an exception!")
                 self.logger.debug(repr(e), exc_info=True)
@@ -554,13 +555,9 @@ class UAMMission(Mission):
 
     async def _land_drone_at_current_position(self, drone):
         await self.dm.land([drone])
-        disarmed = False
-        while not disarmed:
-            await asyncio.sleep(0.5) # Wait a couple of beats for landing detection
-            disarmed = await self.dm.disarm([drone])
-            if isinstance(disarmed, Exception):
-                self.logger.info("Drone didn't disarm, trying again in a few moments...")
-                disarmed = False
+        # The flight controller refuses to disarm until its own land detector agrees, which can take longer
+        if await self.dm.disarm([drone], retry_for=30) != [True]:
+            self.logger.warning(f"Couldn't disarm {drone} after landing!")
         try:
             self.flying_drones.remove(drone)
         except KeyError:

@@ -145,6 +145,49 @@ class DroneParams:
         self.max_yaw_rate = None  # degrees/s
 
 
+class LandingDetector:
+    """Decides when a descending drone has landed, from its altitude and vertical velocity.
+
+    The drone counts as landed once it stops descending: Over the last :py:attr:`window` seconds, it descended less
+    than :py:attr:`min_descent`, and it doesn't descend faster than :py:attr:`max_v_down` anymore. Comparing the
+    altitude over a time window instead of between consecutive samples makes this robust against noisy samples, and the
+    velocity check against a position estimate that lags behind the descent. Upward movement counts as not descending,
+    as the estimated altitude of a drone on the ground can drift in either direction.
+    The flight controller's own landed state isn't used, as PX4 and ArduPilot can take a long time to detect a landing.
+    """
+
+    def __init__(self, window: float = 2.0, min_descent: float = 0.3, max_v_down: float = 0.15):
+        """Create the LandingDetector.
+
+        Args:
+            window: The time window in seconds.
+            min_descent: While the drone descends at least this many meters over the window, it is still in the air.
+            max_v_down: While the drone descends at least this many m/s, it is still in the air.
+        """
+        self.window = window
+        self.min_descent = min_descent
+        self.max_v_down = max_v_down
+        self._samples: deque[tuple[float, float]] = deque()
+
+    def update(self, t: float, z: float, v_down: float) -> bool:
+        """Add a sample and check if the drone has landed.
+
+        Args:
+            t: The time of the sample in seconds.
+            z: The altitude as the NED down coordinate in meters.
+            v_down: The NED down velocity in m/s.
+
+        Returns:
+            True if the drone has landed.
+        """
+        self._samples.append((t, z))
+        # Keep the newest sample from at or before the start of the window
+        while len(self._samples) > 1 and self._samples[1][0] <= t - self.window:
+            self._samples.popleft()
+        start_t, start_z = self._samples[0]
+        return t - start_t >= self.window and z - start_z < self.min_descent and v_down < self.max_v_down
+
+
 class Drone(ABC, threading.Thread):
 
     VALID_FLIGHTMODES = set()
@@ -205,14 +248,20 @@ class Drone(ABC, threading.Thread):
                     else:
                         action, fut = self.action_queue.popleft()
                         self.current_action = asyncio.create_task(action)
+                        # The caller may have stopped waiting for the action, which cancels its future
                         try:
                             result = await self.current_action
-                            fut.set_result(result)
-                            self.current_action = None
+                            if not fut.done():
+                                fut.set_result(result)
                         except asyncio.CancelledError:
-                            pass
+                            # The action was replaced, i.e. by an action that wasn't scheduled. Callers waiting for
+                            # it are cancelled instead of waiting forever.
+                            fut.cancel(msg="Replaced by another command")
                         except Exception as e:
-                            fut.set_exception(e)
+                            if not fut.done():
+                                fut.set_exception(e)
+                        finally:
+                            self.current_action = None
                 else:
                     await asyncio.sleep(0.1)
             except Exception as e:
@@ -342,7 +391,7 @@ class Drone(ABC, threading.Thread):
         pass
 
     @abstractmethod
-    async def disarm(self) -> bool:
+    async def disarm(self, retry_for: float = 0) -> bool:
         pass
 
     @abstractmethod
@@ -493,11 +542,14 @@ class Drone(ABC, threading.Thread):
     def clear_queue(self) -> None:
         """Clears the action queue.
 
-        Does not cancel the current action.
+        Does not cancel the current action. Callers waiting for the removed actions are cancelled.
 
         :return:
         """
         self.logger.debug("Clearing action queue")
+        for action, fut in self.action_queue:
+            action.close()  # Never started, close it to avoid "coroutine was never awaited" warnings
+            fut.cancel(msg="Removed from the queue")
         self.action_queue.clear()
 
     def cancel_action(self) -> None:
@@ -762,6 +814,7 @@ class DroneMAVSDK(Drone):
         self._running_tasks.add(asyncio.create_task(self._g_pos_check()))
         self._running_tasks.add(asyncio.create_task(self._vel_rpos_check()))
         self._running_tasks.add(asyncio.create_task(self._att_check()))
+        self._running_tasks.add(asyncio.create_task(self._heading_check()))
         self._running_tasks.add(asyncio.create_task(self._battery_check()))
         self._running_tasks.add(asyncio.create_task(self._status_check()))
         self._running_tasks.add(asyncio.create_task(self._ensure_message_rates()))
@@ -879,24 +932,44 @@ class DroneMAVSDK(Drone):
             self.logger.warning("Couldn't arm!")
         return result
 
-    async def disarm(self):
+    async def disarm(self, retry_for: float = 0):
+        """Disarm the drone.
+
+        Args:
+            retry_for: Keep retrying for this many seconds while the flight controller refuses to disarm, i.e. because
+                its own land detector doesn't agree yet after DroneManager detected a landing. The refusals are then
+                only logged for debugging. By default, a refusal fails immediately.
+
+        Returns:
+            True if the drone was disarmed.
+        """
         timeout = 5
         self.logger.info("Disarming!")
         if self.path_follower.is_active:
             await self.path_follower.deactivate()
         await super().disarm()
-        result = await self._error_wrapper(self.system.action.disarm, ActionError)
-        if result and not isinstance(result, Exception):
-            start_time = time.time()
-            while self.is_armed:
-                await asyncio.sleep(1 / self.position_update_rate)
-                if time.time() - start_time > timeout:
-                    self.logger.warning("Disarming timed out!")
+        retry_until = time.time() + retry_for
+        while True:
+            try:
+                await self.system.action.disarm()
+                break
+            except ActionError as e:
+                if not self.is_armed:  # Disarmed by itself in the meantime
+                    break
+                if time.time() >= retry_until:
+                    self.logger.error(e._result.result_str)
+                    self.logger.warning("Couldn't disarm!")
                     return False
-            self.logger.info("Disarmed!")
-        else:
-            self.logger.warning("Couldn't disarm!")
-        return result
+                self.logger.debug(f"Disarming refused, retrying: {e._result.result_str}")
+                await asyncio.sleep(2)
+        start_time = time.time()
+        while self.is_armed:
+            await asyncio.sleep(1 / self.position_update_rate)
+            if time.time() - start_time > timeout:
+                self.logger.warning("Disarming timed out!")
+                return False
+        self.logger.info("Disarmed!")
+        return True
 
     def _can_takeoff(self):
         if not self.is_armed:
@@ -1137,8 +1210,8 @@ class DroneMAVSDK(Drone):
         # Determine target waypoint, prefering waypoint over GPS over local and using current yaw if none is provided
         if waypoint is not None:
             target = waypoint
-            if waypoint.yaw is None:
-                # Maintain current yaw if none given
+            if waypoint.yaw is None or np.isnan(waypoint.yaw):
+                # Maintain current yaw if none given. Waypoints store a missing yaw as NaN.
                 waypoint.yaw = self.attitude[2]
         elif gps is not None:
             if yaw is None:
@@ -1211,7 +1284,10 @@ class DroneMAVSDK(Drone):
 
     async def move(self, offset, yaw: float | None = None, use_gps=True, tolerance=0.25):
         self.logger.info("Starting move")
-        target_yaw = self.attitude[2] + yaw
+        if yaw is None:
+            target_yaw = None
+        else:
+            target_yaw = self.attitude[2] + yaw
         if use_gps:
             target_lat, target_long, target_amsl = relative_gps(self.position_global, offset)
             waypoint = Waypoint(WayPointType.POS_GLOBAL, gps=[target_lat, target_long, target_amsl], yaw=target_yaw)
@@ -1272,12 +1348,24 @@ class DroneMAVSDK(Drone):
         await super().land()
         return await self._land_using_offbord_mode()
 
-    async def _land_using_offbord_mode(self, error_thresh=0.00001, min_time=1):
+    async def _land_using_offbord_mode(self, descent_rate: float = 0.3):
+        """Descend in offboard mode until the drone stops descending.
+
+        Whether the drone has stopped descending is decided by a :py:class:`LandingDetector`, from the altitude and
+        vertical velocity. The flight controller's landed state isn't used, as PX4 and ArduPilot can take a long time
+        to detect a landing.
+
+        Args:
+            descent_rate: The descent velocity in m/s. Limited to the drone's maximum descent velocity.
+
+        Returns:
+            True once the drone has landed.
+        """
         self.logger.info("Landing!")
-        ema_alt_error = 0
-        going_down = True
-        old_alt = self.position_ned[2]
-        start_time = time.time()
+        max_down_vel = self.drone_params.max_down_vel if self.drone_params is not None else None
+        if max_down_vel and descent_rate > max_down_vel:
+            self.logger.debug(f"Limiting the descent rate to the drone's maximum of {max_down_vel}m/s")
+            descent_rate = max_down_vel
         target_pos = self._get_pos_ned_yaw()
         if self._flightmode != FlightMode.OFFBOARD:
             await self.set_setpoint(Waypoint(WayPointType.POS_VEL_NED, pos=target_pos[:3], yaw=target_pos[3]))
@@ -1288,15 +1376,20 @@ class DroneMAVSDK(Drone):
             update_freq = self.position_update_rate
         except Exception as e:
             self.logger.debug(f"Couldn't set message rate: {repr(e)}", exc_info=True)
+        # Landed once the drone descended less than half of what it should have over the window, and descends at less
+        # than half the descent rate. The detector starts once the drone is in offboard mode, as the descent stalls
+        # while switching modes.
+        window = 2
+        detector = LandingDetector(window, min_descent=window * descent_rate / 2, max_v_down=descent_rate / 2)
+        going_down = True
         while going_down:
-            cur_alt = self.position_ned[2]
-            ema_alt_error = (cur_alt - old_alt) + 0.33 * ema_alt_error
-            if ema_alt_error < error_thresh and time.time() > start_time + min_time:
-                going_down = False
-            old_alt = cur_alt
-            target_pos[2] = cur_alt + 0.4
-            await self.set_setpoint(Waypoint(WayPointType.POS_VEL_NED, pos=target_pos[:3], vel=[0, 0, 0.3], yaw=target_pos[3]))
+            # The position setpoint is only one update ahead, so that it matches the velocity setpoint and the drone
+            # descends at the descent rate.
+            target_pos[2] = self.position_ned[2] + descent_rate / update_freq
+            await self.set_setpoint(Waypoint(WayPointType.POS_VEL_NED, pos=target_pos[:3], vel=[0, 0, descent_rate],
+                                             yaw=target_pos[3]))
             await asyncio.sleep(1/update_freq)
+            going_down = not detector.update(time.time(), self.position_ned[2], self.velocity[2])
         self.logger.info("Landed!")
         return True
 
@@ -1376,7 +1469,8 @@ class DroneMAVSDK(Drone):
         if not self.is_connected:
             return True
         await self.land()
-        await self.disarm()
+        # The flight controller may refuse to disarm until its own land detector agrees, which can take longer
+        await self.disarm(retry_for=15)
         await super().stop()
         return True
 

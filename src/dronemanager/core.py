@@ -307,7 +307,10 @@ class DroneManager:
                 results = [self.drones[name].execute_task(coros[i]) for i, name in enumerate(names)]
             results = await asyncio.gather(*results, return_exceptions=True)
             for i, result in enumerate(results):
-                if isinstance(result, Exception):
+                if isinstance(result, CancelledError):
+                    # Expected, i.e. when a command replaces the running one
+                    self.logger.debug(f"Action of drone {names[i]} was cancelled: {result}")
+                elif isinstance(result, Exception):
                     self.logger.error(f"Drone {names[i]} failed due to: {str(result)}")
             return results
         except KeyError:
@@ -353,7 +356,10 @@ class DroneManager:
                 results = [self.drones[name].execute_task(coros[i]) for i, name in enumerate(names)]
             results = await asyncio.gather(*results, return_exceptions=True)
             for i, result in enumerate(results):
-                if isinstance(result, Exception):
+                if isinstance(result, CancelledError):
+                    # Expected, i.e. when a command replaces the running one
+                    self.logger.debug(f"Action of drone {names[i]} was cancelled: {result}")
+                elif isinstance(result, Exception):
                     self.logger.error(f"Drone {names[i]} failed due to: {repr(result)}")
                     exc_tb = traceback.format_exception(result)
                     self.logger.debug("".join(exc_tb))
@@ -368,9 +374,20 @@ class DroneManager:
         return await self._multiple_drone_action(self.drone_class.arm, names,
                                                  "Arming drone(s) {}.", schedule=schedule)
 
-    async def disarm(self, names: str | Collection[str], schedule=False):
+    async def disarm(self, names: str | Collection[str], schedule: bool = False, retry_for: float = 0):
+        """Disarm drones.
+
+        Args:
+            names: The names of the drones.
+            schedule: Whether to queue the action instead of replacing the current one.
+            retry_for: Keep retrying for this many seconds while the flight controller refuses, i.e. right after a
+                landing. See :py:meth:`~dronemanager.drone.DroneMAVSDK.disarm`.
+
+        Returns:
+            The result for each drone.
+        """
         return await self._multiple_drone_action(self.drone_class.disarm, names,
-                                                 "Disarming drone(s) {}.", schedule=schedule)
+                                                 "Disarming drone(s) {}.", schedule=schedule, retry_for=retry_for)
 
     async def takeoff(self, names: str | Collection[str], altitude=2.0, schedule=False, allow_in_air=True):
         return await self._multiple_drone_action(self.drone_class.takeoff, names,
@@ -425,10 +442,12 @@ class DroneManager:
             yaw = [yaw for _ in range(n_drones)]
         if isinstance(yaw_rate, float) and n_drones > 1:
             yaw_rate = [yaw_rate for _ in range(n_drones)]
+        # Without a yaw rate, the drones use their default rate
+        rate_kwargs = {} if yaw_rate is None else {"yaw_rate": yaw_rate}
         return await self._multiple_drone_multiple_params_action(self.drone_class.yaw_to, names,
                                                                  f"Yawing drones {names}", yaw,
-                                                                 schedule=schedule, yaw_rate=yaw_rate, tolerance=tol,
-                                                                 local=local)
+                                                                 schedule=schedule, tolerance=tol, local=local,
+                                                                 **rate_kwargs)
 
     async def fly_to(self, names: str | Collection[str], local: Collection[float] | None = None,
                      gps: Collection[float] | None = None, waypoint: list[Waypoint] | None = None,
