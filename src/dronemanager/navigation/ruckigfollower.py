@@ -165,7 +165,8 @@ class RuckigOnlineFollower(PathFollower):
         self.max_error_count = 5
 
     def activate(self):
-        self.planner = ruckig.Ruckig(3)
+        # Online trajectory generation needs the control cycle
+        self.planner = ruckig.Ruckig(3, self.dt)
         self.planner_input = ruckig.InputParameter(3)
         self.planner_output = ruckig.OutputParameter(3)
         self.planner_input.max_velocity = self.max_velocity
