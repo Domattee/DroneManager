@@ -178,6 +178,8 @@ class CommandScreen(Screen):
 
         self.dynamic_commands = {}
 
+        self.textual_log_handler = None
+
         self.dm.add_connect_func(self._add_drone_object)
         self.dm.add_remove_func(self._remove_drone_object)
 
@@ -372,13 +374,9 @@ class CommandScreen(Screen):
         pass
 
     async def _add_drone_object(self, name, drone):
-        output = self.query_one("#output", expect_type=Log)
         status_field = self.query_one("#status", expect_type=VerticalScroll)
         self.logger.debug(f"Adding log pane handlers to {name}")
-        drone_handler = TextualLogHandler(output)
-        drone_handler.setLevel(logging.INFO)
-        drone_handler.addFilter(LastNameElementFilter())
-        drone_handler.setFormatter(pane_formatter)
+        drone_handler = self.textual_log_handler
         drone.add_handler(drone_handler)
         self.logger.debug(f"Adding overview widget for {name}")
         drone_status_widget = DroneOverview(drone, UPDATE_RATE, self.logger)
@@ -571,12 +569,18 @@ class CommandScreen(Screen):
         handler.setLevel(logging.INFO)
         handler.addFilter(LastNameElementFilter())
         handler.setFormatter(pane_formatter)
+        self.textual_log_handler = handler
         self.logger.addHandler(handler)
         self.app.logging_handlers.append(handler)
 
     def _on_mount(self, event: events.Mount) -> None:
         super()._on_mount(event)
         self.query_one("#output", expect_type=Log).can_focus = False
+        self.set_interval(1/UPDATE_RATE, self._drain_textual_logs)
+
+    def _drain_textual_logs(self):
+        if self.textual_log_handler is not None:
+            self.textual_log_handler.drain(100)
 
     def compose(self):
         """Creates the screen object

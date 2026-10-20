@@ -3,6 +3,8 @@ import argparse
 import asyncio
 import logging
 import math
+import queue
+from queue import Queue
 from rich.text import Text
 from textual.binding import Binding
 from textual.widgets import Input, Log, Static
@@ -417,6 +419,8 @@ class TextualLogHandler(logging.Handler):
         """
         super().__init__(*args, **kwargs)
         self.log_textual: Log = log_textual  #: The textual Log object to which we write.
+        self._maxsize: int = 10000
+        self._queue: Queue[logging.LogRecord] = Queue(self._maxsize)
 
     def emit(self, record: logging.LogRecord):
         """Write the log record to the textual log pane.
@@ -424,4 +428,15 @@ class TextualLogHandler(logging.Handler):
         Args:
             record: The log record to write out.
         """
-        self.log_textual.write_line(self.format(record))
+        self._queue.put_nowait(record)
+
+    def drain(self, n_records: int = 100):
+
+        for _ in range(n_records):
+            try:
+                record = self._queue.get_nowait()
+                self.log_textual.write_line(self.format(record))
+            except queue.Empty:
+                break
+            except Exception:
+                self.handleError(record)

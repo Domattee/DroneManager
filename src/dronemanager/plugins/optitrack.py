@@ -225,6 +225,7 @@ class OptitrackPlugin(Plugin):
             self.logger.warning(f"No drone named {name} in the tracking system!")
         else:
             self._remove_drone(name)
+            self.logger.info(f"Removed {name} from tracking system!")
 
     def _remove_drone(self, name: str):
         """Stop forwarding information for a drone.
@@ -233,7 +234,7 @@ class OptitrackPlugin(Plugin):
             name: The name of the drone
         """
         to_remove = None
-        for key, value in self._drone_id_mapping.items():
+        for key, value in list(self._drone_id_mapping.items()):
             if value == name:
                 to_remove = key
         if to_remove is not None:
@@ -379,7 +380,6 @@ class OptitrackPlugin(Plugin):
                 try:
                     drone = self.dm.drones[drone_name]
                     if drone.is_connected:
-
                         if self.log_rigid_frames and self.frame_count % self.log_every == 0:
                             self.logger.info(f"Logging every {self.log_every}th rigid body frame CONVERTED: "
                                              f"{track_id} - {conv_position, conv_rotation}")
@@ -417,8 +417,7 @@ class OptitrackPlugin(Plugin):
         """
         try:
             if isinstance(task, Future) or isinstance(task, asyncio.Future):
-                res, _ = await asyncio.wait(task)
-                self.logger.error(f"{res}")
+                res = await asyncio.wrap_future(task)
                 if res:
                     self._err_count = 0
         except asyncio.CancelledError:
